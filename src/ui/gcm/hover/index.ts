@@ -9,12 +9,14 @@ function rows({ point, layer, unitSystem }: GcmHoverRequest): GcmHoverRow[] {
 	const [latitude, longitude] = COORDINATES.format(point)
 	const value = GCM_FIELD_SAMPLE.value({ layer, point })
 	const field =
-		layer.kind === "field" || layer.kind === "downscaled-field"
-			? {
-					label: GCM_FIELDS.definition(layer.mode).label,
-					value: GCM_DISPLAY.format({ mode: layer.mode, value, unitSystem }),
-				}
-			: { label: "Köppen", value: KOPPEN.koppenClimateName(value) }
+		layer.kind === "terrain"
+			? { label: "Elevation", value: `${Math.round(value).toLocaleString()} m` }
+			: layer.kind === "field" || layer.kind === "downscaled-field"
+				? {
+						label: GCM_FIELDS.definition(layer.mode).label,
+						value: GCM_DISPLAY.format({ mode: layer.mode, value, unitSystem }),
+					}
+				: { label: "Köppen", value: KOPPEN.koppenClimateName(value) }
 	return [
 		{
 			label: "Lat",

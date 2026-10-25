@@ -1,4 +1,5 @@
 import type { GcmAverager } from "@/model/climate/gcm/averages/types"
+import type { GcmTerrain } from "@/model/climate/gcm/terrain/types"
 import type { GcmConfig, GcmDate, GcmSnapshot } from "@/model/climate/gcm/types"
 
 export interface GcmCheckpointMeta {
@@ -10,6 +11,7 @@ export interface GcmCheckpointMeta {
 }
 
 export interface GcmCheckpoint {
+	terrain: GcmTerrain
 	meta: GcmCheckpointMeta
 	restart: ArrayBuffer
 	diagnostics: GcmCheckpointDiagnostics

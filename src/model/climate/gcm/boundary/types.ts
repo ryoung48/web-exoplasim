@@ -1,5 +1,5 @@
 import type { GcmGrid } from "@/model/climate/gcm/grid/types"
-import type { GcmElevationRaster } from "@/model/climate/gcm/types"
+import type { GcmTerrain } from "@/model/climate/gcm/terrain/types"
 
 export interface GcmBoundary {
 	grid: GcmGrid
@@ -9,12 +9,7 @@ export interface GcmBoundary {
 
 export interface GcmBoundaryRequest {
 	grid: GcmGrid
-	elevation: GcmElevationRaster
-}
-
-export interface GcmRowLookup {
-	grid: GcmGrid
-	latitude: number
+	terrain: GcmTerrain
 }
 
 export interface GcmSraField {

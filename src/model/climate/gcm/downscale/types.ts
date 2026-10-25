@@ -1,6 +1,6 @@
 import type { GcmMonthlyMean } from "@/model/climate/gcm/averages/types"
 import type { GcmGrid } from "@/model/climate/gcm/grid/types"
-import type { GcmElevationRaster } from "@/model/climate/gcm/types"
+import type { GcmTerrain } from "@/model/climate/gcm/terrain/types"
 
 export interface GcmDownscaleGrid {
 	grid: GcmGrid
@@ -16,7 +16,7 @@ export interface GcmDownscaleGrid {
 
 export interface GcmDownscaleRequest {
 	grid: GcmGrid
-	elevation: GcmElevationRaster
+	terrain: GcmTerrain
 	factor: number
 }
 

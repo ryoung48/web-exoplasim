@@ -1,5 +1,4 @@
 import { GCM_NAMELIST } from "@/model/climate/gcm/namelist"
-import type { GcmResolution } from "@/model/climate/gcm/runner/types"
 import type {
 	GcmConfig,
 	GcmTruncation,
@@ -10,18 +9,12 @@ import { SegmentedControl } from "@/ui/components/primitives/SegmentedControl"
 import { ToggleRow } from "@/ui/components/primitives/ToggleRow"
 import { uiTokens } from "@/ui/components/tokens"
 import type {
+	GcmConfigPanelProps,
 	GcmFilterToggle,
 	GcmSliderSpec,
 	GcmSmoothingFilter,
 } from "@/ui/gcm/types"
 import { formatWithUnit } from "@/ui/genesis/shared/ui-format"
-
-interface GcmConfigPanelProps {
-	config: GcmConfig
-	resolutions: ReadonlyArray<GcmResolution>
-	disabled: boolean
-	onChange: (config: GcmConfig) => void
-}
 
 const BYTES_PER_MEGABYTE = 1_000_000
 const STAR_SLIDERS: ReadonlyArray<GcmSliderSpec> = [
@@ -154,6 +147,9 @@ function isSmoothing(filter: string): filter is GcmSmoothingFilter {
 export function GcmConfigPanel({
 	config,
 	resolutions,
+	workerChoice,
+	workerOptions,
+	onWorkerChange,
 	disabled,
 	onChange,
 }: GcmConfigPanelProps) {
@@ -182,7 +178,7 @@ export function GcmConfigPanel({
 		/>
 	)
 	const label = `${uiTokens.type.label} ${uiTokens.text.muted}`
-	const groupClass = `min-w-0 space-y-3 border-t pt-3 ${uiTokens.border.default}`
+	const groupClass = `min-w-0 space-y-3 border-t pt-1.5 [&>legend]:mb-0 ${uiTokens.border.default}`
 	const groupLabel = `pr-2 ${uiTokens.type.controlWide} ${uiTokens.text.primary}`
 
 	return (
@@ -208,6 +204,15 @@ export function GcmConfigPanel({
 						/>
 					</div>
 				)}
+				<fieldset className="space-y-1" aria-label="Workers">
+					<legend className={label}>Workers</legend>
+					<SegmentedControl
+						fullWidth
+						options={workerOptions}
+						value={workerChoice}
+						onChange={onWorkerChange}
+					/>
+				</fieldset>
 				<div className="space-y-1">
 					<span className={label}>Timestep</span>
 					<SegmentedControl

@@ -5,9 +5,10 @@ import type { GcmHoverReadoutProps } from "@/ui/gcm/hover/types"
 
 export function GcmHoverReadout({
 	point,
-	layer,
+	readLayer,
 	unitSystem,
 }: GcmHoverReadoutProps) {
+	const layer = readLayer()
 	const rows =
 		point && layer ? GCM_HOVER.rows({ point, layer, unitSystem }) : []
 	return (

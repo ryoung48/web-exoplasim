@@ -1,57 +1,38 @@
 import type {
 	GcmBoundary,
 	GcmBoundaryRequest,
-	GcmRowLookup,
 	GcmSraField,
 } from "@/model/climate/gcm/boundary/types"
+import { GCM_TERRAIN_REGRID } from "@/model/climate/gcm/terrain/regrid"
 
 const STANDARD_GRAVITY = 9.80665
 const LAND_SEA_CODE = 172
 const OROGRAPHY_CODE = 129
 const SRA_VALUES_PER_LINE = 8
 
-function modelRow({ grid, latitude }: GcmRowLookup): number {
-	const latitudes = grid.latitudesDeg
-	let row = 0
-	while (
-		row < grid.latitudes - 1 &&
-		latitude < (latitudes[row] + latitudes[row + 1]) / 2
-	) {
-		row++
-	}
-	return row
-}
-
-function fromElevation({ grid, elevation }: GcmBoundaryRequest): GcmBoundary {
-	const { raster, width, height, nodata } = elevation
-	const land = new Float64Array(grid.points)
-	const elevationSum = new Float64Array(grid.points)
-	const area = new Float64Array(grid.points)
-	const columns = new Int32Array(width)
-	for (let x = 0; x < width; x++) {
-		const longitude = ((x + 0.5) / width) * 360 - 180
-		const shifted = (longitude + grid.longitudeStepDeg / 2 + 360) % 360
-		columns[x] = Math.floor(shifted / grid.longitudeStepDeg) % grid.longitudes
-	}
-	for (let y = 0; y < height; y++) {
-		const latitude = 90 - ((y + 0.5) / height) * 180
-		const weight = Math.cos((latitude * Math.PI) / 180)
-		const rowOffset = modelRow({ grid, latitude }) * grid.longitudes
-		for (let x = 0; x < width; x++) {
-			const value = raster[y * width + x]
-			const cell = rowOffset + columns[x]
-			area[cell] += weight
-			if (value !== nodata && value > 0) {
-				land[cell] += weight
-				elevationSum[cell] += weight * value
-			}
-		}
-	}
+function fromTerrain({ grid, terrain }: GcmBoundaryRequest): GcmBoundary {
 	const landFraction = new Float64Array(grid.points)
 	const geopotential = new Float64Array(grid.points)
-	for (let cell = 0; cell < grid.points; cell++) {
-		landFraction[cell] = land[cell] / area[cell]
-		geopotential[cell] = (STANDARD_GRAVITY * elevationSum[cell]) / area[cell]
+	for (let row = 0; row < grid.latitudes; row++) {
+		const north =
+			row === 0 ? 90 : (grid.latitudesDeg[row - 1] + grid.latitudesDeg[row]) / 2
+		const south =
+			row === grid.latitudes - 1
+				? -90
+				: (grid.latitudesDeg[row] + grid.latitudesDeg[row + 1]) / 2
+		for (let column = 0; column < grid.longitudes; column++) {
+			const center = column * grid.longitudeStepDeg
+			const mean = GCM_TERRAIN_REGRID.cell({
+				terrain,
+				north,
+				south,
+				west: center - grid.longitudeStepDeg / 2,
+				east: center + grid.longitudeStepDeg / 2,
+			})
+			const index = row * grid.longitudes + column
+			landFraction[index] = mean.landFraction
+			geopotential[index] = STANDARD_GRAVITY * mean.elevationM
+		}
 	}
 	return { grid, landFraction, geopotential }
 }
@@ -73,7 +54,7 @@ function toSra({ grid, code, values }: GcmSraField): string {
 }
 
 export const GCM_BOUNDARY = {
-	fromElevation,
+	fromTerrain,
 	files({
 		grid,
 		landFraction,

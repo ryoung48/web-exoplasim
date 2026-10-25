@@ -21,7 +21,7 @@ The workflow builds with the Pages base path and uses the committed Wasm assets,
 
 What the page does:
 
-- Runs ExoPlaSim at T21 (64×32, 4.6 MB download) or T42 (128×64, 12.7 MB) on 2, 4 or 8 workers, picked from the machine's core count. Only the chosen resolution and worker count are downloaded.
+- Runs ExoPlaSim at T21 (64×32, 4.6 MB download) or T42 (128×64, 12.7 MB) on 2, 4 or 8 workers. Choose **Workers** under **Settings → Numerics** before starting a run, or leave **Auto** to pick from the machine's core count. Clear the run to change the selection. Choices come from the available builds for the selected resolution; only the chosen resolution and worker count are downloaded.
 - Builds the model's topography and land mask from `public/earth-data/earth-real-elevation.bin.gz`. By default it keeps ExoPlaSim's shipped Earth surface data (sea-surface temperature and sea ice to start from, albedo, vegetation, soil, glaciers); turn that off to use the Python wrapper's custom-map behaviour.
 - Exposes the planet settings of ExoPlaSim's `Model.configure()`: flux, star temperature, orbit, rotation, gases, ozone, soil, vegetation, glaciers, filters, timestep and radiation interval.
 - Maps 13 surface fields live, as monthly means or as annual means, plus Köppen classes after a full model year, on the model grid or downscaled to 0.5° with lapse-rate correction.

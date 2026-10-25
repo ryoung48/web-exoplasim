@@ -3,10 +3,12 @@ import type { GcmMapMode } from "@/model/climate/gcm/fields/types"
 import { COLOR_INTERPOLATION } from "@/model/shared/color/color-interpolation"
 import { COLOR_PALETTES } from "@/model/shared/color/color-palettes"
 import type { RgbColor } from "@/model/shared/color/color-palettes/types"
+import { uiPalette } from "@/ui/components/tokens"
 import type {
 	GcmColorScale,
 	GcmFormattedValue,
 	GcmModeValue,
+	GcmTerrainColorRequest,
 } from "@/ui/gcm/types"
 import { precipitationMonthlyColor } from "@/ui/genesis/shared/colors/precipitation"
 import { temperatureColor } from "@/ui/genesis/shared/colors/temperature"
@@ -28,7 +30,7 @@ function stops(palette: readonly RgbColor[]): GcmColorScale {
 }
 
 const NORMALIZED_SCALES: Partial<Record<GcmMapMode, GcmColorScale>> = {
-	wind: stops(COLOR_PALETTES.plasmaStops),
+	wind: stops(COLOR_PALETTES.windStops),
 	jet: stops(COLOR_PALETTES.plasmaStops),
 	cloudCover: stops(COLOR_PALETTES.cloudStops),
 	surfacePressure: stops(COLOR_PALETTES.spectralStops.toReversed()),
@@ -49,6 +51,28 @@ function color({ mode, value }: GcmModeValue): RgbColor {
 	}
 	const { min, max } = GCM_FIELDS.definition(mode)
 	return (NORMALIZED_SCALES[mode] as GcmColorScale)((value - min) / (max - min))
+}
+
+const TERRAIN_OCEAN = uiPalette.terrain.ocean.map(
+	(channel) => channel / 255,
+) as RgbColor
+
+function terrainColor({
+	value,
+	min,
+	max,
+	land,
+}: GcmTerrainColorRequest): RgbColor {
+	if (land <= 0) return TERRAIN_OCEAN
+	const ground = COLOR_INTERPOLATION.sampleColorStops({
+		stops: COLOR_PALETTES.elevationLandStops,
+		t: (value - min) / Math.max(1, max - min),
+	})
+	return land >= 1
+		? ground
+		: (ground.map(
+				(channel, index) => TERRAIN_OCEAN[index] * (1 - land) + channel * land,
+			) as RgbColor)
 }
 
 function format({ mode, value, unitSystem }: GcmFormattedValue): string {
@@ -76,5 +100,6 @@ function format({ mode, value, unitSystem }: GcmFormattedValue): string {
 
 export const GCM_DISPLAY = {
 	color,
+	terrainColor,
 	format,
 }

@@ -99,8 +99,41 @@ const cloudStops = palette(
 	"#f8fafc",
 )
 
+const windStops = palette(
+	"#e8fff1",
+	"#c8f9dc",
+	"#a4f3d0",
+	"#78eadb",
+	"#48d9e5",
+	"#00cfe8",
+)
+
+const elevationLandStops = palette(
+	"#acd0a5",
+	"#94bf8b",
+	"#a8c68f",
+	"#bdcc96",
+	"#d1d7ab",
+	"#e1e4b5",
+	"#efebc0",
+	"#e8e1b6",
+	"#ded6a3",
+	"#d3ca9d",
+	"#cab982",
+	"#c3a76b",
+	"#b9985a",
+	"#aa8753",
+	"#ac9a7c",
+	"#baae9a",
+	"#cac3b8",
+	"#e0ded8",
+	"#f5f4f2",
+)
+
 export const COLOR_PALETTES = {
+	elevationLandStops,
 	cloudStops,
+	windStops,
 	bupuStops,
 	orangesStops,
 	purplesStops,

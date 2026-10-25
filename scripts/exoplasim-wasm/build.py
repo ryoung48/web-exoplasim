@@ -1,5 +1,4 @@
 import argparse
-import difflib
 import json
 import math
 import os
@@ -13,6 +12,8 @@ import tarfile
 import time
 import urllib.request
 
+from model_source import ModelSource, copy_sources, object_names, patch_sources
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--work", type=Path, default=Path("/var/tmp/chaos-exoplasim-wasm"))
@@ -24,6 +25,7 @@ parser.add_argument("--debug", action="store_true")
 parser.add_argument("--variant", choices=["scalar", "simd"], default="scalar")
 parser.add_argument("--profile", action="store_true")
 parser.add_argument("--assignment", choices=["generic", "bulk"], default="bulk")
+parser.add_argument("--frontend-opt", type=int, choices=[0, 2], default=2, help="Flang frontend optimization level for the emitted LLVM IR")
 parser.add_argument("--ranks", type=int, choices=[1, 2, 4, 8, 16], default=1)
 parser.add_argument("--stack-mib", type=int)
 parser.add_argument("--initial-memory-mib", type=int)
@@ -31,6 +33,9 @@ parser.add_argument("--truncation", type=int, choices=[21, 42], default=21)
 parser.add_argument("--precision", type=int, choices=[4, 8], default=8, help="bytes per default REAL, like ExoPlaSim's Model(precision=...)")
 parser.add_argument("--app", action="store_true", help="ES module for the Chaos Machine /gcm page, with live field snapshots")
 args = parser.parse_args()
+# gp2fc and fc2gp call dfft8(a,a,...) and ifft8(a,a,...): the same array as
+# input and output dummy, which -O2 assumes cannot alias.
+FRONTEND_O0_FILES = ["fftmod.f90"]
 latitudes = {21: 32, 42: 64}[args.truncation]
 # Painted-stack high-water marks at T21: 8.68 MiB with all 2048 points on one
 # rank, 1.65 MiB with 256 points per rank (8 ranks). The fit underestimates
@@ -82,14 +87,14 @@ with tarfile.open(runtime_package) as archive:
 print("Runtime:", list(runtime_dir.rglob("*.a")), flush=True)
 
 source = work / "source" / "exoplasim"
-build_name = ("build" if args.variant == "scalar" else "build-simd") + ("" if args.ranks == 1 else f"-ranks{args.ranks}") + ("" if args.truncation == 21 else f"-t{args.truncation}") + ("" if args.precision == 8 else "-sp") + ("-app" if args.app else "")
+build_name = ("build" if args.variant == "scalar" else "build-simd") + ("" if args.ranks == 1 else f"-ranks{args.ranks}") + ("" if args.truncation == 21 else f"-t{args.truncation}") + ("" if args.precision == 8 else "-sp") + ("" if args.frontend_opt == 2 else "-fo0") + ("-app" if args.app else "")
 build = work / (build_name if args.target == "wasm" else "build-native-reference")
-build.mkdir(exist_ok=True)
-for file in (source / "plasim" / "src").glob("*"):
-    if file.is_file():
-        shutil.copy2(file, build / file.name)
 mpi_module = "mpimod_stub" if args.ranks == 1 else "mpimod_shm"
 utility_module = "utilities_stub" if args.ranks == 1 else "utilities"
+model = ModelSource(source=source, build=build, output=output, latitudes=latitudes, ranks=args.ranks,
+                    main_suffix=(script_directory / "gcm_publish.f90").read_text() if args.app else "",
+                    step_hook="gcm_publish_step" if args.app else "", mpi_module=mpi_module, utility_module=utility_module)
+copy_sources(model)
 if args.ranks > 1:
     shutil.copy2(script_directory / "mpimod_shm.f90", build / "mpimod_shm.f90")
     utilities = build / "utilities.f90"
@@ -99,79 +104,12 @@ if args.ranks > 1:
     if count != 2:
         raise RuntimeError(f"Expected two MPI gathers in utilities.f90, found {count}")
     utilities.write_text(text)
-resolution = f"module resmod\nparameter(NLAT_ATM={latitudes})\nparameter(NLEV_ATM=10)\nparameter(NPRO_ATM={args.ranks})\nend module resmod\n"
-if not (build / "resmod.f90").exists() or (build / "resmod.f90").read_text() != resolution:
-    (build / "resmod.f90").write_text(resolution)
-main = (build / "plasim.f90").read_text().replace("      call epilog", "      call wasm_fields\n      call epilog", 1)
-main = main.replace(",solar_day,-1,mcal_days_per_year)", ",solar_day,-1,nint(mpstep),mcal_days_per_year)")
-main = main.replace(",solar_day,0,mcal_days_per_year)", ",solar_day,0,nint(mpstep),mcal_days_per_year)")
-main += """
-      subroutine wasm_fields
-      use pumamod
-      integer i
-      open(97,file='wasm-fields.txt',status='replace')
-      write(97,*) nstep,NLON,NLAT,NLEV
-      do i=1,NHOR
-         write(97,'(6(es25.16,1x))') dt(i,NLEP),dtsa(i), &
-     &      du(i,NLEV),dv(i,NLEV),dp(i),dq(i,NLEV)
-      enddo
-      close(97)
-      end subroutine wasm_fields
-"""
-if args.app:
-    step_end = "         call stability_check ! aborts if model tends to explode"
-    if main.count(step_end) != 1:
-        raise RuntimeError("Expected one stability check in the main loop")
-    main = main.replace(step_end, "         call gcm_publish_step\n" + step_end)
-    main += (script_directory / "gcm_publish.f90").read_text()
-(build / "plasim.f90").write_text(main)
-stub = build / "mpimod_stub.f90"
-stub.write_text(stub.read_text().replace("subroutine mrdiff(p,d,n)", "subroutine mrdiff(p,d,n,k)"))
-coupler = build / "cpl_stub.f90"
-coupler.write_text(coupler.read_text().replace("clsgini(kdatim,ktspd,kaomod,pslm,kxa,kya)", "clsgini(kdatim,ktspd,kaomod,klsg,kgui,pslm,kxa,kya)").replace("pheat,pfldo)", "pheat,pfldo,pextra)"))
-hurricane = build / "hurricanemod.f90"
-hurricane.write_text(hurricane.read_text().replace("subroutine hurricaneini(gascon)\n      use hurricanemod", "subroutine hurricaneini(gascon)\n      use hurricanemod\n      use pumamod, only: mypid,NROOT,nwritehurricane"))
-patches = []
-radiation = build / "radmod.f90"
-radiation_text = radiation.read_text()
-cached = ["dfu", "dfd", "dftu", "dftd", "dswfl", "dlwfl", "dflux", "dtdtswr", "dtdtlwr", "dconv", "dalb", "dsalb", "dftue1", "dftue2", "dftu0", "dftd0"]
-radiation_edits = [
-    ("      integer :: nswr    = 1      ! switch for swr (1/0=yes/no)\n",
-     "      integer :: nswr    = 1      ! switch for swr (1/0=yes/no)\n"
-     "      integer :: nradint = 1      ! compute radiation every nradint steps\n"
-     + "".join(f"      real, allocatable :: rc_{name}(:,:)\n" for name in cached if name not in ["dalb"])
-     + "      real, allocatable :: rc_dalb(:)\n      real, allocatable :: rc_dtdt(:,:)\n"),
-    ("      namelist/radmod_nl/ndcycle,", "      namelist/radmod_nl/nradint,ndcycle,"),
-    ("      call mpbci(nswr)\n", "      call mpbci(nswr)\n      call mpbci(nradint)\n"),
-    ("      if(ntime == 1) call mksecond(zsec,0.)\n",
-     "      if (nradint > 1 .and. allocated(rc_dtdt)) then\n"
-     "       if (mod(nstep, nradint) /= 0) then\n"
-     + "".join(f"        {name} = rc_{name}\n" for name in cached)
-     + "        dtdt(:,:) = dtdt(:,:) + rc_dtdt(:,:)\n"
-     "        return\n"
-     "       endif\n"
-     "      endif\n"
-     "      if(ntime == 1) call mksecond(zsec,0.)\n"),
-    ("      if (nradice==0) dicec(:) = zfice(:)\n",
-     "      if (nradice==0) dicec(:) = zfice(:)\n"
-     "      if (nradint > 1) then\n"
-     + "".join(f"       rc_{name} = {name}\n" for name in cached)
-     + "       rc_dtdt = zdtdt\n"
-     "      endif\n"),
-]
-for old, new in radiation_edits:
-    if radiation_text.count(old) != 1:
-        raise RuntimeError(f"Radiation interval anchor not unique: {old.strip()[:60]}")
-    radiation_text = radiation_text.replace(old, new)
-radiation.write_text(radiation_text)
-for name in ["plasim.f90", "mpimod_stub.f90", "cpl_stub.f90", "hurricanemod.f90", "radmod.f90"]:
-    original = source / "plasim/src" / name
-    patches.extend(difflib.unified_diff(original.read_text().splitlines(keepends=True), (build / name).read_text().splitlines(keepends=True), fromfile="a/exoplasim/plasim/src/" + name, tofile="b/exoplasim/plasim/src/" + name))
-(output / "model-source.patch").write_text("".join(patches))
-shutil.copy2(source / "COPYING", output / "COPYING")
+patch_sources(model)
 flags = "-O2 -fdefault-real-8 -fdefault-double-8" if args.precision == 8 else "-O2"
 codegen_flags = "-O3 -msimd128" if args.target == "wasm" and args.variant == "simd" else "-O2"
 env["EXOPLASIM_CODEGEN_FLAGS"] = codegen_flags
+env["EXOPLASIM_FRONTEND_OPT"] = str(args.frontend_opt)
+env["EXOPLASIM_FRONTEND_O0"] = " ".join(FRONTEND_O0_FILES)
 target_flag = "--target=wasm32-unknown-emscripten" if args.target == "wasm" else ""
 c_compiler = emsdk / "bin" / "emcc" if args.target == "wasm" else Path("/usr/bin/gcc")
 fortran_compiler = f"python3 {script_directory / 'compile.py'}" if args.target == "wasm" else str(native_toolchain / "bin" / "flang-new")
@@ -183,13 +121,14 @@ fortran_compiler = f"python3 {script_directory / 'compile.py'}" if args.target =
 )
 env["OCEANCOUP"] = "cpl_stub"
 os.chdir(build)
-objects = re.search(r"^OBJ=(.*)$", (build / "make_plasim").read_text(), re.M).group(1)
-for key, value in {"MPIMOD": mpi_module, "FFTMOD": "fftmod", "GUIMOD": "guimod_stub", "RAINMOD": "rainmod", "VEGMOD": "simba", "PLAMOD": "p_earth", "UTILMOD": utility_module, "LANDMOD": "landmod", "PUMAX": "pumax_stub", "OCEAN": "lsgmod", "OCEANCOUP": "cpl_stub"}.items():
-    objects = objects.replace("${" + key + "}", value)
+objects = object_names(model)
 started = time.perf_counter()
 if args.target == "wasm":
+    frontend = f"{args.frontend_opt} {' '.join(FRONTEND_O0_FILES)}\n"
+    if not (build / "frontend.txt").exists() or (build / "frontend.txt").read_text() != frontend:
+        (build / "frontend.txt").write_text(frontend)
     with (build / "Makefile").open("a") as makefile:
-        makefile.write("\n" + objects + ": " + str(script_directory / "compile.py") + "\n")
+        makefile.write("\n" + objects + ": " + str(script_directory / "compile.py") + " frontend.txt\n")
 if not args.link_only:
     run(["make", "-e", "-j2", *objects.split()])
 print("Compiled in", time.perf_counter() - started, "seconds", flush=True)
@@ -242,6 +181,9 @@ for name in ["binary-to-decimal", "decimal-to-binary"]:
 link_flags = ["-O0", "--profiling-funcs", "-sASSERTIONS=2"] if args.debug else codegen_flags.split()
 if args.profile and not args.debug:
     link_flags.append("--profiling-funcs")
+# Binaryen 123 segfaults writing StackIR for the frontend -O2 module; every
+# pass and validation before the write succeeds.
+link_flags.append("-sBINARYEN_EXTRA_PASSES=--no-stack-ir")
 if args.ranks > 1:
     link_flags += ["--js-library", script_directory / "library_shm.js"]
 if args.app:
@@ -265,4 +207,4 @@ linked.check_returncode()
 loader = output / "exoplasim.js"
 loader.write_text(loader.read_text().replace(f"{output}/exoplasim.data", "exoplasim.data"))
 print("Linked:", [(p.name, p.stat().st_size) for p in output.glob("exoplasim.*")], flush=True)
-(output / "build.json").write_text(json.dumps({"variant": args.variant, "frontendOptimization": 0, "assignment": args.assignment, "math": "wasm", "codegenFlags": codegen_flags, "profile": args.profile, "debug": args.debug, "precisionBytes": args.precision, "layers": 10, "grid": [2 * latitudes, latitudes], "truncation": args.truncation, "steps": args.steps, "ranks": args.ranks, "stackMiB": args.stack_mib, "initialMemoryMiB": args.initial_memory_mib, "app": args.app}, indent=2))
+(output / "build.json").write_text(json.dumps({"variant": args.variant, "frontendOptimization": args.frontend_opt, "frontendO0Files": FRONTEND_O0_FILES, "assignment": args.assignment, "math": "wasm", "codegenFlags": codegen_flags, "profile": args.profile, "debug": args.debug, "precisionBytes": args.precision, "layers": 10, "grid": [2 * latitudes, latitudes], "truncation": args.truncation, "steps": args.steps, "ranks": args.ranks, "stackMiB": args.stack_mib, "initialMemoryMiB": args.initial_memory_mib, "app": args.app}, indent=2))

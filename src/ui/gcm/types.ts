@@ -3,13 +3,18 @@ import type { GcmYearlyBalance } from "@/model/climate/gcm/balance/types"
 import type { GcmCheckpointDiagnostics } from "@/model/climate/gcm/checkpoint/types"
 import type { GcmMapMode } from "@/model/climate/gcm/fields/types"
 import type { GcmGrid } from "@/model/climate/gcm/grid/types"
-import type { GcmRunStatus } from "@/model/climate/gcm/runner/types"
+import type {
+	GcmResolution,
+	GcmRunStatus,
+} from "@/model/climate/gcm/runner/types"
+import type { GcmTerrain } from "@/model/climate/gcm/terrain/types"
 import type {
 	GcmConfig,
 	GcmPhysicsFilter,
 	GcmSnapshot,
 } from "@/model/climate/gcm/types"
 import type { RgbColor } from "@/model/shared/color/color-palettes/types"
+import type { GcmHoverPoint } from "@/ui/gcm/hover/types"
 import type { GcmMapViewport } from "@/ui/gcm/map-navigation/types"
 import type { CoastlineLineData } from "@/ui/genesis/shared/coastline-lines"
 import type { UnitSystem } from "@/ui/genesis/shared/ui-format"
@@ -17,6 +22,13 @@ import type { UnitSystem } from "@/ui/genesis/shared/ui-format"
 export interface GcmModeValue {
 	mode: GcmMapMode
 	value: number
+}
+
+export interface GcmTerrainColorRequest {
+	value: number
+	min: number
+	max: number
+	land: number
 }
 
 export interface GcmFormattedValue extends GcmModeValue {
@@ -27,10 +39,10 @@ export type GcmColorScale = (value: number) => RgbColor
 
 export type GcmPeriod = "now" | "month" | "year"
 
-export type GcmViewMode = GcmMapMode | "koppen"
+export type GcmViewMode = GcmMapMode | "koppen" | "elevation"
 
 export interface GcmModeChild {
-	value: GcmMapMode
+	value: GcmViewMode
 	label: string
 }
 
@@ -42,6 +54,11 @@ export interface GcmModeGroup {
 
 export type GcmMapLayer =
 	| { kind: "field"; snapshot: GcmSnapshot; mode: GcmMapMode }
+	| {
+			kind: "terrain"
+			terrain: GcmTerrain
+			maxElevationM: number
+	  }
 	| { kind: "classes"; snapshot: GcmSnapshot; classes: Uint8Array }
 	| {
 			kind: "downscaled-field"
@@ -59,6 +76,13 @@ export type GcmMapLayer =
 	  }
 
 export type GcmMapDetail = "model" | "downscaled"
+
+export interface GcmMapProps {
+	readLayer: () => GcmMapLayer | null
+	coastlines: CoastlineLineData | null
+	emptyMessage: string
+	onHover: (point: GcmHoverPoint | null) => void
+}
 
 export interface GcmRasterPaint {
 	width: number
@@ -184,6 +208,7 @@ export interface GcmBalanceRow {
 }
 
 export interface GcmLaunchRequest {
+	terrain: GcmTerrain | null
 	config: GcmConfig
 	restart: ArrayBuffer | null
 	fresh: boolean
@@ -194,4 +219,19 @@ export interface GcmLaunchRequest {
 export interface GcmDownload {
 	name: string
 	bytes: ArrayBuffer
+}
+
+export interface GcmWorkerOption {
+	value: string
+	label: string
+}
+
+export interface GcmConfigPanelProps {
+	config: GcmConfig
+	resolutions: ReadonlyArray<GcmResolution>
+	workerChoice: string
+	workerOptions: ReadonlyArray<GcmWorkerOption>
+	onWorkerChange: (value: string) => void
+	disabled: boolean
+	onChange: (config: GcmConfig) => void
 }

@@ -19,6 +19,6 @@ export interface GcmHoverRow {
 
 export interface GcmHoverReadoutProps {
 	point: GcmHoverPoint | null
-	layer: GcmMapLayer | null
+	readLayer: () => GcmMapLayer | null
 	unitSystem: UnitSystem
 }

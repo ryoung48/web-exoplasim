@@ -72,7 +72,7 @@ wsl -d Ubuntu -- python3 scripts/exoplasim-wasm/verify-runtime.py
 Other measured candidates were excluded from the default:
 
 - SIMD plus LLVM/linker `-O3` generated vector instructions but took 30.887 seconds in its ten-day check, with identical numeric output.
-- Applying Flang frontend `-O3` reduced generic assignment call sites in the main module from 360 to 61, but produced NaNs in the browser check.
+- Applying Flang frontend `-O3` reduced generic assignment call sites in the main module from 360 to 61, but produced NaNs in the browser check. The cause is aliasing in `fftmod.f90`; see [Frontend optimization](#frontend-optimization), which now enables `-O2` for every other file.
 - Emscripten host JavaScript math took 21.162 seconds with bulk filling and diverged from the reference trajectory after ten days (maximum surface-temperature difference 11.24 K). It failed the comparison and is not enabled.
 
 The failed frontend/host-math modes are not exposed by the final build script. SIMD remains available as `--variant simd` for future hardware/compiler experiments; the default is `--variant scalar`. `--assignment generic` selects the original runtime for comparison. `--profile` retains function names for CPU sampling without changing the optimization level.
@@ -86,6 +86,54 @@ $env:EXOPLASIM_REFERENCE = 'stats/exoplasim-wasm/baseline'
 $env:EXOPLASIM_RUN = 'verification'
 node scripts/exoplasim-wasm/run-browser.mjs 480
 ```
+
+### Frontend optimization
+
+`compile.py` used to emit LLVM IR with Flang at `-O0` and optimize only in clang, so whole-array assignments stayed as calls into the Flang runtime. Flang now emits IR at `-O2` (`build.py --frontend-opt 2`, the default; `0` restores the old build for comparisons). Files in `FRONTEND_O0_FILES` in `build.py` stay at `-O0`. `build.json` records the level and the list.
+
+The list holds one file, `fftmod.f90`. With every file at `-O2`, two steps already differed from the `-O0` build by up to 97 K, and one model day produced NaNs. Frontend level changes neither symbols nor module interfaces, so the culprit was found by linking mixes of `-O0` and `-O2` objects and running two steps: 12 links, one failing file. `gp2fc` and `fc2gp` call `dfft8(a,a,n,lot)` and `ifft8(a,a,n,lot)`, passing one array as both the input and the output dummy. Fortran forbids that when a dummy is modified, and at `-O2` Flang assumes the two do not overlap. None of the runtime calls `compile.py` repairs occur in `fftmod`, so the ABI repair is not involved.
+
+Binaryen 123 segfaults while writing StackIR for the `-O2` module: every pass and validation succeeds, then the binary writer crashes and leaves an empty `exoplasim.wasm`. Every Wasm link now passes `-sBINARYEN_EXTRA_PASSES=--no-stack-ir`. On the `-O0` build that flag leaves two-step and ten-day output bit-identical and changes Wasm size by 3 bytes.
+
+`_FortranAAssign` call sites across all emitted IR fell from 1,707 to 112 (360 to 61 in `plasim.f90`, 267 to 27 in `radmod.f90`). The 8-rank T21 Wasm shrank from 2,003,037 to 1,809,755 bytes.
+
+Checks against the `-O0` 8-rank T21 build, double precision, 30-minute steps:
+
+| Check | Result |
+| --- | --- |
+| Two steps, largest difference | 2.2 × 10⁻¹² K surface temperature, 2.9 × 10⁻¹¹ Pa |
+| One model day, largest difference | 8.9 × 10⁻¹² K surface temperature, 8.7 × 10⁻¹¹ Pa |
+| Serial `-O2` against native after one day | 1.2 × 10⁻¹¹ K, 1.0 × 10⁻¹⁰ Pa |
+| Ten days, global means | 285.7139 → 285.7126 K surface, 97565.09 Pa unchanged |
+| Ten days, RMS / largest difference | 0.23 K / 10.5 K surface temperature |
+
+After ten days the trajectories have separated, as they do for any last-bit change. The same `-O0` code at 4 ranks, which differs from 8 ranks only in reduction order, ends ten days 0.27 K RMS and 12.7 K at most from the 8-rank run, slightly further than `-O2` does.
+
+Eight interleaved rounds of ten model days (480 steps) in fresh Chrome processes, 8 ranks, T21:
+
+| Build | Runs (seconds) | Median |
+| --- | --- | --- |
+| `-O0` | 8.43, 8.72, 8.59, 7.74, 7.55, 7.37, 7.50, 7.51 | 7.65 s |
+| `-O0`, no StackIR | 7.77, 9.01, 7.94, 7.39, 7.44, 7.21, 7.65, 7.46 | 7.55 s |
+| `-O2` | 7.10, 7.01, 7.86, 6.63, 6.69, 6.63, 7.52, 6.61 | 6.85 s |
+
+The first three rounds ran under heavier machine load. `-O2` was faster than `-O0` in 7 of 8 rounds; in the seventh it was 0.02 s slower. Its median is 10.5% lower over all rounds, and 11.7% lower over the quieter rounds 4–8 (6.63 against 7.51 s). Its slowest run (7.86 s, round 3) is slower than the fastest `-O0` run (7.37 s, round 6), so the noisy rounds overlap. Skipping StackIR made no difference beyond noise. Extrapolated, 8 ranks take about 4.1 minutes per 360-day T21 year at 30-minute steps.
+
+Mean barrier share per rank (`barrierMs / rankSimulationMs`) rose from 18.6% to 20.4%. Compute per rank shrank while the time ranks wait on each other did not.
+
+Sampled self time over 96 steps, 8 ranks, builds relinked with `--profile`:
+
+| Function | `-O0` | `-O2` |
+| --- | --- | --- |
+| Runtime `Assign` | 9.3% | 1.0% |
+| `gridpointd` | 34.1% | 46.8% |
+| `_QQmain` | 14.6% | 16.1% |
+| `pow` | 7.2% | 6.5% |
+| `swr` + `lwr` | 11.3% | 9.2% |
+
+On the `/gcm` page (T21, Earth defaults, 8 workers, headless Chrome against the dev server), three alternating rounds of old and new assets each sampled the Speed readout 12 times after 10 s of warm-up. The pooled median rose from 1.43 to 1.71 model days per second (means 1.40 and 1.66). Samples ranged from 0.7 to 2.3 while other work shared the machine, and the old assets read faster in the first round, so this confirms the direction, not the size. The in-app browser pane is not suitable for this measurement: when the window was not in front, the page dropped from about 8.6 to 3.8 busy cores.
+
+`gridpointd` grows because inlined callees are now attributed to it. Total samples are not comparable between profiles: two profiling pairs disagreed on which build took more samples, so the timing table is the speed measurement. T42 has not been measured with `-O2` yet.
 
 Reference checks require the same final step, grid, layers, and six finite fields per cell. The per-value error budgets are 10⁻⁶ K for temperatures, 10⁻⁶ m/s for winds, 10⁻⁴ Pa for pressure, and 10⁻¹⁰ for specific humidity. These are engineering tolerances well below useful physical resolution, intended to detect numerical changes without requiring cross-toolchain bitwise agreement. The accepted bulk-fill change produces zero observed error against the scalar browser baseline.
 
@@ -127,6 +175,10 @@ The worker paints the unused stack before `main` and scans it afterwards; summar
 
 ## Chaos Machine `/gcm` page
 
+Custom PNG heightmaps, Chaos Machine binary terrain and independent land masks are supported by the [terrain importer](custom-terrain.md). Checkpoint format 3 embeds the terrain. Boundary generation and display downscaling share spherical-area overlap sampling, so coarse inputs remain finite and masks retain land at zero or negative elevation.
+
+On 2026-10-25, the importer was verified against Chaos Machine seed 14963991 (204,001 regions), exported at 1440 × 720 from `stats/routes/2026-10-10T20-35-25-488Z-bidirectional-production/world.bin` in the Chaos Machine checkout. Elevations ranged from −7,887 to 6,000 m; area-weighted land coverage was 31.5735%. There were 5,342 pixels whose explicit mask differed from elevation sign. The binary import preserved all samples exactly. Maximum PNG round-trip errors over a −12,000 to 20,000 m encoding range were 0.24463 m at 16 bits and 62.7461 m at 8 bits. Chrome passed source/model previews, GCM startup, pause/save and paused checkpoint restoration with no page errors; reports are under `stats/terrain-import/`. These are functional and precision checks, not throughput measurements.
+
 `/gcm` runs the shared-memory build on the repository's Earth heightmap and redraws the map as the model steps. Build the assets once (WSL toolchain from the setup above):
 
 ```powershell
@@ -142,13 +194,13 @@ The page coalesces snapshots: the live store notifies React once per animation f
 Model code lives in `src/model/climate/gcm/`:
 
 - `grid`: Gaussian T21 latitudes and quadrature weights, used for area-weighted global means.
-- `boundary`: area-weighted regridding of `public/earth-data/earth-real-elevation.bin.gz` onto the build's Gaussian grid, whose size comes from the manifest. It writes land fraction (`Nnnn_surf_0172.sra`, elevation above 0 m counts as land) and grid-box mean orography as geopotential (`Nnnn_surf_0129.sra`, g × mean of max(elevation, 0)). Rows run north to south, and longitudes start at 0° east, matching the shipped files.
+- `boundary`: spherical-area overlap regridding of the selected terrain onto the build's Gaussian grid, whose size comes from the manifest. Earth defaults to `public/earth-data/earth-real-elevation.bin.gz`, with land derived from positive elevation. Custom terrain can supply an independent mask. It writes land fraction (`Nnnn_surf_0172.sra`) and grid-box mean orography as geopotential (`Nnnn_surf_0129.sra`, g × area mean of elevation multiplied by land coverage). Rows run north to south, and longitudes start at 0° east, matching the shipped files.
 - `namelist`: reproduces the namelist writes of ExoPlaSim's Python `Model.configure()` for the exposed parameters: flux, star temperature, year length, eccentricity, rotation period, obliquity, fixed orbit, N₂/O₂/Ar partial pressures (surface pressure and gas constant), ozone, wet soil, vegetation, initial growth, glaciers, physics filters and timestep. It also writes the companion defaults `configure()` sets with them. As in the wrapper, setting a star temperature forces wet soil off. The timestep defaults to the wrapper's 45 minutes. PlaSim's own automatic choice at T42 is 30 minutes, and 30 stays in the panel; multi-year stability at T42 and 45 minutes has not been checked. As in the wrapper, a rotation period other than one day overrides the year length with 360 / period days, rounded to a multiple of 12.
 - `runner`: one module worker per rank, the shared exchange and pause buffers, and run lifecycle.
 - `fields`: snapshot layout, display units and map modes.
 - `balance`: ExoPlaSim's `_isbalanced` test on yearly global means of top-of-atmosphere and surface balance. It takes absolute 10-year running means, least-squares slopes over 5 consecutive running means, and the mean of the last 30 slopes, and both must be under 5 × 10⁻⁴ W/m² per year. It needs 14 model years before it can judge. The Run panel shows last month's two balances under Speed, then either the years still needed or the larger drift against the threshold.
 - `checkpoint`: Save sets the stop flag. PlaSim leaves its main loop after the current step, and its epilog writes `plasim_status`, as ExoPlaSim's Python wrapper does between runs. Rank 0 returns that file, and the page downloads it as `exoplasim-tNN-yearYYYY-monthMM.ckpt`. Format 2 stores a magic line, a length-prefixed JSON header containing config, precision, date, step, and diagnostic metadata, a length-prefixed binary diagnostic-array block, then the unchanged restart file. Diagnostics preserve the latest snapshot, the last 12 monthly means, yearly balance records, and the unfinished month's sums and sample count. Load restores these records before initializing workers in a paused state. Annual maps, Köppen classes, and convergence retain their existing data immediately, and simulation steps wait for Resume. Saving also resumes the current session automatically, preserving its paused state. The loader rejects precision mismatches and older checkpoint formats, which omitted the diagnostic history and cannot reconstruct past annual results. File size now includes diagnostic arrays in addition to the model restart (previously about 7.3 MB at T21). Browser verification covered Save, Clear, and Load: loading restored the saved date and remained paused without date advancement. Focused regression checks cover diagnostic round-trip, immediate annual/Köppen availability, continued accumulation, and paused worker startup.
-- `downscale`: the 0.5° display grid (the 2160 × 1080 heightmap averaged in 3 × 3 blocks). Fields are interpolated bilinearly from the Gaussian grid. Temperatures are also corrected to real elevation with a local lapse rate, after koppenpasta: the regression of temperature on elevation over each model cell and its 8 neighbours when they span at least 100 m, otherwise 6.5 K/km, clamped between 0 and 9.8 K/km. Köppen classes can be computed at 0.5° from 12 downscaled monthly means, with land where the 0.5° land fraction is at least 0.5. Drawing the downscaled view lowered T21 throughput by about 10% (1.01 against 1.12–1.18 model days per second) while another run shared the machine.
+- `downscale`: a display grid capped at 720 × 360, using the same spherical-area overlap sampler as boundary generation. Earth produces a 0.5° grid; smaller inputs retain their resolution. Fields are interpolated bilinearly from the Gaussian grid. Temperatures are also corrected to real elevation with a local lapse rate, after koppenpasta: the regression of temperature on elevation over each model cell and its 8 neighbours when they span at least 100 m, otherwise 6.5 K/km, clamped between 0 and 9.8 K/km. Köppen classes can be computed at 0.5° from 12 downscaled monthly means, with land where the 0.5° land fraction is at least 0.5. Drawing the downscaled view lowered T21 throughput by about 10% (1.01 against 1.12–1.18 model days per second) while another run shared the machine.
 - `averages`: monthly means from every snapshot in each model month, keeping the last 12 completed months. They use the same packed layout as a live snapshot, so every map mode also works on averages. Wind modes show the mean vector wind. Annual means are the mean of those 12 months; PlaSim's months are equal-length. Köppen classes come from the repository's `KOPPEN.koppenCells` rules, applied to 12 monthly means of 2 m air temperature (°C) and precipitation (mm/day × 30). Cells with model land fraction ≥ 0.5 count as land. The page's Now / Monthly / Annual selector switches the map and global means between the latest snapshot, any of the last 12 months, and the 12-month mean. Köppen unlocks once 12 months have completed.
 
 The Python wrapper deletes every shipped surface file when a land map is supplied. Doing the same here starts the ocean from defaults: the global mean surface temperature fell to −8 °C over the first 75 model days. The default instead keeps the shipped Earth surface files for the build's resolution (SST and sea-ice climatology, albedo, roughness, soil, vegetation, glaciers) and replaces only topography and land fraction. After 80 model days the global means were 12.6 °C surface temperature, 2.6 mm/day precipitation, 56% cloud cover and 224 W/m² outgoing longwave. The "Earth surface climatology" toggle switches back to the wrapper's behaviour. In Chrome on the development machine, 8 ranks ran at about 2 model days per second at T21 (roughly 3 minutes per 360-day year) and about 0.30 model days per second at T42 (roughly 20 minutes per year). A one-day T42 benchmark run took 7.1 s including startup, against 0.74 s per day for T21 at the same 30-minute step.
@@ -207,6 +259,14 @@ This is a feasibility experiment. Passing the smoke check does not establish equ
 Sources: [ExoPlaSim](https://github.com/alphaparrot/ExoPlaSim/tree/5f8dff4aaa8d6cd8813e6e0cf21c49883cbfb7ff), [Flang Wasm toolchain background](https://blog.jupyter.org/posts/2025/r-in-the-browser-announcing-our-webassembly/), [LLVM 19.1.7 decimal sources](https://github.com/llvm/llvm-project/tree/llvmorg-19.1.7/flang/lib/Decimal).
 
 ### Map interaction and settings
+
+The map and hover readout receive a memoized layer reader instead of raster arrays in React props. React 19's development profiler recursively expands changed props into performance entries, including removed props, so passing terrain directly caused stalls both entering and leaving elevation mode. The reader changes with the selected layer and returns the same data for rendering and hover sampling without exposing the arrays to prop profiling.
+
+On 2026-10-25, Chrome at `http://localhost:5173/gcm`, development build, no CPU/network throttling: four idle Elevation/Temperature transitions took 1,390/1,246/1,147/1,175 ms before this change and 73/62/67/67 ms after a fresh reload. Measurements run from a button click through two animation frames, including render and paint opportunity. Instrumenting `performance.measure` before the fix attributed 279–364 ms per component to the map and hover readout; it excludes React's work building the measurement details. With real T21 output paused, model-grid transitions took 69–134 ms and downscaled transitions 84–183 ms. While eight model workers were running, transitions took 200–448 ms. These are small local interaction samples, not model-throughput benchmarks; worker CPU contention and browser scheduling affect the results. The test run was cleared afterward.
+
+Elevation data and its cached color raster use the full source resolution: 2160 × 1080 for bundled Earth. Hover sampling and the elevation legend use the complete terrain. Earth conversion is shared between the display and model startup. After restoring full resolution on 2026-10-25, the same idle transition check measured 85/42/69/86 ms for Elevation/Temperature/Elevation/Temperature, and canvas instrumentation confirmed 2160 × 1080 image uploads. The 720 × 360 cap remains specific to climate downscaling.
+
+Elevation mode draws the same coastline overlay as climate modes. Land colors use Chaos Machine's colored elevation ramp (`src/ui/genesis/shared/colors/elevation.ts`, `landColorStops`): 19 linearly interpolated stops from pale green through tan and brown to off-white, normalized between zero and the terrain maximum. The ocean retains its existing solid blue. The map, legend and import previews share the color function; the terrain mask determines land, including land at or below sea level, and model-grid previews blend fractional land coverage. With the coastline and shared ramp enabled, three idle Elevation/Temperature/Elevation transitions on 2026-10-25 measured 320/193/236 ms in the same development browser; full-resolution color sampling and coastline drawing add work compared with the previous two-color terrain without coastlines.
 
 The equirectangular map uses the same orthographic camera and OrbitControls as the planet flat map: cursor-centered wheel zoom, drag pan, touch pan/pinch, horizontal world wrapping, and explicit zoom/reset buttons. Latitude stays within the poles. The map fits the remaining viewport height instead of imposing a width-based 2:1 element height. The camera adapts its geographic framing without stretching the map, and the sidebar scrolls independently. The map redraws at viewport size and device pixel ratio; zoom uses sharp native climate cells while coastlines and wind arrows redraw at the current scale. Zoom cannot add detail beyond the model or downscaled grid. Repeated raster copies share integer device-pixel edges to avoid hairline seams. The shared planet coastline filter removes artificial polygon-closing segments at the dateline, while genuine coastline crossings continue through it.
 

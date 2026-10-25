@@ -36,7 +36,7 @@ public/gcm/
   t42/...              the same for T42
 ```
 
-A full build takes roughly 10–20 minutes; later builds only recompile changed sources. Useful options, passed after `--`:
+A full build takes roughly 10–20 minutes; later builds only recompile changed sources. Useful options, appended to the command (pnpm forwards a literal `--`, which `build_app.py` rejects):
 
 | Option | Effect |
 | --- | --- |
@@ -45,7 +45,7 @@ A full build takes roughly 10–20 minutes; later builds only recompile changed 
 | `--precision 4` | Single precision: about 16% faster at T42, but multi-year stability is unchecked |
 | `--link-only` | Relink without recompiling, for example after changing a JS library or link flags |
 
-For example, `pnpm build:gcm-wasm -- --truncations 21 --link-only`.
+For example, `pnpm build:gcm-wasm --truncations 21 --link-only`.
 
 Then start the app with `pnpm dev` and open `/gcm`. The page loads the manifest and downloads only the resolution and worker count it uses.
 
@@ -67,6 +67,7 @@ wsl -d Ubuntu -- python3 scripts/exoplasim-wasm/build.py --truncation 42 --ranks
 | `--app` | off | ES module with live snapshots, as used by `/gcm` |
 | `--target native` | wasm | Native Flang reference build, serial only |
 | `--profile` | off | Keep function names for Chrome CPU profiles |
+| `--frontend-opt 0\|2` | 2 | Flang optimization level for the emitted IR; files in `FRONTEND_O0_FILES` stay at 0 |
 | `--stack-mib`, `--initial-memory-mib` | sized from points per rank | Override the per-rank stack and initial memory |
 | `--link-only` | off | Relink only |
 

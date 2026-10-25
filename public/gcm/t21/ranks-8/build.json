@@ -1,6 +1,9 @@
 {
   "variant": "scalar",
-  "frontendOptimization": 0,
+  "frontendOptimization": 2,
+  "frontendO0Files": [
+    "fftmod.f90"
+  ],
   "assignment": "bulk",
   "math": "wasm",
   "codegenFlags": "-O2",

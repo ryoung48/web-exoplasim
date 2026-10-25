@@ -1,4 +1,7 @@
 export const uiPalette = {
+	terrain: {
+		ocean: [30, 90, 150],
+	},
 	war: "#b91c1c",
 	siege: "#7f1d1d",
 	treasury: {
@@ -21,8 +24,8 @@ export const uiPalette = {
 	activeDark: "#0f172a",
 	fieldMap: {
 		coastline: "rgba(15, 23, 42, 0.6)",
-		vector: "rgba(255, 255, 255, 0.85)",
-		vectorShadow: "rgba(15, 23, 42, 0.45)",
+		vector: "rgba(15, 23, 42, 0.62)",
+		vectorShadow: "rgba(255, 255, 255, 0.55)",
 	},
 	person: {
 		noHouse: "#94a3b8",
@@ -119,6 +122,21 @@ export const uiChartPalette = {
 } as const
 
 export const uiTokens = {
+	uploadAction: {
+		base: "inline-flex min-h-8 items-center justify-center gap-1 px-2! py-1! text-xs! font-semibold normal-case! tracking-normal! shadow-sm enabled:cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:opacity-50!",
+		primary:
+			"border-indigo-600! bg-indigo-600! text-white! enabled:hover:border-indigo-700! enabled:hover:bg-indigo-700!",
+		secondary:
+			"border-slate-300! bg-slate-100! text-slate-800! enabled:hover:border-slate-400! enabled:hover:bg-slate-200!",
+	},
+	field: {
+		fileRow: "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2",
+		label: "text-xs font-semibold text-slate-900",
+		disclosure:
+			"cursor-pointer select-none text-xs font-medium text-slate-600 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-indigo-500",
+		fileName: "truncate text-xs text-slate-500",
+		actions: "grid grid-cols-2 gap-2",
+	},
 	wiki: {
 		page: "space-y-2 overflow-x-hidden",
 		stats: "mt-3 grid grid-cols-2 gap-x-3 gap-y-1",

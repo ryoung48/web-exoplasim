@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { GCM } from "@/model/climate/gcm"
 import { GCM_AVERAGES } from "@/model/climate/gcm/averages"
 import { GCM_CHECKPOINT } from "@/model/climate/gcm/checkpoint"
@@ -7,11 +7,9 @@ import type { GcmDownscaleGrid } from "@/model/climate/gcm/downscale/types"
 import { GCM_GRID } from "@/model/climate/gcm/grid"
 import { GCM_RUNNER } from "@/model/climate/gcm/runner"
 import type { GcmResolution, GcmRun } from "@/model/climate/gcm/runner/types"
-import type {
-	GcmConfig,
-	GcmElevationRaster,
-	GcmSnapshot,
-} from "@/model/climate/gcm/types"
+import { GCM_TERRAIN } from "@/model/climate/gcm/terrain"
+import type { GcmTerrain } from "@/model/climate/gcm/terrain/types"
+import type { GcmConfig, GcmSnapshot } from "@/model/climate/gcm/types"
 import { GCM_LIVE } from "@/ui/gcm/live-store"
 import type {
 	GcmDownload,
@@ -32,8 +30,8 @@ const RATE_WINDOW_MS = 2000
 // React's development profiler records a performance measure per changed
 // render and never evicts them; clearing keeps long runs from growing memory.
 const DEV_MEASURE_CLEAR_MS = 10_000
-// 2160x1080 heightmap / 3 = 720x360, a 0.5 degree display grid.
-const DOWNSCALE_FACTOR = 3
+// Cap display-grid work at 720 × 360; retain smaller input rasters.
+const DISPLAY_HEIGHT = 360
 
 const IDLE: GcmRunState = {
 	status: "idle",
@@ -56,18 +54,45 @@ export function useGcmRun() {
 	const [config, setConfig] = useState<GcmConfig>(GCM.DEFAULT_CONFIG)
 	const [state, setState] = useState<GcmRunState>(IDLE)
 	const [resolutions, setResolutions] = useState<GcmResolution[]>([])
+	const [requestedWorkers, setWorkerChoice] = useState("auto")
+	const availableRanks =
+		resolutions.find((entry) => entry.truncation === config.truncation)
+			?.ranks ?? []
+	const workerChoice = availableRanks.includes(Number(requestedWorkers))
+		? requestedWorkers
+		: "auto"
+	const workerOptions = [
+		{ value: "auto", label: "Auto" },
+		...availableRanks.map((ranks) => ({
+			value: String(ranks),
+			label: String(ranks),
+		})),
+	]
 	const [downscale, setDownscale] = useState<GcmDownscaleGrid | null>(null)
 	const [live] = useState(GCM_LIVE.create)
 	const averager = useRef(GCM_AVERAGES.create())
-	const [coastlines, setCoastlines] = useState<CoastlineLineData | null>(null)
-	const elevation = useRef<Promise<GcmElevationRaster> | null>(null)
+	const [earthCoastlines, setEarthCoastlines] =
+		useState<CoastlineLineData | null>(null)
+	const elevation = useRef<Promise<GcmTerrain> | null>(null)
+	const [terrain, setTerrain] = useState<GcmTerrain | null>(null)
+	const [earthTerrain, setEarthTerrain] = useState<GcmTerrain | null>(null)
+	const coastlines = useMemo(
+		() => (terrain ? GCM_TERRAIN.coastlines(terrain) : earthCoastlines),
+		[terrain, earthCoastlines],
+	)
 	const run = useRef<GcmRun | null>(null)
 	const generation = useRef(0)
 	const checkpointWhilePaused = useRef(false)
 	const rate = useRef<GcmStepSample | null>(null)
 
 	useEffect(() => {
-		void loadCoastlineLines().then(setCoastlines)
+		elevation.current ??= loadEarthRealElevation().then((raster) =>
+			GCM_TERRAIN.fromEarth({ elevation: raster, scale: raster.scale }),
+		)
+		void elevation.current.then(setEarthTerrain, () => setEarthTerrain(null))
+		void loadCoastlineLines().then(setEarthCoastlines, () =>
+			setEarthCoastlines(null),
+		)
 		GCM_RUNNER.manifest().then(
 			(manifest) => setResolutions(manifest.resolutions),
 			(error: unknown) =>
@@ -135,11 +160,12 @@ export function useGcmRun() {
 				stepsPerSecond: 0,
 			}))
 			try {
-				elevation.current ??= loadEarthRealElevation()
 				const [raster, manifest] = await Promise.all([
-					elevation.current,
+					request.terrain ?? elevation.current,
 					GCM_RUNNER.manifest(),
 				])
+				if (!raster)
+					throw new Error("Unable to load the Earth elevation raster")
 				if (currentGeneration !== generation.current) return
 				const resolution = manifest.resolutions.find(
 					(entry) => entry.truncation === request.config.truncation,
@@ -149,27 +175,27 @@ export function useGcmRun() {
 						`T${request.config.truncation} is not built: run \`pnpm build:gcm-wasm\``,
 					)
 				}
-				const ranks = GCM_RUNNER.pickRanks({
-					available: resolution.ranks,
-					hardwareThreads: navigator.hardwareConcurrency,
-				})
+				const ranks = resolution.ranks.includes(Number(requestedWorkers))
+					? Number(requestedWorkers)
+					: GCM_RUNNER.pickRanks({
+							available: resolution.ranks,
+							hardwareThreads: navigator.hardwareConcurrency,
+						})
 				setState((current) => ({
 					...current,
 					ranks,
 					truncation: resolution.truncation,
 				}))
-				setDownscale((current) =>
-					current?.grid.latitudes === resolution.latitudes
-						? current
-						: GCM_DOWNSCALE.create({
-								grid: GCM_GRID.forLatitudes(resolution.latitudes),
-								elevation: raster,
-								factor: DOWNSCALE_FACTOR,
-							}),
+				setDownscale(
+					GCM_DOWNSCALE.create({
+						grid: GCM_GRID.forLatitudes(resolution.latitudes),
+						terrain: raster,
+						factor: Math.max(1, Math.ceil(raster.height / DISPLAY_HEIGHT)),
+					}),
 				)
 				run.current = GCM_RUNNER.start({
 					config: request.config,
-					elevation: raster,
+					terrain: raster,
 					resolution,
 					ranks,
 					publishEvery: PUBLISH_EVERY_STEPS,
@@ -197,6 +223,7 @@ export function useGcmRun() {
 							download({
 								name: GCM_CHECKPOINT.fileName(meta),
 								bytes: GCM_CHECKPOINT.encode({
+									terrain: raster,
 									meta,
 									restart,
 									diagnostics: {
@@ -207,6 +234,7 @@ export function useGcmRun() {
 							})
 						}
 						void launch({
+							terrain: raster,
 							config: request.config,
 							restart,
 							fresh: false,
@@ -224,14 +252,14 @@ export function useGcmRun() {
 				})
 			}
 		},
-		[live, onSnapshot],
+		[live, onSnapshot, requestedWorkers],
 	)
 
 	const loadFromFile = useCallback(
 		async (file: File) => {
 			const currentGeneration = generation.current
 			try {
-				const { meta, restart, diagnostics } = GCM_CHECKPOINT.decode(
+				const { meta, restart, diagnostics, terrain } = GCM_CHECKPOINT.decode(
 					await file.arrayBuffer(),
 				)
 				if (currentGeneration !== generation.current) return
@@ -244,7 +272,9 @@ export function useGcmRun() {
 					)
 				}
 				setConfig(meta.config)
+				setTerrain(terrain)
 				await launch({
+					terrain,
 					config: meta.config,
 					restart,
 					fresh: true,
@@ -263,16 +293,42 @@ export function useGcmRun() {
 		[launch, resolutions],
 	)
 
+	const clear = () => {
+		generation.current++
+		run.current?.stop()
+		run.current = null
+		rate.current = null
+		checkpointWhilePaused.current = false
+		averager.current = GCM_AVERAGES.create()
+		live.update(GCM_LIVE.EMPTY)
+		setDownscale(null)
+		setState(IDLE)
+	}
+
 	return {
+		terrain,
+		displayTerrain: terrain ?? earthTerrain,
+		setTerrain: (next: GcmTerrain | null) => {
+			clear()
+			setTerrain(next)
+			setConfig((current) => ({
+				...current,
+				earthSurfaceClimatology: next === null,
+			}))
+		},
 		config,
 		setConfig,
 		state,
 		resolutions,
+		workerChoice,
+		workerOptions,
+		setWorkerChoice,
 		downscale,
 		live,
 		coastlines,
 		start: () =>
 			launch({
+				terrain,
 				config,
 				restart: null,
 				fresh: true,
@@ -280,17 +336,7 @@ export function useGcmRun() {
 				diagnostics: null,
 			}),
 		load: loadFromFile,
-		clear: () => {
-			generation.current++
-			run.current?.stop()
-			run.current = null
-			rate.current = null
-			checkpointWhilePaused.current = false
-			averager.current = GCM_AVERAGES.create()
-			live.update(GCM_LIVE.EMPTY)
-			setDownscale(null)
-			setState(IDLE)
-		},
+		clear,
 		pause: () => run.current?.pause(),
 		resume: () => run.current?.resume(),
 		save: () => {

@@ -8,6 +8,7 @@ import type {
 	GcmLapseRequest,
 } from "@/model/climate/gcm/downscale/types"
 import { GCM_FIELDS } from "@/model/climate/gcm/fields"
+import { GCM_TERRAIN_REGRID } from "@/model/climate/gcm/terrain/regrid"
 
 // Interpolation plus local lapse-rate correction after koppenpasta
 // (worldbuildingpasta, "An Apple Pie from Scratch, Part VI"): each model
@@ -26,33 +27,25 @@ const CORNERS = 4
 
 function create({
 	grid,
-	elevation,
+	terrain,
 	factor,
 }: GcmDownscaleRequest): GcmDownscaleGrid {
-	const width = Math.floor(elevation.width / factor)
-	const height = Math.floor(elevation.height / factor)
+	const height = Math.ceil(terrain.height / factor)
+	const width = height * 2
 	const points = width * height
 	const elevationM = new Float32Array(points)
 	const land = new Uint8Array(points)
 	for (let y = 0; y < height; y++) {
 		for (let x = 0; x < width; x++) {
-			let sum = 0
-			let landCount = 0
-			for (let dy = 0; dy < factor; dy++) {
-				for (let dx = 0; dx < factor; dx++) {
-					const value =
-						elevation.raster[
-							(y * factor + dy) * elevation.width + x * factor + dx
-						]
-					if (value !== elevation.nodata && value > 0) {
-						sum += value
-						landCount++
-					}
-				}
-			}
-			elevationM[y * width + x] = sum / (factor * factor)
-			land[y * width + x] =
-				landCount / (factor * factor) >= LAND_FRACTION_THRESHOLD ? 1 : 0
+			const mean = GCM_TERRAIN_REGRID.cell({
+				terrain,
+				north: 90 - (y * 180) / height,
+				south: 90 - ((y + 1) * 180) / height,
+				west: -180 + (x * 360) / width,
+				east: -180 + ((x + 1) * 360) / width,
+			})
+			elevationM[y * width + x] = mean.elevationM
+			land[y * width + x] = mean.landFraction >= LAND_FRACTION_THRESHOLD ? 1 : 0
 		}
 	}
 	const corners = new Int32Array(points * CORNERS)
@@ -85,7 +78,7 @@ function create({
 			weights[base + 3] = s * t
 		}
 	}
-	const boundary = GCM_BOUNDARY.fromElevation({ grid, elevation })
+	const boundary = GCM_BOUNDARY.fromTerrain({ grid, terrain })
 	const cellElevationM = Float32Array.from(
 		boundary.geopotential,
 		(value) => value / STANDARD_GRAVITY,

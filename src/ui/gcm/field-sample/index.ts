@@ -29,6 +29,21 @@ function rowBlend({
 
 function value({ layer, point }: GcmFieldSampleRequest): number {
 	const longitude = (((point.longitude + 180) % 360) + 360) % 360
+	if (layer.kind === "terrain") {
+		const column = Math.min(
+			layer.terrain.width - 1,
+			Math.floor((longitude / 360) * layer.terrain.width),
+		)
+		const row = Math.max(
+			0,
+			Math.min(
+				layer.terrain.height - 1,
+				Math.floor(((90 - point.latitude) / 180) * layer.terrain.height),
+			),
+		)
+		const index = row * layer.terrain.width + column
+		return layer.terrain.elevationM[index]
+	}
 	if (
 		layer.kind === "downscaled-field" ||
 		layer.kind === "downscaled-classes"

@@ -91,6 +91,35 @@ function paintClasses({ snapshot, classes }: GcmClassPaint) {
 	context.putImageData(image, 0, 0)
 }
 
+function paintTerrain(
+	layer: Extract<GcmMapPaint["layer"], { kind: "terrain" }>,
+) {
+	const { terrain, maxElevationM } = layer
+	const { width, height } = terrain
+	if (raster.width !== width) raster.width = width
+	if (raster.height !== height) raster.height = height
+	const context = raster.getContext("2d") as CanvasRenderingContext2D
+	const image = context.createImageData(width, height)
+	const maximum = Math.max(1, maxElevationM)
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			const elevation = terrain.elevationM[y * width + x]
+			const offset = (y * width + x) * 4
+			const color = GCM_DISPLAY.terrainColor({
+				value: elevation,
+				min: 0,
+				max: maximum,
+				land: terrain.land[y * width + x],
+			})
+			image.data[offset] = color[0] * 255
+			image.data[offset + 1] = color[1] * 255
+			image.data[offset + 2] = color[2] * 255
+			image.data[offset + 3] = 255
+		}
+	}
+	context.putImageData(image, 0, 0)
+}
+
 function paintRaster({ width, height, color }: GcmRasterPaint) {
 	if (raster.width !== width) raster.width = width
 	if (raster.height !== height) raster.height = height
@@ -200,6 +229,11 @@ function paintVectors({ canvas, snapshot, mode, viewport }: GcmFieldPaint) {
 						centerX + dx / 2 - Math.cos(angle - 0.5) * reach * 0.35 + shift,
 						y + dy / 2 - Math.sin(angle - 0.5) * reach * 0.35 + shift,
 					)
+					context.moveTo(centerX + dx / 2 + shift, y + dy / 2 + shift)
+					context.lineTo(
+						centerX + dx / 2 - Math.cos(angle + 0.5) * reach * 0.35 + shift,
+						y + dy / 2 - Math.sin(angle + 0.5) * reach * 0.35 + shift,
+					)
 					context.stroke()
 				}
 			}
@@ -213,6 +247,7 @@ export const GCM_FIELD_MAP = {
 		const context = canvas.getContext("2d") as CanvasRenderingContext2D
 		if (cachedLayer !== layer) {
 			if (layer.kind === "field") paintField({ canvas, ...layer, viewport })
+			else if (layer.kind === "terrain") paintTerrain(layer)
 			else if (layer.kind === "classes") paintClasses(layer)
 			else if (layer.kind === "downscaled-field") {
 				const { mode, values } = layer

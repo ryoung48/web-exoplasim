@@ -1,7 +1,7 @@
 import type { GcmNamelistEdits } from "@/model/climate/gcm/namelist/types"
+import type { GcmTerrain } from "@/model/climate/gcm/terrain/types"
 import type {
 	GcmConfig,
-	GcmElevationRaster,
 	GcmSnapshot,
 	GcmTruncation,
 } from "@/model/climate/gcm/types"
@@ -103,7 +103,7 @@ export interface GcmStatusUpdate {
 
 export interface GcmRunRequest {
 	config: GcmConfig
-	elevation: GcmElevationRaster
+	terrain: GcmTerrain
 	resolution: GcmResolution
 	ranks: number
 	publishEvery: number

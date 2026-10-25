@@ -4,28 +4,20 @@ import { Button } from "@/ui/components/primitives/Button"
 import { EmptyState } from "@/ui/components/primitives/EmptyState"
 import { uiTokens } from "@/ui/components/tokens"
 import { GCM_FIELD_MAP } from "@/ui/gcm/field-map"
-import type { GcmHoverPoint } from "@/ui/gcm/hover/types"
 import { GCM_MAP_NAVIGATION } from "@/ui/gcm/map-navigation"
 import type { GcmMapNavigation } from "@/ui/gcm/map-navigation/types"
-import type { GcmMapLayer } from "@/ui/gcm/types"
-import type { CoastlineLineData } from "@/ui/genesis/shared/coastline-lines"
+import type { GcmMapProps } from "@/ui/gcm/types"
 
 const CANVAS_WIDTH = 1440
 const CANVAS_HEIGHT = 720
 
-interface GcmMapProps {
-	layer: GcmMapLayer | null
-	coastlines: CoastlineLineData | null
-	emptyMessage: string
-	onHover: (point: GcmHoverPoint | null) => void
-}
-
 export function GcmMap({
-	layer,
+	readLayer,
 	coastlines,
 	emptyMessage,
 	onHover,
 }: GcmMapProps) {
+	const layer = readLayer()
 	const canvas = useRef<HTMLCanvasElement>(null)
 	const navigation = useRef<GcmMapNavigation | null>(null)
 	const hoverHandler = useRef(onHover)

@@ -2,6 +2,11 @@ import type { GcmModeGroup } from "@/ui/gcm/types"
 
 export const GCM_MODE_GROUPS: ReadonlyArray<GcmModeGroup> = [
 	{
+		label: "Elevation",
+		defaultView: "elevation",
+		children: [],
+	},
+	{
 		label: "Temperature",
 		defaultView: "surfaceTemperature",
 		children: [

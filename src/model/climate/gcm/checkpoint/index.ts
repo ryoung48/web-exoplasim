@@ -3,19 +3,25 @@ import type {
 	GcmCheckpointArray,
 	GcmCheckpointMeta,
 } from "@/model/climate/gcm/checkpoint/types"
+import { GCM_TERRAIN } from "@/model/climate/gcm/terrain"
 
 // File layout: magic, uint32 header length, JSON header, uint32 array bytes,
-// diagnostic arrays, then the unchanged plasim_status restart file.
+// terrain and diagnostic arrays, then the unchanged plasim_status restart file.
 const MAGIC = "EXOPLASIM-CHECKPOINT\n"
-const FORMAT = 2
+const FORMAT = 3
 const HEADER_LENGTH_BYTES = 4
 
-function encode({ meta, restart, diagnostics }: GcmCheckpoint): ArrayBuffer {
+function encode({
+	meta,
+	restart,
+	diagnostics,
+	terrain,
+}: GcmCheckpoint): ArrayBuffer {
 	const magic = new TextEncoder().encode(MAGIC)
 	const arrays: Uint8Array[] = []
 	let arrayBytes = 0
 	const header = new TextEncoder().encode(
-		JSON.stringify({ meta, diagnostics }, (...[, value]) => {
+		JSON.stringify({ meta, diagnostics, terrain }, (...[, value]) => {
 			if (value instanceof Float32Array || value instanceof Float64Array) {
 				const descriptor: GcmCheckpointArray = {
 					array:
@@ -72,10 +78,10 @@ function decode(buffer: ArrayBuffer): GcmCheckpoint {
 		bytes.subarray(headerStart, headerEnd),
 	)
 	const parsed = JSON.parse(header)
-	const meta = (parsed.meta ?? parsed) as GcmCheckpointMeta
+	const meta = parsed.meta as GcmCheckpointMeta
 	if (meta.format !== FORMAT) {
 		throw new Error(
-			`Unsupported checkpoint format ${meta.format}. Format ${FORMAT} with saved climate averages is required.`,
+			`Unsupported checkpoint format ${meta.format}. Format ${FORMAT} with terrain and climate averages is required.`,
 		)
 	}
 	const arrayBytes = new DataView(buffer).getUint32(headerEnd, true)
@@ -83,7 +89,7 @@ function decode(buffer: ArrayBuffer): GcmCheckpoint {
 	const restartStart = arrayStart + arrayBytes
 	if (restartStart >= buffer.byteLength)
 		throw new Error("Truncated ExoPlaSim checkpoint")
-	const { diagnostics } = JSON.parse(header, (...[, value]) => {
+	const { diagnostics, terrain } = JSON.parse(header, (...[, value]) => {
 		if (value?.array === "Float32Array" || value?.array === "Float64Array") {
 			const descriptor = value as GcmCheckpointArray
 			if (
@@ -105,7 +111,12 @@ function decode(buffer: ArrayBuffer): GcmCheckpoint {
 		}
 		return value
 	}) as GcmCheckpoint
-	return { meta, diagnostics, restart: buffer.slice(restartStart) }
+	return {
+		meta,
+		diagnostics,
+		terrain: GCM_TERRAIN.validate(terrain),
+		restart: buffer.slice(restartStart),
+	}
 }
 
 function fileName(meta: GcmCheckpointMeta): string {

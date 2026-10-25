@@ -42,6 +42,7 @@ export const LabeledSlider: React.FC<LabeledSliderProps> = ({
 		/>
 		<input
 			type="range"
+			aria-label={typeof label === "string" ? label : undefined}
 			min={min}
 			max={max}
 			step={step}

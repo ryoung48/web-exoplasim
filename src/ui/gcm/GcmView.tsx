@@ -1,8 +1,9 @@
-import { useMemo, useRef, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import { GCM_DOWNSCALE } from "@/model/climate/gcm/downscale"
 import { GCM_FIELDS } from "@/model/climate/gcm/fields"
 import type { GcmMapMode } from "@/model/climate/gcm/fields/types"
 import { GCM_GRID } from "@/model/climate/gcm/grid"
+import { GCM_TERRAIN } from "@/model/climate/gcm/terrain"
 import { PanelHeader } from "@/ui/components/composites/PanelHeader"
 import { cx } from "@/ui/components/lib"
 import { Button } from "@/ui/components/primitives/Button"
@@ -23,6 +24,7 @@ import type { GcmHoverPoint } from "@/ui/gcm/hover/types"
 import { GCM_LIVE } from "@/ui/gcm/live-store"
 import { GCM_MODE_GROUPS } from "@/ui/gcm/map-mode-options"
 import { GCM_PERIOD_VIEW } from "@/ui/gcm/period-view"
+import { TerrainPanel } from "@/ui/gcm/terrain/TerrainPanel"
 import type {
 	GcmMapDetail,
 	GcmMapLayer,
@@ -72,8 +74,14 @@ export function GcmView() {
 			group.defaultView === view ||
 			group.children.some((child) => child.value === view),
 	)
-	const mode: GcmMapMode = view === "koppen" ? "surfaceTemperature" : view
+	const terrainView = view === "elevation"
+	const mode: GcmMapMode =
+		view === "koppen" || terrainView ? "surfaceTemperature" : view
 	const definition = GCM_FIELDS.definition(mode)
+	const terrainSummary = useMemo(
+		() => (gcm.displayTerrain ? GCM_TERRAIN.summary(gcm.displayTerrain) : null),
+		[gcm.displayTerrain],
+	)
 	const { status } = gcm.state
 	const active =
 		status === "loading" ||
@@ -103,6 +111,14 @@ export function GcmView() {
 		[downscaled, view, averages.months],
 	)
 	const layer = useMemo<GcmMapLayer | null>(() => {
+		if (terrainView)
+			return gcm.displayTerrain
+				? {
+						kind: "terrain",
+						terrain: gcm.displayTerrain,
+						maxElevationM: terrainSummary?.maxM ?? 1,
+					}
+				: null
 		if (!snapshot) return null
 		if (view === "koppen") {
 			if (downscaled && downscaledKoppen) {
@@ -115,19 +131,32 @@ export function GcmView() {
 			}
 			return koppen ? { kind: "classes", snapshot, classes: koppen } : null
 		}
-		if (!downscaled) return { kind: "field", snapshot, mode: view }
-		const values = GCM_FIELDS.values({ snapshot, mode: view })
+		if (!downscaled) return { kind: "field", snapshot, mode }
+		const values = GCM_FIELDS.values({ snapshot, mode })
 		return {
 			kind: "downscaled-field",
 			snapshot,
-			mode: view,
+			mode,
 			width: downscaled.width,
 			height: downscaled.height,
-			values: LAPSE_CORRECTED_MODES.includes(view)
+			values: LAPSE_CORRECTED_MODES.includes(mode)
 				? GCM_DOWNSCALE.temperature({ downscale: downscaled, values })
 				: GCM_DOWNSCALE.interpolate({ downscale: downscaled, values }),
 		}
-	}, [snapshot, view, koppen, downscaled, downscaledKoppen])
+	}, [
+		snapshot,
+		view,
+		mode,
+		terrainView,
+		gcm.displayTerrain,
+		koppen,
+		downscaled,
+		downscaledKoppen,
+		terrainSummary?.maxM,
+	])
+	// React's development profiler traverses arrays in changed props on both
+	// entry and exit. Keep raster data behind a reader at component boundaries.
+	const readLayer = useCallback(() => layer, [layer])
 	const balance = useMemo(() => GCM_BALANCE_VIEW.rows(averages), [averages])
 	const means = useMemo(
 		() =>
@@ -153,7 +182,7 @@ export function GcmView() {
 				<header className="flex flex-wrap items-start justify-between gap-2">
 					<div>
 						<h1 className={cx(uiTokens.type.title, uiTokens.text.primary)}>
-							ExoPlaSim · Earth
+							ExoPlaSim · {gcm.terrain?.name ?? "Earth"}
 						</h1>
 						<p className={cx(uiTokens.type.label, uiTokens.text.muted)}>
 							{gcm.state.truncation > 0 ? `T${gcm.state.truncation} ` : ""}
@@ -164,11 +193,13 @@ export function GcmView() {
 						<div className={cx(uiTokens.type.value, uiTokens.text.primary)}>
 							{view === "koppen" && koppen
 								? `Köppen from the ${selection.label}`
-								: selection.label}
+								: terrainView
+									? "Terrain elevation"
+									: selection.label}
 						</div>
 						<GcmHoverReadout
 							point={hover}
-							layer={layer}
+							readLayer={readLayer}
 							unitSystem={unitSystem}
 						/>
 					</div>
@@ -193,29 +224,33 @@ export function GcmView() {
 					))}
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
-					<SegmentedControl
-						options={PERIOD_OPTIONS}
-						value={view === "koppen" ? "year" : period}
-						onChange={(next) => {
-							setPeriod(next)
-							if (view === "koppen") setView("surfaceTemperature")
-						}}
-					/>
-					<SegmentedControl
-						options={DETAIL_OPTIONS}
-						value={detail}
-						onChange={setDetail}
-					/>
+					{!terrainView && (
+						<SegmentedControl
+							options={PERIOD_OPTIONS}
+							value={view === "koppen" ? "year" : period}
+							onChange={(next) => {
+								setPeriod(next)
+								if (view === "koppen") setView("surfaceTemperature")
+							}}
+						/>
+					)}
+					{!terrainView && (
+						<SegmentedControl
+							options={DETAIL_OPTIONS}
+							value={detail}
+							onChange={setDetail}
+						/>
+					)}
 					{modeGroup && modeGroup.children.length > 0 && (
 						<div className={cx("flex border-l pl-2", uiTokens.border.default)}>
 							<SegmentedControl
 								options={modeGroup.children}
-								value={mode}
+								value={view}
 								onChange={setView}
 							/>
 						</div>
 					)}
-					{period === "month" && view !== "koppen" && (
+					{!terrainView && period === "month" && view !== "koppen" && (
 						<div className="flex flex-wrap gap-1">
 							{averages.months.map((month, index) => (
 								<Button
@@ -239,12 +274,14 @@ export function GcmView() {
 				<div className="relative min-h-0 flex-1">
 					<GcmMap
 						onHover={setHover}
-						layer={layer}
+						readLayer={readLayer}
 						coastlines={gcm.coastlines}
 						emptyMessage={
-							active && period === "now"
-								? gcm.state.message
-								: selection.emptyMessage
+							terrainView
+								? "Import terrain in the settings panel to view it"
+								: active && period === "now"
+									? gcm.state.message
+									: selection.emptyMessage
 						}
 					/>
 					{!sidebarOpen && (
@@ -268,7 +305,27 @@ export function GcmView() {
 						</div>
 					)}
 				</div>
-				{view === "koppen" && koppen ? (
+				{terrainView ? (
+					gcm.displayTerrain && terrainSummary ? (
+						<ContinuousLegend
+							min={0}
+							max={terrainSummary.maxM}
+							title="Elevation"
+							steps={24}
+							colorForValue={(value) =>
+								rgbToCss(
+									GCM_DISPLAY.terrainColor({
+										value,
+										min: 0,
+										max: terrainSummary.maxM,
+										land: 1,
+									}),
+								)
+							}
+							formatValue={(value) => `${Math.round(value).toLocaleString()} m`}
+						/>
+					) : null
+				) : view === "koppen" && koppen ? (
 					<GcmKoppenLegend classes={downscaledKoppen ?? koppen} />
 				) : (
 					<ContinuousLegend
@@ -441,11 +498,25 @@ export function GcmView() {
 						))}
 					</div>
 				</section>
-				<section>
+				<section className="space-y-3">
 					<PanelHeader title="Settings" />
+					<TerrainPanel
+						terrain={gcm.terrain}
+						onChange={gcm.setTerrain}
+						disabled={active}
+						unitSystem={unitSystem}
+						latitudes={
+							gcm.resolutions.find(
+								(entry) => entry.truncation === gcm.config.truncation,
+							)?.latitudes ?? 32
+						}
+					/>
 					<GcmConfigPanel
 						config={gcm.config}
 						resolutions={gcm.resolutions}
+						workerChoice={gcm.workerChoice}
+						workerOptions={gcm.workerOptions}
+						onWorkerChange={gcm.setWorkerChoice}
 						disabled={active}
 						onChange={gcm.setConfig}
 					/>

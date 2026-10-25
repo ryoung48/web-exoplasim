@@ -52,9 +52,9 @@ function start(request: GcmRunRequest): GcmRun {
 	// does not advance a step.
 	if (request.startPaused) Atomics.store(control, PAUSED, 1)
 	const files = GCM_BOUNDARY.files(
-		GCM_BOUNDARY.fromElevation({
+		GCM_BOUNDARY.fromTerrain({
 			grid: GCM_GRID.forLatitudes(request.resolution.latitudes),
-			elevation: request.elevation,
+			terrain: request.terrain,
 		}),
 	)
 	const edits = GCM_NAMELIST.edits(request.config)
