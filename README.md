@@ -11,7 +11,13 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:5173/gcm`. The built model is already in `public/gcm/`, so no toolchain is needed to run the page. The dev server sends the cross-origin isolation headers that `SharedArrayBuffer` requires; any other host must send them too (see `vite.config.ts`).
+Open `http://localhost:5173/gcm`. The built model is already in `public/gcm/`, so no toolchain is needed to run the page. The dev server sends the cross-origin isolation headers that `SharedArrayBuffer` requires (see `vite.config.ts`). Production hosts without these headers use `public/isolation-worker.js`; the page reloads once after installing the service worker, then starts the app with cross-origin isolation.
+
+## GitHub Pages
+
+The live site is [ryoung48.github.io/web-exoplasim](https://ryoung48.github.io/web-exoplasim/). Pushes to `main` deploy automatically through [the Pages workflow](.github/workflows/pages.yml), which can also be run manually from GitHub Actions. The repository's Settings → Pages → Source must be set to **GitHub Actions**.
+
+The workflow builds with the Pages base path and uses the committed Wasm assets, so deployment does not require WSL or rebuilding Fortran. It also copies the app entry point to `gcm/index.html` so direct links and refreshes on `/web-exoplasim/gcm/` work. The isolation service worker is scoped to this app and passes requests through without caching. Browsers must support service workers and cross-origin isolation.
 
 What the page does:
 
