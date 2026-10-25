@@ -1,0 +1,8 @@
+{
+	"$schema": "https://unpkg.com/knip@6/schema.json",
+	"entry": ["src/model/climate/gcm/runner/gcm.worker.ts"],
+	"project": ["src/**/*.{ts,tsx,js,jsx}"],
+	"ignoreBinaries": ["python", "wsl"],
+	"ignoreDependencies": ["tailwindcss", "babel-plugin-react-compiler"],
+	"tags": ["-lintignore"]
+}

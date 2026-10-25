@@ -1,0 +1,456 @@
+import { useMemo, useRef, useState } from "react"
+import { GCM_DOWNSCALE } from "@/model/climate/gcm/downscale"
+import { GCM_FIELDS } from "@/model/climate/gcm/fields"
+import type { GcmMapMode } from "@/model/climate/gcm/fields/types"
+import { GCM_GRID } from "@/model/climate/gcm/grid"
+import { PanelHeader } from "@/ui/components/composites/PanelHeader"
+import { cx } from "@/ui/components/lib"
+import { Button } from "@/ui/components/primitives/Button"
+import { ContinuousLegend } from "@/ui/components/primitives/charts/ContinuousLegend"
+import { IconButton } from "@/ui/components/primitives/IconButton"
+import { DetailsIcon } from "@/ui/components/primitives/icons/DetailsIcon"
+import { LabeledValueRow } from "@/ui/components/primitives/LabeledValueRow"
+import { SegmentedControl } from "@/ui/components/primitives/SegmentedControl"
+import { Tooltip } from "@/ui/components/primitives/Tooltip"
+import { uiTokens } from "@/ui/components/tokens"
+import { GCM_BALANCE_VIEW } from "@/ui/gcm/balance-view"
+import { GCM_DISPLAY } from "@/ui/gcm/field-display"
+import { GcmConfigPanel } from "@/ui/gcm/GcmConfigPanel"
+import { GcmHoverReadout } from "@/ui/gcm/GcmHoverReadout"
+import { GcmKoppenLegend } from "@/ui/gcm/GcmKoppenLegend"
+import { GcmMap } from "@/ui/gcm/GcmMap"
+import type { GcmHoverPoint } from "@/ui/gcm/hover/types"
+import { GCM_LIVE } from "@/ui/gcm/live-store"
+import { GCM_MODE_GROUPS } from "@/ui/gcm/map-mode-options"
+import { GCM_PERIOD_VIEW } from "@/ui/gcm/period-view"
+import type {
+	GcmMapDetail,
+	GcmMapLayer,
+	GcmPeriod,
+	GcmViewMode,
+} from "@/ui/gcm/types"
+import { useGcmRun } from "@/ui/gcm/useGcmRun"
+import { rgbToCss, type UnitSystem } from "@/ui/genesis/shared/ui-format"
+
+const UNIT_OPTIONS = [
+	{ value: "metric", label: "Metric" },
+	{ value: "imperial", label: "Imperial" },
+] as const
+const SUMMARY_MODES: ReadonlyArray<GcmMapMode> = [
+	"surfaceTemperature",
+	"precipitation",
+	"cloudCover",
+	"seaIce",
+	"outgoingLongwave",
+]
+
+const DETAIL_OPTIONS = [
+	{ value: "model", label: "Model grid" },
+	{ value: "downscaled", label: "Downscaled" },
+] as const
+const LAPSE_CORRECTED_MODES: ReadonlyArray<GcmMapMode> = [
+	"surfaceTemperature",
+	"airTemperature",
+]
+const PERIOD_OPTIONS = [
+	{ value: "now", label: "Now" },
+	{ value: "month", label: "Monthly" },
+	{ value: "year", label: "Annual" },
+] as const
+
+export function GcmView() {
+	const gcm = useGcmRun()
+	const [view, setView] = useState<GcmViewMode>("surfaceTemperature")
+	const [period, setPeriod] = useState<GcmPeriod>("now")
+	const [monthIndex, setMonthIndex] = useState<number | null>(null)
+	const [unitSystem, setUnitSystem] = useState<UnitSystem>("metric")
+	const [detail, setDetail] = useState<GcmMapDetail>("model")
+	const [hover, setHover] = useState<GcmHoverPoint | null>(null)
+	const [sidebarOpen, setSidebarOpen] = useState(true)
+	const modeGroup = GCM_MODE_GROUPS.find(
+		(group) =>
+			group.defaultView === view ||
+			group.children.some((child) => child.value === view),
+	)
+	const mode: GcmMapMode = view === "koppen" ? "surfaceTemperature" : view
+	const definition = GCM_FIELDS.definition(mode)
+	const { status } = gcm.state
+	const active =
+		status === "loading" ||
+		status === "running" ||
+		status === "paused" ||
+		status === "checkpointing"
+	const checkpointFile = useRef<HTMLInputElement>(null)
+	const { averages, snapshot: latest } = GCM_LIVE.useLive(gcm.live)
+	const koppen = averages.koppen
+	const selection = GCM_PERIOD_VIEW.select({
+		period: view === "koppen" ? "year" : period,
+		monthIndex,
+		snapshot: latest,
+		averages,
+	})
+	const { snapshot } = selection
+	const { downscale } = gcm
+	const downscaled = detail === "downscaled" && downscale
+	const downscaledKoppen = useMemo(
+		() =>
+			downscaled && view === "koppen"
+				? GCM_DOWNSCALE.koppen({
+						downscale: downscaled,
+						months: averages.months,
+					})
+				: null,
+		[downscaled, view, averages.months],
+	)
+	const layer = useMemo<GcmMapLayer | null>(() => {
+		if (!snapshot) return null
+		if (view === "koppen") {
+			if (downscaled && downscaledKoppen) {
+				return {
+					kind: "downscaled-classes",
+					width: downscaled.width,
+					height: downscaled.height,
+					classes: downscaledKoppen,
+				}
+			}
+			return koppen ? { kind: "classes", snapshot, classes: koppen } : null
+		}
+		if (!downscaled) return { kind: "field", snapshot, mode: view }
+		const values = GCM_FIELDS.values({ snapshot, mode: view })
+		return {
+			kind: "downscaled-field",
+			snapshot,
+			mode: view,
+			width: downscaled.width,
+			height: downscaled.height,
+			values: LAPSE_CORRECTED_MODES.includes(view)
+				? GCM_DOWNSCALE.temperature({ downscale: downscaled, values })
+				: GCM_DOWNSCALE.interpolate({ downscale: downscaled, values }),
+		}
+	}, [snapshot, view, koppen, downscaled, downscaledKoppen])
+	const balance = useMemo(() => GCM_BALANCE_VIEW.rows(averages), [averages])
+	const means = useMemo(
+		() =>
+			snapshot
+				? SUMMARY_MODES.map((summary) => ({
+						mode: summary,
+						value: GCM_GRID.globalMean(
+							GCM_FIELDS.values({ snapshot, mode: summary }),
+						),
+					}))
+				: [],
+		[snapshot],
+	)
+
+	return (
+		<div
+			className={cx(
+				"flex h-full w-full overflow-hidden",
+				uiTokens.surface.canvas,
+			)}
+		>
+			<main className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden p-4">
+				<header className="flex flex-wrap items-start justify-between gap-2">
+					<div>
+						<h1 className={cx(uiTokens.type.title, uiTokens.text.primary)}>
+							ExoPlaSim · Earth
+						</h1>
+						<p className={cx(uiTokens.type.label, uiTokens.text.muted)}>
+							{gcm.state.truncation > 0 ? `T${gcm.state.truncation} ` : ""}
+							general circulation model running in your browser
+						</p>
+					</div>
+					<div className="relative text-right">
+						<div className={cx(uiTokens.type.value, uiTokens.text.primary)}>
+							{view === "koppen" && koppen
+								? `Köppen from the ${selection.label}`
+								: selection.label}
+						</div>
+						<GcmHoverReadout
+							point={hover}
+							layer={layer}
+							unitSystem={unitSystem}
+						/>
+					</div>
+				</header>
+				<div className="flex flex-wrap gap-1">
+					{GCM_MODE_GROUPS.map((group) => (
+						<Button
+							key={group.defaultView}
+							selected={group === modeGroup}
+							disabled={group.defaultView === "koppen" && !koppen}
+							title={
+								group.defaultView === "koppen"
+									? koppen
+										? "Köppen classes from the last 12 model months"
+										: "Available after 12 model months"
+									: group.label
+							}
+							onClick={() => setView(group.defaultView)}
+						>
+							{group.label}
+						</Button>
+					))}
+				</div>
+				<div className="flex flex-wrap items-center gap-2">
+					<SegmentedControl
+						options={PERIOD_OPTIONS}
+						value={view === "koppen" ? "year" : period}
+						onChange={(next) => {
+							setPeriod(next)
+							if (view === "koppen") setView("surfaceTemperature")
+						}}
+					/>
+					<SegmentedControl
+						options={DETAIL_OPTIONS}
+						value={detail}
+						onChange={setDetail}
+					/>
+					{modeGroup && modeGroup.children.length > 0 && (
+						<div className={cx("flex border-l pl-2", uiTokens.border.default)}>
+							<SegmentedControl
+								options={modeGroup.children}
+								value={mode}
+								onChange={setView}
+							/>
+						</div>
+					)}
+					{period === "month" && view !== "koppen" && (
+						<div className="flex flex-wrap gap-1">
+							{averages.months.map((month, index) => (
+								<Button
+									key={`${month.year}-${month.month}`}
+									size="sm"
+									selected={
+										index === (monthIndex ?? averages.months.length - 1)
+									}
+									onClick={() =>
+										setMonthIndex(
+											index === averages.months.length - 1 ? null : index,
+										)
+									}
+								>
+									{GCM_PERIOD_VIEW.monthName(month.month)}
+								</Button>
+							))}
+						</div>
+					)}
+				</div>
+				<div className="relative min-h-0 flex-1">
+					<GcmMap
+						onHover={setHover}
+						layer={layer}
+						coastlines={gcm.coastlines}
+						emptyMessage={
+							active && period === "now"
+								? gcm.state.message
+								: selection.emptyMessage
+						}
+					/>
+					{!sidebarOpen && (
+						<div className="absolute top-3 right-3 z-20">
+							<Tooltip
+								content="Show settings panel"
+								position="bottom"
+								align="end"
+							>
+								<IconButton
+									tone="overlay"
+									size="sm"
+									aria-label="Show settings panel"
+									aria-expanded={false}
+									aria-controls="gcm-sidebar"
+									onClick={() => setSidebarOpen(true)}
+								>
+									<DetailsIcon className="h-4 w-4 text-white" />
+								</IconButton>
+							</Tooltip>
+						</div>
+					)}
+				</div>
+				{view === "koppen" && koppen ? (
+					<GcmKoppenLegend classes={downscaledKoppen ?? koppen} />
+				) : (
+					<ContinuousLegend
+						min={definition.min}
+						max={definition.max}
+						title={definition.label}
+						steps={24}
+						colorForValue={(value) =>
+							rgbToCss(GCM_DISPLAY.color({ mode, value }))
+						}
+						formatValue={(value) =>
+							GCM_DISPLAY.format({ mode, value, unitSystem })
+						}
+					/>
+				)}
+			</main>
+			<aside
+				id="gcm-sidebar"
+				hidden={!sidebarOpen}
+				className={cx(
+					sidebarOpen
+						? "flex w-80 shrink-0 flex-col gap-4 overflow-y-auto border-l p-4"
+						: "hidden",
+					uiTokens.border.default,
+					uiTokens.surface.panel,
+				)}
+			>
+				<section>
+					<PanelHeader
+						title="Run"
+						action={
+							<IconButton
+								tone="borderless"
+								size="xs"
+								title="Hide settings panel"
+								aria-label="Hide settings panel"
+								aria-expanded={true}
+								aria-controls="gcm-sidebar"
+								onClick={() => setSidebarOpen(false)}
+							>
+								<svg
+									width="12"
+									height="12"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="2"
+									strokeLinecap="round"
+									aria-hidden="true"
+								>
+									<line x1="18" y1="6" x2="6" y2="18" />
+									<line x1="6" y1="6" x2="18" y2="18" />
+								</svg>
+							</IconButton>
+						}
+					/>
+					<div className="flex flex-wrap gap-2">
+						{active ? (
+							status === "paused" ? (
+								<Button onClick={gcm.resume}>Resume</Button>
+							) : (
+								<Button onClick={gcm.pause} disabled={status !== "running"}>
+									Pause
+								</Button>
+							)
+						) : (
+							<Button selected onClick={() => void gcm.start()}>
+								Start
+							</Button>
+						)}
+						<Button
+							onClick={gcm.save}
+							disabled={status !== "running" && status !== "paused"}
+							title="Save the model state and climate averages to a file, preserving the current pause state"
+						>
+							Save
+						</Button>
+						<Button onClick={() => checkpointFile.current?.click()}>
+							Load
+						</Button>
+						<Button
+							onClick={() => {
+								gcm.clear()
+								setPeriod("now")
+								setMonthIndex(null)
+								setView("surfaceTemperature")
+								setHover(null)
+							}}
+							disabled={status === "idle" && !latest}
+							title="Stops the run and clears results so settings can be changed"
+						>
+							Clear
+						</Button>
+						<input
+							ref={checkpointFile}
+							type="file"
+							accept=".ckpt"
+							className="hidden"
+							onChange={(event) => {
+								const file = event.target.files?.[0]
+								event.target.value = ""
+								if (file) void gcm.load(file)
+							}}
+						/>
+					</div>
+					<div className="mt-3 space-y-1">
+						<LabeledValueRow
+							label="Status"
+							value={gcm.state.message.split("\n")[0]}
+						/>
+						<LabeledValueRow label="Workers" value={gcm.state.ranks || "—"} />
+						<LabeledValueRow
+							label="Speed"
+							value={
+								gcm.state.stepsPerSecond > 0
+									? `${((gcm.state.stepsPerSecond * gcm.config.timestepMinutes) / 1440).toFixed(2)} model days/s`
+									: "—"
+							}
+						/>
+						{balance.map((row) => (
+							<LabeledValueRow
+								key={row.label}
+								label={row.label}
+								value={row.value}
+							/>
+						))}
+					</div>
+					{status === "failed" && (
+						<pre
+							className={cx(
+								"mt-2 max-h-40 overflow-auto whitespace-pre-wrap",
+								uiTokens.type.valueSm,
+								uiTokens.text.muted,
+							)}
+						>
+							{gcm.state.message}
+						</pre>
+					)}
+				</section>
+				<section>
+					<PanelHeader
+						title={
+							period === "now" || view === "koppen"
+								? "Global means"
+								: `Global means · ${period === "month" ? "monthly" : "annual"}`
+						}
+						action={
+							<SegmentedControl
+								size="xs"
+								options={UNIT_OPTIONS}
+								value={unitSystem}
+								onChange={setUnitSystem}
+							/>
+						}
+					/>
+					<div className="space-y-1">
+						{means.length === 0 && (
+							<LabeledValueRow label="—" value="No data yet" />
+						)}
+						{means.map((entry) => (
+							<LabeledValueRow
+								key={entry.mode}
+								label={GCM_FIELDS.definition(entry.mode).label}
+								value={GCM_DISPLAY.format({
+									mode: entry.mode,
+									value: entry.value,
+									unitSystem,
+								})}
+							/>
+						))}
+					</div>
+				</section>
+				<section>
+					<PanelHeader title="Settings" />
+					<GcmConfigPanel
+						config={gcm.config}
+						resolutions={gcm.resolutions}
+						disabled={active}
+						onChange={gcm.setConfig}
+					/>
+				</section>
+			</aside>
+		</div>
+	)
+}

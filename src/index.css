@@ -1,0 +1,107 @@
+@import "tailwindcss" source("./ui");
+@source "./App.tsx";
+
+@font-face {
+	font-family: "Jedar";
+	src: url("./ui/assets/fonts/Jedar.otf") format("opentype");
+	font-weight: normal;
+	font-style: normal;
+	font-display: swap;
+}
+
+@theme {
+	--font-jedar: "Jedar", serif;
+}
+
+:root {
+	font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+	line-height: 1.5;
+	font-weight: 400;
+	color-scheme: light;
+}
+
+body {
+	margin: 0;
+	display: flex;
+	place-items: center;
+	min-width: 320px;
+	min-height: 100vh;
+	background-color: #ffffff;
+}
+
+button {
+	cursor: pointer;
+}
+
+#root {
+	width: 100%;
+	height: 100vh;
+}
+
+/* Hide scrollbar but allow scrolling */
+.no-scrollbar::-webkit-scrollbar {
+	display: none;
+}
+
+.no-scrollbar {
+	-ms-overflow-style: none;
+	scrollbar-width: none;
+}
+
+/* View transition animations */
+@keyframes cm-fade-in {
+	from {
+		opacity: 0;
+	}
+
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes cm-fade-out {
+	from {
+		opacity: 1;
+	}
+
+	to {
+		opacity: 0;
+	}
+}
+
+@keyframes cm-slide-up {
+	from {
+		opacity: 0;
+		transform: translateY(24px);
+	}
+
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes cm-slide-in-left {
+	from {
+		opacity: 0;
+		transform: translateX(-16px);
+	}
+
+	to {
+		opacity: 1;
+		transform: translateX(0);
+	}
+}
+
+@keyframes cm-float {
+	0%,
+	100% {
+		transform: translateY(0) translateX(0);
+		opacity: 0.2;
+	}
+
+	50% {
+		transform: translateY(-20px) translateX(10px);
+		opacity: 0.4;
+	}
+}

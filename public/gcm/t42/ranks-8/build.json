@@ -1,0 +1,21 @@
+{
+  "variant": "scalar",
+  "frontendOptimization": 0,
+  "assignment": "bulk",
+  "math": "wasm",
+  "codegenFlags": "-O2",
+  "profile": false,
+  "debug": false,
+  "precisionBytes": 8,
+  "layers": 10,
+  "grid": [
+    128,
+    64
+  ],
+  "truncation": 42,
+  "steps": 48,
+  "ranks": 8,
+  "stackMiB": 14,
+  "initialMemoryMiB": 29,
+  "app": true
+}

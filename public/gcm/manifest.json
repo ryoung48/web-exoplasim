@@ -1,0 +1,26 @@
+{
+  "resolutions": [
+    {
+      "truncation": 21,
+      "latitudes": 32,
+      "precisionBytes": 8,
+      "ranks": [
+        2,
+        4,
+        8
+      ],
+      "downloadBytes": 4612697
+    },
+    {
+      "truncation": 42,
+      "latitudes": 64,
+      "precisionBytes": 8,
+      "ranks": [
+        2,
+        4,
+        8
+      ],
+      "downloadBytes": 12673763
+    }
+  ]
+}

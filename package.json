@@ -1,0 +1,45 @@
+{
+	"name": "web-exoplasim",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"typecheck": "tsc -b",
+		"build:gcm-wasm": "wsl -d Ubuntu -- python3 scripts/exoplasim-wasm/build_app.py",
+		"build": "tsc -b && vite build",
+		"lint": "biome check --write --unsafe",
+		"preview": "vite preview",
+		"knip": "knip --fix",
+		"check:underscore-unused": "node scripts/quality/check-underscore-unused.mjs",
+		"fix:import-aliases": "node scripts/quality/fix-import-aliases.mjs",
+		"check:optional-attributes": "node scripts/quality/check-optional-attributes.mjs"
+	},
+	"dependencies": {
+		"@tailwindcss/vite": "^4.1.18",
+		"react": "^19.2.0",
+		"react-dom": "^19.2.0",
+		"react-router-dom": "^7.9.5",
+		"three": "^0.183.2"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.3.11",
+		"@types/node": "^24.10.1",
+		"@types/react": "^19.2.5",
+		"@types/react-dom": "^19.2.3",
+		"@types/three": "^0.183.1",
+		"@vitejs/plugin-react": "^5.1.1",
+		"babel-plugin-react-compiler": "^1.0.0",
+		"knip": "^6.7.0",
+		"playwright": "^1.62.1",
+		"tailwindcss": "^4.2.4",
+		"ts-morph": "^28.0.0",
+		"typescript": "~5.9.3",
+		"vite": "npm:rolldown-vite@7.2.5"
+	},
+	"pnpm": {
+		"overrides": {
+			"vite": "npm:rolldown-vite@7.2.5"
+		}
+	}
+}

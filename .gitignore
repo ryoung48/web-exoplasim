@@ -1,0 +1,25 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+node_modules
+dist
+dist-ssr
+coverage/**
+*.local
+__pycache__/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.sw?
+
+.claude/worktrees/
+.claude/settings.local.json
+
+# Benchmark runs, reports and comparison pages are large; keep them local.
+stats/

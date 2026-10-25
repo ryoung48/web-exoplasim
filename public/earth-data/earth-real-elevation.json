@@ -1,0 +1,13 @@
+{
+	"version": 1,
+	"format": "int16-single-band",
+	"field": "worldclim_elevation_m",
+	"width": 2160,
+	"height": 1080,
+	"scale": 1.0,
+	"nodata": -32768,
+	"source": "wc2.1_10m_elev.tif",
+	"bathySource": "elev.tif",
+	"bin": "earth-real-elevation.bin.gz",
+	"compression": "gzip"
+}

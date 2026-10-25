@@ -1,0 +1,11 @@
+# LF everywhere, so Biome's formatting and the Wasm build's Linux line
+# endings survive Windows checkouts.
+* text=auto eol=lf
+
+# Emscripten reads exoplasim.data by byte offset; it is plain text inside
+# (namelists and .sra files) and must never be converted.
+*.data binary
+*.wasm binary
+*.gz binary
+*.otf binary
+*.png binary
