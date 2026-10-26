@@ -1,3 +1,4 @@
+import { GCM_FIELDS } from "@/model/climate/gcm/fields"
 import { GCM_NAMELIST } from "@/model/climate/gcm/namelist"
 import type { GcmNamelistFile } from "@/model/climate/gcm/namelist/types"
 import type {
@@ -8,6 +9,10 @@ import type {
 	GcmWorkerRequest,
 	GcmWorkerResponse,
 } from "@/model/climate/gcm/runner/types"
+
+import type { GcmLayerCount } from "@/model/climate/gcm/types"
+
+let loadedLayers: GcmLayerCount = 10
 
 const PAUSED = 0
 const STOP = 1
@@ -33,10 +38,16 @@ function abortOtherRanks() {
 }
 
 function publish(fields: ExoplasimPublishedFields) {
+	if (fields.fields !== GCM_FIELDS.fieldCount(loadedLayers)) {
+		throw new Error(
+			"GCM snapshot layout mismatch; reload the rebuilt model assets",
+		)
+	}
 	const [year, month, day, hour, minute] = fields.date
 	const response: GcmWorkerResponse = {
 		type: "snapshot",
 		snapshot: {
+			layers: loadedLayers,
 			step: fields.step,
 			date: { year, month, day, hour, minute },
 			values: fields.values,
@@ -48,9 +59,18 @@ function publish(fields: ExoplasimPublishedFields) {
 function prepareFiles(request: GcmWorkerLoad) {
 	if (!model) return
 	const fs = model.FS
-	if (!request.keepSurfaceFiles) {
-		for (const name of fs.readdir("/")) {
-			if (name.endsWith(".sra")) fs.unlink(`/${name}`)
+	const overrideLandAlbedo =
+		request.namelistEdits.landmod_namelist?.ALBLAND !== undefined
+	const overrideSoilWater =
+		request.namelistEdits.landmod_namelist?.WSMAX !== undefined
+	for (const name of fs.readdir("/")) {
+		if (
+			name.endsWith(".sra") &&
+			(!request.keepSurfaceFiles ||
+				(overrideLandAlbedo && name.endsWith("0174.sra")) ||
+				(overrideSoilWater && name.endsWith("0229.sra")))
+		) {
+			fs.unlink(`/${name}`)
 		}
 	}
 	for (const [name, text] of Object.entries(request.files)) {
@@ -70,6 +90,7 @@ function prepareFiles(request: GcmWorkerLoad) {
 }
 
 async function load(request: GcmWorkerLoad) {
+	loadedLayers = request.layers
 	exchange = request.exchange
 	const control = new Int32Array(request.control)
 	const factory = (

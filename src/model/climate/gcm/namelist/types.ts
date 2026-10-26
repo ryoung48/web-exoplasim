@@ -5,6 +5,8 @@ export type GcmNamelistFile =
 	| "landmod_namelist"
 	| "vegmod_namelist"
 	| "glacier_namelist"
+	| "oceanmod_namelist"
+	| "seamod_namelist"
 
 export type GcmNamelistEdits = Partial<
 	Record<GcmNamelistFile, Record<string, string>>

@@ -3,12 +3,14 @@ import type {
 	GcmCheckpointArray,
 	GcmCheckpointMeta,
 } from "@/model/climate/gcm/checkpoint/types"
+import { GCM_FIELDS } from "@/model/climate/gcm/fields"
+import { GCM_GRID } from "@/model/climate/gcm/grid"
 import { GCM_TERRAIN } from "@/model/climate/gcm/terrain"
 
 // File layout: magic, uint32 header length, JSON header, uint32 array bytes,
 // terrain and diagnostic arrays, then the unchanged plasim_status restart file.
 const MAGIC = "EXOPLASIM-CHECKPOINT\n"
-const FORMAT = 3
+const FORMAT = 10
 const HEADER_LENGTH_BYTES = 4
 
 function encode({
@@ -81,7 +83,7 @@ function decode(buffer: ArrayBuffer): GcmCheckpoint {
 	const meta = parsed.meta as GcmCheckpointMeta
 	if (meta.format !== FORMAT) {
 		throw new Error(
-			`Unsupported checkpoint format ${meta.format}. Format ${FORMAT} with terrain and climate averages is required.`,
+			`Unsupported checkpoint format ${meta.format}. Format ${FORMAT} with the current climate-field layout is required.`,
 		)
 	}
 	const arrayBytes = new DataView(buffer).getUint32(headerEnd, true)
@@ -111,6 +113,31 @@ function decode(buffer: ArrayBuffer): GcmCheckpoint {
 		}
 		return value
 	}) as GcmCheckpoint
+	if (meta.config.layers !== 5 && meta.config.layers !== 10)
+		throw new Error("Invalid checkpoint atmospheric layer count")
+	const snapshots = [
+		diagnostics.snapshot,
+		...diagnostics.averager.months.map((month) => month.snapshot),
+		...(diagnostics.averager.current
+			? [diagnostics.averager.current.last]
+			: []),
+	]
+	const points = GCM_GRID.forLatitudes(
+		meta.config.truncation === 21 ? 32 : 64,
+	).points
+	const expectedValues = points * GCM_FIELDS.fieldCount(meta.config.layers)
+	if (
+		snapshots.some(
+			(snapshot) =>
+				snapshot.layers !== meta.config.layers ||
+				snapshot.values.length !== expectedValues,
+		) ||
+		(diagnostics.averager.current &&
+			diagnostics.averager.current.sum.length !== expectedValues)
+	)
+		throw new Error(
+			"Checkpoint diagnostics do not match the saved model resolution and atmospheric layers",
+		)
 	return {
 		meta,
 		diagnostics,
@@ -121,7 +148,7 @@ function decode(buffer: ArrayBuffer): GcmCheckpoint {
 
 function fileName(meta: GcmCheckpointMeta): string {
 	const { year, month } = meta.date
-	return `exoplasim-t${meta.config.truncation}-year${String(year).padStart(4, "0")}-month${String(month).padStart(2, "0")}.ckpt`
+	return `exoplasim-t${meta.config.truncation}-layers${meta.config.layers}-year${String(year).padStart(4, "0")}-month${String(month).padStart(2, "0")}.ckpt`
 }
 
 export const GCM_CHECKPOINT = {

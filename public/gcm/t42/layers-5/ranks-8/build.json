@@ -1,21 +1,24 @@
 {
   "variant": "scalar",
-  "frontendOptimization": 0,
+  "frontendOptimization": 2,
+  "frontendO0Files": [
+    "fftmod.f90"
+  ],
   "assignment": "bulk",
   "math": "wasm",
   "codegenFlags": "-O2",
   "profile": false,
   "debug": false,
   "precisionBytes": 8,
-  "layers": 10,
+  "layers": 5,
   "grid": [
     128,
     64
   ],
   "truncation": 42,
   "steps": 48,
-  "ranks": 4,
-  "stackMiB": 27,
-  "initialMemoryMiB": 51,
+  "ranks": 8,
+  "stackMiB": 14,
+  "initialMemoryMiB": 25,
   "app": true
 }

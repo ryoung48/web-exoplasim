@@ -1,9 +1,12 @@
 import { useId, useRef } from "react"
 import { cx } from "@/ui/components/lib"
 import { Button } from "@/ui/components/primitives/Button"
+import { InputLabel } from "@/ui/components/primitives/InputLabel"
 import { uiTokens } from "@/ui/components/tokens"
 
 interface FilePickerProps {
+	// [JUSTIFICATION] File pickers outside model settings do not require help text.
+	help?: string
 	label: string
 	action: string
 	accept: string
@@ -15,6 +18,7 @@ interface FilePickerProps {
 
 export function FilePicker({
 	label,
+	help,
 	action,
 	accept,
 	emptyLabel,
@@ -26,9 +30,12 @@ export function FilePicker({
 	const id = useId()
 	return (
 		<div className={uiTokens.field.fileRow}>
-			<label htmlFor={id} className={uiTokens.field.label}>
-				{label}
-			</label>
+			<span
+				className={`${uiTokens.field.label} ${uiTokens.field.labelWithHelp}`}
+			>
+				<label htmlFor={id}>{label}</label>
+				{help && <InputLabel label="" name={label} help={help} />}
+			</span>
 			<span
 				id={`${id}-file`}
 				className={uiTokens.field.fileName}

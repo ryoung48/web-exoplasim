@@ -25,29 +25,30 @@ This installs everything under `/var/tmp/chaos-exoplasim-wasm/` in WSL and chang
 pnpm build:gcm-wasm
 ```
 
-This runs `build_app.py`, which builds T21 and T42 for 2, 4 and 8 workers into `public/gcm/`:
+This runs `build_app.py`, which builds T21 and T42 with 5 and 10 atmospheric layers for 2, 4 and 8 workers into `public/gcm/`:
 
 ```
 public/gcm/
   manifest.json        resolutions, precision, worker counts, download sizes
   COPYING              ExoPlaSim's licence
   t21/exoplasim.data   T21 namelists and surface files, shared by every variant
-  t21/ranks-N/         exoplasim.js + exoplasim.wasm for N workers
+  t21/layers-L/ranks-N/  exoplasim.js + exoplasim.wasm for L layers and N workers
   t42/...              the same for T42
 ```
 
-A full build takes roughly 10–20 minutes; later builds only recompile changed sources. Useful options, appended to the command (pnpm forwards a literal `--`, which `build_app.py` rejects):
+Building both layer counts adds six variants; full build time depends on cached objects and hardware. For a single layer count use `--layers 10` or `--layers 5`. Later builds only recompile changed sources. Useful options, appended to the command (pnpm forwards a literal `--`, which `build_app.py` rejects):
 
 | Option | Effect |
 | --- | --- |
 | `--truncations 21` | Build one resolution and keep the other's manifest entry |
 | `--ranks 4 8` | Worker counts to build (each must divide the number of latitudes) |
+| `--layers 5 10` | Build both vertical resolutions; default order is 10 then 5 |
 | `--precision 4` | Single precision: about 16% faster at T42, but multi-year stability is unchecked |
-| `--link-only` | Relink without recompiling, for example after changing a JS library or link flags |
+| `--link-only` | Relink unchanged interfaces after link-flag changes. Use a full build after Fortran, shared-memory JS, snapshot hooks or layer-count changes |
 
 For example, `pnpm build:gcm-wasm --truncations 21 --link-only`.
 
-Then start the app with `pnpm dev` and open `/gcm`. The page loads the manifest and downloads only the resolution and worker count it uses.
+Then start the app with `pnpm dev` and open `/gcm`. The page loads the manifest and downloads only the horizontal resolution, atmospheric layer count and worker count it uses.
 
 Only use `--link-only` when the Fortran sources and `mpimod_shm.f90`/`gcm_publish.f90` interfaces are unchanged. Relinking old objects against a changed `library_shm.js` or `library_gcm.js` produces a build whose calls disagree on their arguments.
 
@@ -63,6 +64,7 @@ wsl -d Ubuntu -- python3 scripts/exoplasim-wasm/build.py --truncation 42 --ranks
 | --- | --- | --- |
 | `--truncation 21\|42` | 21 | Model resolution (64×32 or 128×64) |
 | `--ranks 1\|2\|4\|8\|16` | 1 | Shared-memory workers. 1 is the original serial build |
+| `--layers 5\|10` | 10 | Compiled atmospheric layer count |
 | `--precision 4\|8` | 8 | Bytes per default `REAL` |
 | `--app` | off | ES module with live snapshots, as used by `/gcm` |
 | `--target native` | wasm | Native Flang reference build, serial only |
@@ -80,7 +82,13 @@ node scripts/exoplasim-wasm/run-browser.mjs 480
 
 The argument is the step count. Environment options: `EXOPLASIM_MPSTEP` (timestep in minutes, default 30), `EXOPLASIM_NRADINT` (radiation every N steps, default 1), `EXOPLASIM_RUN` (label for the saved reports), `EXOPLASIM_REFERENCE` (directory to compare fields against), `EXOPLASIM_PROFILE=1` (record a CPU profile), `EXOPLASIM_SPIN` (barrier spin count) and `EXOPLASIM_TIMEOUT_MINUTES` (default 10). Reports are written to the output directory, which is gitignored under `stats/`.
 
+The five-layer Flang build omits two source branches whose conditions require 20 or more than 10 layers. Their constant negative subscripts fail compilation at 5 layers even though those branches cannot execute. This preserves the native five-layer calculation and leaves ten-layer source unchanged. The patch is applied in `model_source.py` and included in the saved source diff.
+
 ## Checks after changing the build
+
+For atmospheric composition and direct bulk inputs, see [Atmosphere configuration](../../docs/climate/exoplasim-atmosphere.md).
+
+For browser controls, map fields, and checkpoint verification across every app variant, see [Browser model controls and diagnostics](../../docs/climate/exoplasim-controls.md#save-format-and-verification).
 
 ```powershell
 wsl -d Ubuntu -- python3 scripts/exoplasim-wasm/verify-runtime.py

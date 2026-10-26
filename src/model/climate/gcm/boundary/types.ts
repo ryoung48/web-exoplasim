@@ -8,6 +8,7 @@ export interface GcmBoundary {
 }
 
 export interface GcmBoundaryRequest {
+	gravityMs2: number
 	grid: GcmGrid
 	terrain: GcmTerrain
 }

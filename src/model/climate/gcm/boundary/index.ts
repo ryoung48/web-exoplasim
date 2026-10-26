@@ -5,12 +5,15 @@ import type {
 } from "@/model/climate/gcm/boundary/types"
 import { GCM_TERRAIN_REGRID } from "@/model/climate/gcm/terrain/regrid"
 
-const STANDARD_GRAVITY = 9.80665
 const LAND_SEA_CODE = 172
 const OROGRAPHY_CODE = 129
 const SRA_VALUES_PER_LINE = 8
 
-function fromTerrain({ grid, terrain }: GcmBoundaryRequest): GcmBoundary {
+function fromTerrain({
+	grid,
+	terrain,
+	gravityMs2,
+}: GcmBoundaryRequest): GcmBoundary {
 	const landFraction = new Float64Array(grid.points)
 	const geopotential = new Float64Array(grid.points)
 	for (let row = 0; row < grid.latitudes; row++) {
@@ -31,7 +34,7 @@ function fromTerrain({ grid, terrain }: GcmBoundaryRequest): GcmBoundary {
 			})
 			const index = row * grid.longitudes + column
 			landFraction[index] = mean.landFraction
-			geopotential[index] = STANDARD_GRAVITY * mean.elevationM
+			geopotential[index] = gravityMs2 * mean.elevationM
 		}
 	}
 	return { grid, landFraction, geopotential }

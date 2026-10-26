@@ -30,6 +30,7 @@ export function useTerrainImport(latitudes: number) {
 				terrain,
 				summary: GCM_TERRAIN.summary(terrain),
 				boundary: GCM_BOUNDARY.fromTerrain({
+					gravityMs2: 9.80665,
 					grid: GCM_GRID.forLatitudes(latitudes),
 					terrain,
 				}),

@@ -30,6 +30,20 @@ function stops(palette: readonly RgbColor[]): GcmColorScale {
 }
 
 const NORMALIZED_SCALES: Partial<Record<GcmMapMode, GcmColorScale>> = {
+	relativeHumidity: stops(COLOR_PALETTES.bupuStops),
+	evaporation: stops(COLOR_PALETTES.spectralStops),
+	runoff: stops(COLOR_PALETTES.bupuStops),
+	forestCover: stops(COLOR_PALETTES.greensStops),
+	leafAreaIndex: stops(COLOR_PALETTES.greensStops),
+	toaShortwave: stops(COLOR_PALETTES.ylOrRdStops),
+	toaLongwave: stops(COLOR_PALETTES.ylOrRdStops.toReversed()),
+	toaNetRadiation: stops(COLOR_PALETTES.spectralStops),
+	surfaceNetHeat: stops(COLOR_PALETTES.spectralStops),
+	surfaceShortwave: stops(COLOR_PALETTES.ylOrRdStops),
+	surfaceLongwave: stops(COLOR_PALETTES.spectralStops),
+	sensibleHeatFlux: stops(COLOR_PALETTES.spectralStops),
+	latentHeatFlux: stops(COLOR_PALETTES.spectralStops),
+	seaLevelPressure: stops(COLOR_PALETTES.spectralStops.toReversed()),
 	wind: stops(COLOR_PALETTES.windStops),
 	jet: stops(COLOR_PALETTES.plasmaStops),
 	cloudCover: stops(COLOR_PALETTES.cloudStops),
@@ -37,20 +51,43 @@ const NORMALIZED_SCALES: Partial<Record<GcmMapMode, GcmColorScale>> = {
 	waterVapor: stops(COLOR_PALETTES.bupuStops),
 	seaIce: stops(COLOR_PALETTES.cloudStops),
 	snowDepth: stops(COLOR_PALETTES.cloudStops),
+	snowfall: stops(COLOR_PALETTES.bupuStops),
+	snowmelt: stops(COLOR_PALETTES.bupuStops),
+	seaIceThickness: stops(COLOR_PALETTES.cloudStops),
+	glacierCover: stops(COLOR_PALETTES.cloudStops),
 	soilWater: stops(COLOR_PALETTES.bupuStops),
 	albedo: stops(COLOR_PALETTES.orangesStops),
 	outgoingLongwave: stops(COLOR_PALETTES.ylOrRdStops),
 }
 
 function color({ mode, value }: GcmModeValue): RgbColor {
-	if (mode === "surfaceTemperature" || mode === "airTemperature") {
+	const selection = GCM_FIELDS.layer(mode)
+	if (
+		selection?.variable === "Temperature" ||
+		mode === "surfaceTemperature" ||
+		mode === "airTemperature"
+	) {
 		return temperatureColor(value)
 	}
-	if (mode === "precipitation") {
+	if (
+		mode === "precipitation" ||
+		mode === "convectivePrecipitation" ||
+		mode === "largeScalePrecipitation"
+	) {
 		return precipitationMonthlyColor(value * DAYS_PER_MONTH)
 	}
 	const { min, max } = GCM_FIELDS.definition(mode)
-	return (NORMALIZED_SCALES[mode] as GcmColorScale)((value - min) / (max - min))
+	const scaleMode =
+		selection?.variable === "Wind"
+			? "jet"
+			: selection?.variable === "Cloud"
+				? "cloudCover"
+				: selection?.variable === "Humidity"
+					? "relativeHumidity"
+					: mode
+	return (NORMALIZED_SCALES[scaleMode] as GcmColorScale)(
+		(value - min) / (max - min),
+	)
 }
 
 const TERRAIN_OCEAN = uiPalette.terrain.ocean.map(
@@ -77,6 +114,8 @@ function terrainColor({
 
 function format({ mode, value, unitSystem }: GcmFormattedValue): string {
 	switch (GCM_FIELDS.definition(mode).unit) {
+		case "dimensionless":
+			return formatWithUnit(value, "", 1)
 		case "celsius":
 			return formatTemperature(value, unitSystem)
 		case "metersPerSecond":

@@ -50,6 +50,7 @@ function close(accumulator: GcmMonthAccumulator): GcmMonthlyMean {
 		year: accumulator.year,
 		month: accumulator.month,
 		snapshot: {
+			layers: accumulator.last.layers,
 			step: accumulator.last.step,
 			date: {
 				year: accumulator.year,
@@ -106,7 +107,12 @@ function annual(averager: GcmAverager): GcmSnapshot | null {
 			values[index] += month.snapshot.values[index] / MONTHS_PER_YEAR
 		}
 	}
-	return { step: last.snapshot.step, date: last.snapshot.date, values }
+	return {
+		layers: last.snapshot.layers,
+		step: last.snapshot.step,
+		date: last.snapshot.date,
+		values,
+	}
 }
 
 // Classifies the last 12 completed months with the repository's Köppen

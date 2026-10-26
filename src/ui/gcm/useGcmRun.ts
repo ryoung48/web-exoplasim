@@ -56,8 +56,11 @@ export function useGcmRun() {
 	const [resolutions, setResolutions] = useState<GcmResolution[]>([])
 	const [requestedWorkers, setWorkerChoice] = useState("auto")
 	const availableRanks =
-		resolutions.find((entry) => entry.truncation === config.truncation)
-			?.ranks ?? []
+		resolutions.find(
+			(entry) =>
+				entry.truncation === config.truncation &&
+				entry.layers === config.layers,
+		)?.ranks ?? []
 	const workerChoice = availableRanks.includes(Number(requestedWorkers))
 		? requestedWorkers
 		: "auto"
@@ -168,11 +171,13 @@ export function useGcmRun() {
 					throw new Error("Unable to load the Earth elevation raster")
 				if (currentGeneration !== generation.current) return
 				const resolution = manifest.resolutions.find(
-					(entry) => entry.truncation === request.config.truncation,
+					(entry) =>
+						entry.truncation === request.config.truncation &&
+						entry.layers === request.config.layers,
 				)
 				if (!resolution) {
 					throw new Error(
-						`T${request.config.truncation} is not built: run \`pnpm build:gcm-wasm\``,
+						`T${request.config.truncation} with ${request.config.layers} layers is not built: run \`pnpm build:gcm-wasm\``,
 					)
 				}
 				const ranks = resolution.ranks.includes(Number(requestedWorkers))
@@ -264,7 +269,9 @@ export function useGcmRun() {
 				)
 				if (currentGeneration !== generation.current) return
 				const resolution = resolutions.find(
-					(entry) => entry.truncation === meta.config.truncation,
+					(entry) =>
+						entry.truncation === meta.config.truncation &&
+						entry.layers === meta.config.layers,
 				)
 				if (resolution && resolution.precisionBytes !== meta.precisionBytes) {
 					throw new Error(

@@ -1,6 +1,37 @@
 import type { GcmSnapshot } from "@/model/climate/gcm/types"
 
+export type GcmLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10
+
+export type GcmAtmosphereVariable =
+	| "Temperature"
+	| "Wind"
+	| "Humidity"
+	| "Cloud"
+
+export interface GcmAtmosphereSelection {
+	variable: GcmAtmosphereVariable
+	level: GcmLevel
+}
+
 export type GcmFieldId =
+	| "convectivePrecipitation"
+	| "largeScalePrecipitation"
+	| "toaShortwave"
+	| "toaLongwave"
+	| "surfaceShortwave"
+	| "surfaceLongwave"
+	| "sensibleHeatFlux"
+	| "latentHeatFlux"
+	| "seaLevelPressure"
+	| "snowfall"
+	| "snowmelt"
+	| "seaIceThickness"
+	| "glacierCover"
+	| `layer${"Temperature" | "WindU" | "WindV" | "Humidity" | "Cloud"}${GcmLevel}`
+	| "evaporation"
+	| "runoff"
+	| "forestCover"
+	| "leafAreaIndex"
 	| "surfaceTemperature"
 	| "airTemperature"
 	| "windU"
@@ -21,6 +52,27 @@ export type GcmFieldId =
 	| "surfaceNetHeat"
 
 export type GcmMapMode =
+	| "convectivePrecipitation"
+	| "largeScalePrecipitation"
+	| "toaShortwave"
+	| "toaLongwave"
+	| "surfaceShortwave"
+	| "surfaceLongwave"
+	| "sensibleHeatFlux"
+	| "latentHeatFlux"
+	| "seaLevelPressure"
+	| "snowfall"
+	| "snowmelt"
+	| "seaIceThickness"
+	| "glacierCover"
+	| `layer${GcmAtmosphereVariable}${GcmLevel}`
+	| "relativeHumidity"
+	| "evaporation"
+	| "runoff"
+	| "forestCover"
+	| "leafAreaIndex"
+	| "toaNetRadiation"
+	| "surfaceNetHeat"
 	| "surfaceTemperature"
 	| "airTemperature"
 	| "wind"
@@ -45,6 +97,7 @@ export type GcmDisplayUnit =
 	| "centimeters"
 	| "millimeters"
 	| "wattsPerSquareMeter"
+	| "dimensionless"
 
 export interface GcmModeDefinition {
 	mode: GcmMapMode

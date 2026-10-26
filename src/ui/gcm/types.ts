@@ -1,3 +1,8 @@
+import type {
+	GcmAtmosphereConfig,
+	GcmAtmosphereMode,
+	GcmGas,
+} from "@/model/climate/gcm/atmosphere/types"
 import type { GcmMonthlyMean } from "@/model/climate/gcm/averages/types"
 import type { GcmYearlyBalance } from "@/model/climate/gcm/balance/types"
 import type { GcmCheckpointDiagnostics } from "@/model/climate/gcm/checkpoint/types"
@@ -10,8 +15,10 @@ import type {
 import type { GcmTerrain } from "@/model/climate/gcm/terrain/types"
 import type {
 	GcmConfig,
+	GcmOrbitOverrideKey,
 	GcmPhysicsFilter,
 	GcmSnapshot,
+	GcmSurfaceOverrideKey,
 } from "@/model/climate/gcm/types"
 import type { RgbColor } from "@/model/shared/color/color-palettes/types"
 import type { GcmHoverPoint } from "@/ui/gcm/hover/types"
@@ -163,10 +170,12 @@ export type GcmSliderKey = keyof Pick<
 	| "eccentricity"
 	| "rotationPeriodDays"
 	| "yearDays"
-	| "pN2Bar"
-	| "pO2Bar"
-	| "pArBar"
 	| "initialGrowth"
+	| "radiusEarth"
+	| "gravityMs2"
+	| "substellarLongitudeDeg"
+	| "soilDepthScale"
+	| "oceanDepthM"
 >
 
 export interface GcmSliderSpec {
@@ -179,6 +188,37 @@ export interface GcmSliderSpec {
 	digits: number
 }
 
+export type GcmHelpKey =
+	| GcmGas
+	| "atmosphereMode"
+	| "totalPressure"
+	| "gasConstant"
+	| GcmSurfaceOverrideKey
+	| GcmOrbitOverrideKey
+	| "keplerian"
+	| "layers"
+	| GcmSliderKey
+	| "truncation"
+	| "workers"
+	| "timestepMinutes"
+	| "radiationIntervalSteps"
+	| "physicsFilter"
+	| "gridpointFilter"
+	| "spectralFilter"
+	| "synchronous"
+	| "fixedOrbit"
+	| "ozone"
+	| "earthSurfaceClimatology"
+	| "wetSoil"
+	| "glaciers"
+	| "vegetation"
+	| "heightmap"
+	| "landMask"
+	| "invertMask"
+	| "blackElevation"
+	| "whiteElevation"
+	| "seaLevel"
+
 export type GcmSmoothingFilter = Extract<
 	GcmPhysicsFilter,
 	"none" | "cesaro" | "exp" | "lh"
@@ -187,6 +227,26 @@ export type GcmSmoothingFilter = Extract<
 export interface GcmFilterToggle {
 	filter: GcmPhysicsFilter
 	enabled: boolean
+}
+
+export interface GcmOverrideSpec {
+	key: GcmSurfaceOverrideKey | GcmOrbitOverrideKey
+	label: string
+	initialOverride: number
+	min: number
+	max: number
+	step: number
+	unit: string
+	displayScale: number
+	digits: number
+}
+
+export interface GcmOverrideControlsProps {
+	section: "surface" | "orbit"
+	unitSystem: UnitSystem
+	config: GcmConfig
+	disabled: boolean
+	onChange: (config: GcmConfig) => void
 }
 
 export interface GcmStepSample {
@@ -228,10 +288,30 @@ export interface GcmWorkerOption {
 
 export interface GcmConfigPanelProps {
 	config: GcmConfig
+	terrain: GcmTerrain | null
+	latitudes: number
+	unitSystem: UnitSystem
 	resolutions: ReadonlyArray<GcmResolution>
 	workerChoice: string
 	workerOptions: ReadonlyArray<GcmWorkerOption>
 	onWorkerChange: (value: string) => void
 	disabled: boolean
 	onChange: (config: GcmConfig) => void
+	onTerrainChange: (terrain: GcmTerrain | null) => void
+}
+
+export interface GcmAtmosphereControlsProps {
+	config: GcmAtmosphereConfig
+	disabled: boolean
+	onChange: (config: GcmAtmosphereConfig) => void
+}
+
+export interface GcmGasChange {
+	gas: GcmGas
+	value: number | null
+}
+
+export interface GcmAtmosphereModeOption {
+	value: GcmAtmosphereMode
+	label: string
 }

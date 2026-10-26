@@ -11,6 +11,7 @@ class ModelSource:
     build: Path
     output: Path
     latitudes: int
+    layers: int
     ranks: int
     main_suffix: str
     step_hook: str
@@ -75,12 +76,19 @@ def radiation_interval(text: str) -> str:
 
 
 def patch_sources(model: ModelSource):
-    resolution = f"module resmod\nparameter(NLAT_ATM={model.latitudes})\nparameter(NLEV_ATM=10)\nparameter(NPRO_ATM={model.ranks})\nend module resmod\n"
+    resolution = f"module resmod\nparameter(NLAT_ATM={model.latitudes})\nparameter(NLEV_ATM={model.layers})\nparameter(NPRO_ATM={model.ranks})\nend module resmod\n"
     if not (model.build / "resmod.f90").exists() or (model.build / "resmod.f90").read_text() != resolution:
         (model.build / "resmod.f90").write_text(resolution)
     main = (model.build / "plasim.f90").read_text().replace("      call epilog", "      call wasm_fields\n      call epilog", 1)
     main = main.replace(",solar_day,-1,mcal_days_per_year)", ",solar_day,-1,nint(mpstep),mcal_days_per_year)")
     main = main.replace(",solar_day,0,mcal_days_per_year)", ",solar_day,0,nint(mpstep),mcal_days_per_year)")
+    if model.layers < 10:
+        start = main.index("      if ((NLEV==20) .and. (nrdrag==1)")
+        end = main.index("      endif", start) + len("      endif")
+        main = main[:start] + main[end:]
+        start = main.index("      elseif ((neqsig==5) .and. (NLEV .gt. 10)) then")
+        end = main.index("\n      else\n", start)
+        main = main[:start] + main[end:]
     main += WASM_FIELDS
     if model.step_hook:
         if main.count(STEP_END) != 1:

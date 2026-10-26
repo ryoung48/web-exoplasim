@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react"
 import { GCM_DOWNSCALE } from "@/model/climate/gcm/downscale"
 import { GCM_FIELDS } from "@/model/climate/gcm/fields"
-import type { GcmMapMode } from "@/model/climate/gcm/fields/types"
+import type { GcmLevel, GcmMapMode } from "@/model/climate/gcm/fields/types"
 import { GCM_GRID } from "@/model/climate/gcm/grid"
 import { GCM_TERRAIN } from "@/model/climate/gcm/terrain"
 import { PanelHeader } from "@/ui/components/composites/PanelHeader"
@@ -24,7 +24,6 @@ import type { GcmHoverPoint } from "@/ui/gcm/hover/types"
 import { GCM_LIVE } from "@/ui/gcm/live-store"
 import { GCM_MODE_GROUPS } from "@/ui/gcm/map-mode-options"
 import { GCM_PERIOD_VIEW } from "@/ui/gcm/period-view"
-import { TerrainPanel } from "@/ui/gcm/terrain/TerrainPanel"
 import type {
 	GcmMapDetail,
 	GcmMapLayer,
@@ -62,17 +61,35 @@ const PERIOD_OPTIONS = [
 
 export function GcmView() {
 	const gcm = useGcmRun()
-	const [view, setView] = useState<GcmViewMode>("surfaceTemperature")
+	const [requestedView, setView] = useState<GcmViewMode>("surfaceTemperature")
+	const requestedLayer = GCM_FIELDS.layer(requestedView)
+	const view =
+		requestedLayer && requestedLayer.level > gcm.config.layers
+			? GCM_FIELDS.layerMode({ ...requestedLayer, level: gcm.config.layers })
+			: requestedView
+	const levelOptions = GCM_FIELDS.levels(gcm.config.layers).map((level) => ({
+		value: String(level),
+		label:
+			level === 1
+				? "1 · top"
+				: level === gcm.config.layers
+					? `${level} · bottom`
+					: String(level),
+	}))
 	const [period, setPeriod] = useState<GcmPeriod>("now")
 	const [monthIndex, setMonthIndex] = useState<number | null>(null)
 	const [unitSystem, setUnitSystem] = useState<UnitSystem>("metric")
 	const [detail, setDetail] = useState<GcmMapDetail>("model")
 	const [hover, setHover] = useState<GcmHoverPoint | null>(null)
 	const [sidebarOpen, setSidebarOpen] = useState(true)
+	const atmosphere = GCM_FIELDS.layer(view)
+	const groupView = atmosphere
+		? GCM_FIELDS.layerMode({ ...atmosphere, level: 10 })
+		: view
 	const modeGroup = GCM_MODE_GROUPS.find(
 		(group) =>
-			group.defaultView === view ||
-			group.children.some((child) => child.value === view),
+			group.defaultView === groupView ||
+			group.children.some((child) => child.value === groupView),
 	)
 	const terrainView = view === "elevation"
 	const mode: GcmMapMode =
@@ -182,7 +199,7 @@ export function GcmView() {
 				<header className="flex flex-wrap items-start justify-between gap-2">
 					<div>
 						<h1 className={cx(uiTokens.type.title, uiTokens.text.primary)}>
-							ExoPlaSim · {gcm.terrain?.name ?? "Earth"}
+							ExoPlaSim · Web
 						</h1>
 						<p className={cx(uiTokens.type.label, uiTokens.text.muted)}>
 							{gcm.state.truncation > 0 ? `T${gcm.state.truncation} ` : ""}
@@ -245,8 +262,25 @@ export function GcmView() {
 						<div className={cx("flex border-l pl-2", uiTokens.border.default)}>
 							<SegmentedControl
 								options={modeGroup.children}
-								value={view}
+								value={groupView}
 								onChange={setView}
+							/>
+						</div>
+					)}
+					{atmosphere && (
+						<div className="flex items-center gap-2">
+							<span className={uiTokens.type.label}>Model layer</span>
+							<SegmentedControl
+								options={levelOptions}
+								value={String(atmosphere.level)}
+								onChange={(value) =>
+									setView(
+										GCM_FIELDS.layerMode({
+											variable: atmosphere.variable,
+											level: Number(value) as GcmLevel,
+										}),
+									)
+								}
 							/>
 						</div>
 					)}
@@ -500,25 +534,24 @@ export function GcmView() {
 				</section>
 				<section className="space-y-3">
 					<PanelHeader title="Settings" />
-					<TerrainPanel
-						terrain={gcm.terrain}
-						onChange={gcm.setTerrain}
-						disabled={active}
-						unitSystem={unitSystem}
-						latitudes={
-							gcm.resolutions.find(
-								(entry) => entry.truncation === gcm.config.truncation,
-							)?.latitudes ?? 32
-						}
-					/>
 					<GcmConfigPanel
 						config={gcm.config}
+						terrain={gcm.terrain}
+						latitudes={
+							gcm.resolutions.find(
+								(entry) =>
+									entry.truncation === gcm.config.truncation &&
+									entry.layers === gcm.config.layers,
+							)?.latitudes ?? 32
+						}
+						unitSystem={unitSystem}
 						resolutions={gcm.resolutions}
 						workerChoice={gcm.workerChoice}
 						workerOptions={gcm.workerOptions}
 						onWorkerChange={gcm.setWorkerChoice}
 						disabled={active}
 						onChange={gcm.setConfig}
+						onTerrainChange={gcm.setTerrain}
 					/>
 				</section>
 			</aside>

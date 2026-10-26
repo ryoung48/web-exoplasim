@@ -1,8 +1,11 @@
 import React from "react"
 import { cx } from "@/ui/components/lib"
+import { InputLabel } from "@/ui/components/primitives/InputLabel"
 import { LabeledValueRow } from "@/ui/components/primitives/LabeledValueRow"
 
 interface LabeledSliderProps {
+	// [JUSTIFICATION] Existing sliders can omit contextual help.
+	help?: string
 	label: React.ReactNode
 	value: React.ReactNode
 	min: number
@@ -20,6 +23,7 @@ interface LabeledSliderProps {
 
 export const LabeledSlider: React.FC<LabeledSliderProps> = ({
 	label,
+	help,
 	value,
 	min,
 	max,
@@ -35,7 +39,7 @@ export const LabeledSlider: React.FC<LabeledSliderProps> = ({
 }) => (
 	<div className={className}>
 		<LabeledValueRow
-			label={label}
+			label={help ? <InputLabel label={label} help={help} /> : label}
 			value={value}
 			labelClassName="text-[11px] font-medium text-slate-300"
 			valueClassName="font-mono text-[11px] text-slate-400"

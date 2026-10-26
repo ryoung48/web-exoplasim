@@ -78,7 +78,11 @@ function create({
 			weights[base + 3] = s * t
 		}
 	}
-	const boundary = GCM_BOUNDARY.fromTerrain({ grid, terrain })
+	const boundary = GCM_BOUNDARY.fromTerrain({
+		grid,
+		terrain,
+		gravityMs2: STANDARD_GRAVITY,
+	})
 	const cellElevationM = Float32Array.from(
 		boundary.geopotential,
 		(value) => value / STANDARD_GRAVITY,

@@ -5,6 +5,7 @@ import { LabeledSlider } from "@/ui/components/primitives/LabeledSlider"
 import { LabeledValueRow } from "@/ui/components/primitives/LabeledValueRow"
 import { ToggleRow } from "@/ui/components/primitives/ToggleRow"
 import { uiTokens } from "@/ui/components/tokens"
+import { GCM_INPUT_HELP } from "@/ui/gcm/input-help"
 import { TerrainPreview } from "@/ui/gcm/terrain/TerrainPreview"
 import type { GcmTerrainPanelProps } from "@/ui/gcm/terrain/types"
 import { useTerrainImport } from "@/ui/gcm/terrain/useTerrainImport"
@@ -19,20 +20,11 @@ export function TerrainPanel({
 }: GcmTerrainPanelProps) {
 	const upload = useTerrainImport(latitudes)
 	return (
-		<fieldset
-			className={cx(
-				"min-w-0 space-y-2 border-t pt-1.5 [&>legend]:mb-0",
-				uiTokens.border.default,
-			)}
-		>
-			<legend
-				className={cx("pr-2", uiTokens.type.controlWide, uiTokens.text.primary)}
-			>
-				Terrain
-			</legend>
+		<div className="min-w-0 space-y-2">
 			<fieldset disabled={disabled || upload.busy} className="space-y-2">
 				<FilePicker
 					label="Heightmap"
+					help={GCM_INPUT_HELP.heightmap}
 					action="Choose heightmap"
 					accept=".png,.bin"
 					emptyLabel="Required"
@@ -42,6 +34,7 @@ export function TerrainPanel({
 				/>
 				<FilePicker
 					label="Land mask"
+					help={GCM_INPUT_HELP.landMask}
 					action="Choose land mask"
 					accept=".png"
 					emptyLabel="Optional"
@@ -58,6 +51,7 @@ export function TerrainPanel({
 									<ToggleRow
 										className="flex-1"
 										label="Invert mask"
+										help={GCM_INPUT_HELP.invertMask}
 										checked={upload.mapping.invertMask}
 										onChange={(invertMask) =>
 											upload.setMapping({ ...upload.mapping, invertMask })
@@ -80,6 +74,7 @@ export function TerrainPanel({
 								<>
 									<LabeledSlider
 										label="Black elevation"
+										help={GCM_INPUT_HELP.blackElevation}
 										value={formatElevation(
 											upload.mapping.blackM / 1000,
 											unitSystem,
@@ -94,6 +89,7 @@ export function TerrainPanel({
 									/>
 									<LabeledSlider
 										label="White elevation"
+										help={GCM_INPUT_HELP.whiteElevation}
 										value={formatElevation(
 											upload.mapping.whiteM / 1000,
 											unitSystem,
@@ -111,6 +107,7 @@ export function TerrainPanel({
 							{upload.heightmap && (
 								<LabeledSlider
 									label="Sea level"
+									help={GCM_INPUT_HELP.seaLevel}
 									value={formatElevation(
 										upload.mapping.seaLevelM / 1000,
 										unitSystem,
@@ -193,6 +190,6 @@ export function TerrainPanel({
 					Clear run to edit terrain.
 				</p>
 			)}
-		</fieldset>
+		</div>
 	)
 }

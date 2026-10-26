@@ -2,6 +2,7 @@ import type { GcmNamelistEdits } from "@/model/climate/gcm/namelist/types"
 import type { GcmTerrain } from "@/model/climate/gcm/terrain/types"
 import type {
 	GcmConfig,
+	GcmLayerCount,
 	GcmSnapshot,
 	GcmTruncation,
 } from "@/model/climate/gcm/types"
@@ -61,6 +62,7 @@ export type ExoplasimFactory = (
 ) => Promise<ExoplasimModule>
 
 export interface GcmWorkerLoad {
+	layers: GcmLayerCount
 	type: "load"
 	rank: number
 	size: number
@@ -122,6 +124,7 @@ export interface GcmRun {
 }
 
 export interface GcmResolution {
+	layers: GcmLayerCount
 	truncation: GcmTruncation
 	latitudes: number
 	precisionBytes: number

@@ -52,7 +52,13 @@ try {
 	}
 	const globalMean = (year, name) => weighted(year.field(name), 0, latitudes)
 	const mean = (series) => series.reduce((sum, value) => sum + value, 0) / series.length
-	const std = (series) => Math.sqrt(series.reduce((sum, value) => sum + (value - mean(series)) ** 2, 0) / (series.length - 1))
+	// Interannual sigma from residuals about a least-squares line, so slab-ocean
+	// spin-up still under way in the kept years does not widen the threshold.
+	const std = (series) => {
+		const center = (series.length - 1) / 2
+		const slope = series.reduce((sum, value, i) => sum + (i - center) * (value - mean(series)), 0) / series.reduce((sum, _, i) => sum + (i - center) ** 2, 0)
+		return Math.sqrt(series.reduce((sum, value, i) => sum + (value - mean(series) - slope * (i - center)) ** 2, 0) / (series.length - 2))
+	}
 	const kept = (years) => years.slice(discard)
 	const n = Math.min(kept(reference).length, kept(candidate).length)
 	assert(n >= 2, `Need at least 2 kept years, have ${n}`)

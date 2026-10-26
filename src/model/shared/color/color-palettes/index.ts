@@ -131,6 +131,7 @@ const elevationLandStops = palette(
 )
 
 export const COLOR_PALETTES = {
+	greensStops: palette("#f7fcf5", "#c7e9c0", "#74c476", "#238b45", "#00441b"),
 	elevationLandStops,
 	cloudStops,
 	windStops,

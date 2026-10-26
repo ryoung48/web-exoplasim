@@ -40,7 +40,7 @@ def build_reference():
         parser.error("--demote-double needs --precision 4")
     name = f"reference-t{args.truncation}-r{args.ranks}-p{args.precision}" + ("-demoted" if args.demote_double else "") + ("-coverage" if args.coverage else "")
     build = work / name
-    model = ModelSource(source=work / "source" / "exoplasim", build=build, output=build, latitudes=latitudes, ranks=args.ranks,
+    model = ModelSource(source=work / "source" / "exoplasim", build=build, output=build, latitudes=latitudes, layers=10, ranks=args.ranks,
                         main_suffix=(script_directory / "gcm_reference.f90").read_text(), step_hook="gcm_reference_step",
                         mpi_module="mpimod" if args.ranks > 1 else "mpimod_stub", utility_module="utilities" if args.ranks > 1 else "utilities_stub")
     copy_sources(model)

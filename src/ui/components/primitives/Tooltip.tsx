@@ -1,53 +1,129 @@
-import React from "react"
+import { useId, useLayoutEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { cx } from "@/ui/components/lib"
+import type {
+	TooltipLocation,
+	TooltipProps,
+} from "@/ui/components/primitives/tooltip/types"
+import { uiTokens } from "@/ui/components/tokens"
 
-type TooltipPosition = "top" | "bottom"
-type TooltipAlign = "start" | "center" | "end"
+const OPEN_EVENT = "ui-tooltip-open"
 
-const positionClassName: Record<
-	TooltipPosition,
-	Record<TooltipAlign, string>
-> = {
-	top: {
-		start: "bottom-full left-0 mb-1.5",
-		center: "bottom-full left-1/2 -translate-x-1/2 mb-1.5",
-		end: "bottom-full right-0 mb-1.5",
-	},
-	bottom: {
-		start: "top-full left-0 mt-1.5",
-		center: "top-full left-1/2 -translate-x-1/2 mt-1.5",
-		end: "top-full right-0 mt-1.5",
-	},
-}
-
-interface TooltipProps {
-	content: React.ReactNode
-	position?: TooltipPosition
-	align?: TooltipAlign
-	className?: string
-	children: React.ReactNode
-}
-
-export const Tooltip: React.FC<TooltipProps> = ({
+export function Tooltip({
 	content,
 	position = "bottom",
 	align = "start",
 	className,
 	children,
-}) => (
-	<div className="group/tooltip relative inline-flex items-center">
-		{children}
+	id,
+}: TooltipProps) {
+	const generatedId = useId()
+	const tooltipId = id ?? generatedId
+	const anchor = useRef<HTMLDivElement>(null)
+	const bubble = useRef<HTMLDivElement>(null)
+	const [open, setOpen] = useState(false)
+	const [location, setLocation] = useState<TooltipLocation | null>(null)
+	useLayoutEffect(() => {
+		if (!open || !anchor.current || !bubble.current) return
+		const updateLocation = () => {
+			if (!anchor.current || !bubble.current) return
+			const target = anchor.current.getBoundingClientRect()
+			const bounds = bubble.current.getBoundingClientRect()
+			const { gap, viewportInset } = uiTokens.tooltip
+			const below = target.bottom + gap
+			const above = target.top - gap - bounds.height
+			const preferred = position === "bottom" ? below : above
+			const alternate = position === "bottom" ? above : below
+			const top =
+				preferred >= viewportInset &&
+				preferred + bounds.height <= window.innerHeight - viewportInset
+					? preferred
+					: alternate
+			const left =
+				align === "end"
+					? target.right - bounds.width
+					: align === "center"
+						? target.left + (target.width - bounds.width) / 2
+						: target.left
+			setLocation({
+				left: Math.max(
+					viewportInset,
+					Math.min(left, window.innerWidth - bounds.width - viewportInset),
+				),
+				top: Math.max(
+					viewportInset,
+					Math.min(top, window.innerHeight - bounds.height - viewportInset),
+				),
+			})
+		}
+		updateLocation()
+		const close = () => setOpen(false)
+		const anotherOpened = (event: Event) => {
+			if (event instanceof CustomEvent && event.detail !== tooltipId) close()
+		}
+		const outside = (event: PointerEvent) => {
+			if (
+				!anchor.current?.contains(event.target as Node) &&
+				!bubble.current?.contains(event.target as Node)
+			)
+				close()
+		}
+		const handleEscape = (event: KeyboardEvent) => {
+			if (event.key === "Escape") close()
+		}
+		window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: tooltipId }))
+		window.addEventListener(OPEN_EVENT, anotherOpened)
+		window.addEventListener("scroll", updateLocation, true)
+		window.addEventListener("resize", updateLocation)
+		window.addEventListener("pointerdown", outside, true)
+		window.addEventListener("keydown", handleEscape)
+		return () => {
+			window.removeEventListener(OPEN_EVENT, anotherOpened)
+			window.removeEventListener("scroll", updateLocation, true)
+			window.removeEventListener("resize", updateLocation)
+			window.removeEventListener("pointerdown", outside, true)
+			window.removeEventListener("keydown", handleEscape)
+		}
+	}, [open, position, align, tooltipId])
+	return (
 		<div
-			className={cx(
-				"pointer-events-none absolute z-20 w-max rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] normal-case leading-[1.35] text-slate-500 opacity-0 shadow-lg transition-opacity group-hover/tooltip:opacity-100",
-				positionClassName[position][align],
-				typeof content === "string"
-					? "max-w-44 whitespace-pre-line"
-					: "max-w-none",
-				className,
-			)}
+			ref={anchor}
+			className={uiTokens.tooltip.anchor}
+			onMouseEnter={() => setOpen(true)}
+			onMouseLeave={(event) => {
+				if (
+					!anchor.current?.contains(document.activeElement) &&
+					!(
+						event.relatedTarget instanceof Node &&
+						bubble.current?.contains(event.relatedTarget)
+					)
+				)
+					setOpen(false)
+			}}
+			onFocusCapture={() => setOpen(true)}
+			onBlurCapture={(event) => {
+				if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false)
+			}}
+			onClick={() => setOpen(true)}
 		>
-			{content}
+			{children}
+			{open &&
+				createPortal(
+					<div
+						ref={bubble}
+						id={tooltipId}
+						role="tooltip"
+						className={cx(uiTokens.tooltip.body, className)}
+						style={{
+							left: location?.left ?? 0,
+							top: location?.top ?? 0,
+							visibility: location ? "visible" : "hidden",
+						}}
+					>
+						{content}
+					</div>,
+					document.body,
+				)}
 		</div>
-	</div>
-)
+	)
+}

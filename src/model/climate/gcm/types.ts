@@ -1,8 +1,23 @@
+import type { GcmAtmosphereConfig } from "@/model/climate/gcm/atmosphere/types"
+
 export type GcmPhysicsFilter = "gp" | "sp" | "none" | "cesaro" | "exp" | "lh"
 
 export type GcmVegetation = 0 | 1 | 2
 
+export type GcmLayerCount = 5 | 10
+
 export type GcmTruncation = 21 | 42
+
+export type GcmAlbedoKey = "landAlbedo" | "oceanAlbedo" | "snowIceAlbedo"
+
+export type GcmSurfaceOverrideKey =
+	| GcmAlbedoKey
+	| "soilWaterCapacityM"
+	| "soilHeatCapacity"
+
+export type GcmOrbitOverrideKey =
+	| "periapseLongitudeDeg"
+	| "initialMeanAnomalyDeg"
 
 export interface GcmGlaciers {
 	enabled: boolean
@@ -11,6 +26,22 @@ export interface GcmGlaciers {
 }
 
 export interface GcmConfig {
+	atmosphere: GcmAtmosphereConfig
+	layers: GcmLayerCount
+	periapseLongitudeDeg: number | null
+	keplerian: boolean
+	initialMeanAnomalyDeg: number | null
+	soilWaterCapacityM: number | null
+	soilHeatCapacity: number | null
+	soilDepthScale: number
+	landAlbedo: number | null
+	oceanAlbedo: number | null
+	snowIceAlbedo: number | null
+	radiusEarth: number
+	gravityMs2: number
+	synchronous: boolean
+	substellarLongitudeDeg: number
+	oceanDepthM: number
 	fluxWm2: number
 	starTemperatureK: number
 	yearDays: number
@@ -18,10 +49,6 @@ export interface GcmConfig {
 	rotationPeriodDays: number
 	obliquityDeg: number
 	fixedOrbit: boolean
-	pN2Bar: number
-	pO2Bar: number
-	pArBar: number
-	ozone: boolean
 	wetSoil: boolean
 	vegetation: GcmVegetation
 	initialGrowth: number
@@ -42,6 +69,7 @@ export interface GcmDate {
 }
 
 export interface GcmSnapshot {
+	layers: GcmLayerCount
 	step: number
 	date: GcmDate
 	values: Float32Array

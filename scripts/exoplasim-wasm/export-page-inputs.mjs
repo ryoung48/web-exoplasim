@@ -36,7 +36,7 @@ try {
 		orbit: { eccentricity: 0.3, obliquityDeg: 60, fixedOrbit: false, physicsFilter: ["gp", "cesaro", "sp"], rotationPeriodDays: 2 },
 	}
 	for (const [truncation, latitudes, base] of [[21, 32, baseT21], [42, 64, baseT42]]) {
-		const boundary = GCM_BOUNDARY.files(GCM_BOUNDARY.fromTerrain({ grid: GCM_GRID.forLatitudes(latitudes), terrain }))
+		const boundary = GCM_BOUNDARY.files(GCM_BOUNDARY.fromTerrain({ gravityMs2: 9.80665, grid: GCM_GRID.forLatitudes(latitudes), terrain }))
 		for (const [name, overrides] of Object.entries(configs)) {
 			const config = { ...defaults, ...overrides, truncation }
 			const directory = path.join(output, `${name}-t${truncation}`)

@@ -42,6 +42,13 @@ function pickRanks({ available, hardwareThreads }: GcmRankChoice): number {
 }
 
 function start(request: GcmRunRequest): GcmRun {
+	if (
+		request.config.layers !== request.resolution.layers ||
+		request.config.truncation !== request.resolution.truncation
+	)
+		throw new Error(
+			"Model build does not match the selected resolution and atmospheric layers",
+		)
 	const base = new URL(`t${request.resolution.truncation}/`, assetBase())
 	const exchange = new SharedArrayBuffer(
 		EXCHANGE_HEADER_BYTES + 2 * EXCHANGE_REGION_BYTES,
@@ -53,6 +60,7 @@ function start(request: GcmRunRequest): GcmRun {
 	if (request.startPaused) Atomics.store(control, PAUSED, 1)
 	const files = GCM_BOUNDARY.files(
 		GCM_BOUNDARY.fromTerrain({
+			gravityMs2: request.config.gravityMs2,
 			grid: GCM_GRID.forLatitudes(request.resolution.latitudes),
 			terrain: request.terrain,
 		}),
@@ -132,11 +140,15 @@ function start(request: GcmRunRequest): GcmRun {
 		}
 		const load: GcmWorkerLoad = {
 			type: "load",
+			layers: request.config.layers,
 			rank,
 			size: request.ranks,
 			exchange,
 			control: controlBuffer,
-			moduleUrl: new URL(`ranks-${request.ranks}/exoplasim.js`, base).href,
+			moduleUrl: new URL(
+				`layers-${request.config.layers}/ranks-${request.ranks}/exoplasim.js`,
+				base,
+			).href,
 			dataUrl: new URL("exoplasim.data", base).href,
 			files,
 			keepSurfaceFiles: request.config.earthSurfaceClimatology,

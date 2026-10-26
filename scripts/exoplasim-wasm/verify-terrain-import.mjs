@@ -56,16 +56,16 @@ try {
 		const quadrants = { name: "quadrants", width: 4, height: 2, elevationM: new Float32Array([100, 100, 200, 200, 300, 300, 400, 400]), land: new Float32Array(8).fill(1) }
 		for (const latitudes of [32, 64]) {
 			const grid = GCM_GRID.forLatitudes(latitudes)
-			const boundary = GCM_BOUNDARY.fromTerrain({ grid, terrain })
+			const boundary = GCM_BOUNDARY.fromTerrain({ gravityMs2: 9.80665, grid, terrain })
 			check(boundary.landFraction.every((value) => Number.isFinite(value) && value >= -1e-12 && value <= 1 + 1e-12), "Invalid regridded land coverage")
 			check(boundary.geopotential.every(Number.isFinite), "Nonfinite geopotential")
-			const oriented = GCM_BOUNDARY.fromTerrain({ grid, terrain: quadrants })
+			const oriented = GCM_BOUNDARY.fromTerrain({ gravityMs2: 9.80665, grid, terrain: quadrants })
 			const west = grid.longitudes * 3 / 4
 			const east = grid.longitudes / 4
 			for (const [cell, expected] of [[west, 100], [east, 200], [(latitudes - 1) * grid.longitudes + west, 300], [(latitudes - 1) * grid.longitudes + east, 400]]) check(Math.abs(oriented.geopotential[cell] / 9.80665 - expected) < 1e-8, "Terrain orientation changed")
 			for (const metres of [0, -100]) {
 				const flat = { ...quadrants, elevationM: new Float32Array(8).fill(metres) }
-				const result = GCM_BOUNDARY.fromTerrain({ grid, terrain: flat })
+				const result = GCM_BOUNDARY.fromTerrain({ gravityMs2: 9.80665, grid, terrain: flat })
 				check(result.landFraction.every((value) => value === 1), "Flat/below-sea land lost")
 				check(result.geopotential.every((value) => Math.abs(value / 9.80665 - metres) < 1e-8), "Flat/below-sea terrain changed")
 			}

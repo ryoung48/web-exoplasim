@@ -1,3 +1,4 @@
+import { GCM_ATMOSPHERE } from "@/model/climate/gcm/atmosphere"
 import type {
 	GcmNamelistApplication,
 	GcmNamelistEdits,
@@ -6,14 +7,13 @@ import type { GcmConfig } from "@/model/climate/gcm/types"
 
 // Mirrors ExoPlaSim's Python Model.configure() namelist writes
 // (exoplasim/__init__.py at 5f8dff4) for the parameters exposed here.
-const MOLAR_MASS = { N2: 28.0134, O2: 31.9988, Ar: 39.948 } as const
-const UNIVERSAL_GAS_CONSTANT = 8314.46261815324
-const DEFAULT_CO2_PPMV = 300
+const EARTH_RADIUS_M = 6371220
 const NSTPW_WINDOW_MINUTES = 7200
 const SECONDS_PER_DAY = 86400
 const FILTER_KAPPA = 8
 const FILTER_POWER = 8
 const FILTER_LANDHOSKINS_N0 = 15
+const SOIL_LAYER_DEPTHS_M = [0.4, 0.8, 1.6, 3.2, 6.4]
 const VEGETATION_DEFAULTS = {
 	NCVEG: "1",
 	FORGROW: "1.0",
@@ -37,22 +37,44 @@ function flag(value: boolean): string {
 }
 
 function edits(config: GcmConfig): GcmNamelistEdits {
-	const pressureBar = config.pN2Bar + config.pO2Bar + config.pArBar
-	const meanMolecularWeight =
-		(config.pN2Bar * MOLAR_MASS.N2 +
-			config.pO2Bar * MOLAR_MASS.O2 +
-			config.pArBar * MOLAR_MASS.Ar) /
-		pressureBar
+	const atmosphere = GCM_ATMOSPHERE.resolve(config.atmosphere)
+	if (atmosphere.ok === false) throw new Error(atmosphere.message)
+	const { pressureBar, gasConstant, co2Ppm } = atmosphere.values
 	const stellarAlbedo = config.starTemperatureK > 0
 	const planet: Record<string, string> = {
+		GA: String(config.gravityMs2),
+		PLARAD: String(config.radiusEarth * EARTH_RADIUS_M),
 		GSOL0: String(config.fluxWm2),
 		ECCEN: String(config.eccentricity),
 		OBLIQ: String(config.obliquityDeg),
 		NFIXORB: flag(config.fixedOrbit),
-		GASCON: String(UNIVERSAL_GAS_CONSTANT / meanMolecularWeight),
+		NGENKEPLERIAN: flag(config.keplerian),
+		GASCON: String(gasConstant),
 		SIDEREAL_YEAR: String(config.yearDays * SECONDS_PER_DAY),
 	}
+	if (config.layers !== 5 && config.layers !== 10)
+		throw new Error("Choose 5 or 10 atmospheric layers")
+	for (const value of [
+		config.periapseLongitudeDeg,
+		config.initialMeanAnomalyDeg,
+	]) {
+		if (
+			value !== null &&
+			(!Number.isFinite(value) || value < -360 || value > 360)
+		)
+			throw new Error(
+				"Orbital angles must be finite and between -360 and 360 degrees",
+			)
+	}
+	if (config.periapseLongitudeDeg !== null) {
+		if (config.periapseLongitudeDeg < 0)
+			throw new Error("Periapse longitude must be between 0 and 360 degrees")
+		planet.MVELP = String(config.periapseLongitudeDeg)
+	}
+	if (config.initialMeanAnomalyDeg !== null)
+		planet.MEANANOM0 = String(config.initialMeanAnomalyDeg)
 	const plasim: Record<string, string> = {
+		FIXEDLON: String(config.substellarLongitudeDeg),
 		N_DAYS_PER_YEAR: String(config.yearDays),
 		PSURF: String(pressureBar * 1e5),
 		NVEG: String(config.vegetation),
@@ -63,6 +85,7 @@ function edits(config: GcmConfig): GcmNamelistEdits {
 		NFILTEREXP: String(FILTER_POWER),
 		LANDHOSKN0: String(FILTER_LANDHOSKINS_N0),
 	}
+	if (config.layers === 5) plasim.NSELA = "0"
 	if (config.rotationPeriodDays !== 1) {
 		planet.ROTSPD = String(1 / config.rotationPeriodDays)
 		plasim.N_DAYS_PER_YEAR = String(
@@ -73,23 +96,73 @@ function edits(config: GcmConfig): GcmNamelistEdits {
 		const [key, value] = FILTER_SWITCHES[filter]
 		plasim[key] = value
 	}
+	const land: Record<string, string> = {
+		NWETSOIL: flag(config.wetSoil && !stellarAlbedo),
+	}
+	for (const value of [
+		config.soilDepthScale,
+		config.soilWaterCapacityM,
+		config.soilHeatCapacity,
+	]) {
+		if (value !== null && (!Number.isFinite(value) || value <= 0)) {
+			throw new Error(
+				"Soil depth, water capacity and heat capacity must be positive",
+			)
+		}
+	}
+	land.DSOILZ = SOIL_LAYER_DEPTHS_M.map(
+		(depth) => depth * config.soilDepthScale,
+	).join(",")
+	if (config.soilWaterCapacityM !== null)
+		land.WSMAX = String(config.soilWaterCapacityM)
+	if (config.soilHeatCapacity !== null)
+		land.SOILCAP = String(config.soilHeatCapacity)
+	const sea: Record<string, string> = {}
+	for (const value of [
+		config.landAlbedo,
+		config.oceanAlbedo,
+		config.snowIceAlbedo,
+	]) {
+		if (value !== null && (!Number.isFinite(value) || value < 0 || value > 1)) {
+			throw new Error("Albedo overrides must be between 0 and 1")
+		}
+	}
+	if (config.landAlbedo !== null) {
+		land.ALBLAND = String(config.landAlbedo)
+		land.DGROUNDALB = `${config.landAlbedo},${config.landAlbedo}`
+	}
+	if (config.oceanAlbedo !== null) {
+		sea.ALBSEA = String(config.oceanAlbedo)
+		sea.DOCEANALB = `${config.oceanAlbedo},${config.oceanAlbedo}`
+	}
+	if (config.snowIceAlbedo !== null) {
+		const value = String(config.snowIceAlbedo)
+		const bands = `${value},${value}`
+		Object.assign(sea, { ALBICE: value, DICEALBMN: bands, DICEALBMX: bands })
+		Object.assign(land, {
+			DSNOWALBMN: bands,
+			DGLACALBMN: bands,
+			DSNOWALB: bands,
+		})
+	}
 	return {
 		planet_namelist: planet,
 		plasim_namelist: plasim,
 		radmod_namelist: {
+			NFIXED: flag(config.synchronous),
 			...(stellarAlbedo
 				? { NSTARTEMP: "1", STARBBTEMP: String(config.starTemperatureK) }
 				: {}),
-			NO3: flag(config.ozone),
+			NO3: flag(config.atmosphere.ozone),
 			NRADINT: String(config.radiationIntervalSteps),
-			CO2: String(DEFAULT_CO2_PPMV),
+			CO2: String(co2Ppm),
 			NPBROADEN: "1",
 			NECHAM: "1",
 			NECHAM6: "0",
 		},
-		landmod_namelist: {
-			NWETSOIL: flag(config.wetSoil && !stellarAlbedo),
-		},
+		landmod_namelist: land,
+		...(Object.keys(sea).length > 0 ? { seamod_namelist: sea } : {}),
+		oceanmod_namelist: { MLDEPTH: String(config.oceanDepthM) },
 		vegmod_namelist: {
 			...VEGETATION_DEFAULTS,
 			RINIDAGG: String(config.initialGrowth),

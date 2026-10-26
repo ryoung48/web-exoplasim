@@ -30,6 +30,7 @@ parser.add_argument("--ranks", type=int, choices=[1, 2, 4, 8, 16], default=1)
 parser.add_argument("--stack-mib", type=int)
 parser.add_argument("--initial-memory-mib", type=int)
 parser.add_argument("--truncation", type=int, choices=[21, 42], default=21)
+parser.add_argument("--layers", type=int, choices=[5, 10], default=10)
 parser.add_argument("--precision", type=int, choices=[4, 8], default=8, help="bytes per default REAL, like ExoPlaSim's Model(precision=...)")
 parser.add_argument("--app", action="store_true", help="ES module for the Chaos Machine /gcm page, with live field snapshots")
 args = parser.parse_args()
@@ -87,11 +88,11 @@ with tarfile.open(runtime_package) as archive:
 print("Runtime:", list(runtime_dir.rglob("*.a")), flush=True)
 
 source = work / "source" / "exoplasim"
-build_name = ("build" if args.variant == "scalar" else "build-simd") + ("" if args.ranks == 1 else f"-ranks{args.ranks}") + ("" if args.truncation == 21 else f"-t{args.truncation}") + ("" if args.precision == 8 else "-sp") + ("" if args.frontend_opt == 2 else "-fo0") + ("-app" if args.app else "")
+build_name = ("build" if args.variant == "scalar" else "build-simd") + ("" if args.ranks == 1 else f"-ranks{args.ranks}") + ("" if args.truncation == 21 else f"-t{args.truncation}") + ("" if args.precision == 8 else "-sp") + ("" if args.frontend_opt == 2 else "-fo0") + ("" if args.layers == 10 else f"-l{args.layers}") + ("-app" if args.app else "")
 build = work / (build_name if args.target == "wasm" else "build-native-reference")
 mpi_module = "mpimod_stub" if args.ranks == 1 else "mpimod_shm"
 utility_module = "utilities_stub" if args.ranks == 1 else "utilities"
-model = ModelSource(source=source, build=build, output=output, latitudes=latitudes, ranks=args.ranks,
+model = ModelSource(source=source, build=build, output=output, latitudes=latitudes, layers=args.layers, ranks=args.ranks,
                     main_suffix=(script_directory / "gcm_publish.f90").read_text() if args.app else "",
                     step_hook="gcm_publish_step" if args.app else "", mpi_module=mpi_module, utility_module=utility_module)
 copy_sources(model)
@@ -118,6 +119,7 @@ fortran_compiler = f"python3 {script_directory / 'compile.py'}" if args.target =
     f"MOST_CC={c_compiler}\nMOST_CC_OPTS={codegen_flags}\nMPIMOD={mpi_module}\nGUIMOD=guimod_stub\nPUMAX=pumax_stub\nUTILMOD={utility_module}\n"
     + (build / "make_plasim").read_text()
     + "\naerocore.o: aeromod.o\n"
+    + ("plasim.o: simba.o\n" if args.app else "")
 )
 env["OCEANCOUP"] = "cpl_stub"
 os.chdir(build)
@@ -207,4 +209,4 @@ linked.check_returncode()
 loader = output / "exoplasim.js"
 loader.write_text(loader.read_text().replace(f"{output}/exoplasim.data", "exoplasim.data"))
 print("Linked:", [(p.name, p.stat().st_size) for p in output.glob("exoplasim.*")], flush=True)
-(output / "build.json").write_text(json.dumps({"variant": args.variant, "frontendOptimization": args.frontend_opt, "frontendO0Files": FRONTEND_O0_FILES, "assignment": args.assignment, "math": "wasm", "codegenFlags": codegen_flags, "profile": args.profile, "debug": args.debug, "precisionBytes": args.precision, "layers": 10, "grid": [2 * latitudes, latitudes], "truncation": args.truncation, "steps": args.steps, "ranks": args.ranks, "stackMiB": args.stack_mib, "initialMemoryMiB": args.initial_memory_mib, "app": args.app}, indent=2))
+(output / "build.json").write_text(json.dumps({"variant": args.variant, "frontendOptimization": args.frontend_opt, "frontendO0Files": FRONTEND_O0_FILES, "assignment": args.assignment, "math": "wasm", "codegenFlags": codegen_flags, "profile": args.profile, "debug": args.debug, "precisionBytes": args.precision, "layers": args.layers, "grid": [2 * latitudes, latitudes], "truncation": args.truncation, "steps": args.steps, "ranks": args.ranks, "stackMiB": args.stack_mib, "initialMemoryMiB": args.initial_memory_mib, "app": args.app}, indent=2))
