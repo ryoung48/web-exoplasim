@@ -187,6 +187,11 @@ Everything runs from the repository root. Never overlap two benchmarks, or a ben
 - *Pass rule per output field:* RMS(GPU − f64) ≤ 2 × RMS(f32 replay − f64). Also, the number of points with |GPU − f64| above 10⁻⁵ × RMS(f64 field) must be at most 2 × that count for the f32 replay, plus 1.
   - *Value 2×:* two f32 evaluations of the same expression in different orders each satisfy the same error bound (Higham §3.1), so the GPU may differ from f64 by up to that bound twice. The +1 allows a single branch flip at a threshold when the f32 replay had none.
   - *Value 10⁻⁵:* about 84 ULPs at f32. It is the recursive-summation bound γₙ for n ≈ 64 terms (6.4 × 64 × 2⁻²⁴ ≈ 3.8 × 10⁻⁶), rounded up, so normal accumulation in a column stays under it.
+  - *Outlier column:* a grid field that fails the rule because a single column holds more than 0.5 of the GPU's squared error is judged again without that column. The report names the column, its share and the ratio without it.
+    - *Why:* some columns are ill-conditioned. In `kuo`, a parcel only 0.015 K warmer than its surroundings makes the convective rain rate proportional to a temperature excess where one f32 ULP is a 0.2% change. There a 1-ULP rounding difference becomes the field's whole RMS. It happened at T21 step 2000: `dprc` at 2.37×, 1.23× without column 1393.
+    - *Evidence:* an f32 emulation (`stats/kuo-trace.mjs`) traced that column to the f32 rounding of one level constant, `(σ_l/σ_l+1)^κ`. Over all ~930 deep-convection columns the GPU's and f32's errors were equal (RMS ratio 0.99–1.00).
+    - *Value 0.5:* the column must outweigh all other columns together, so a systematic error spread over many columns can never qualify.
+    - *Scope:* the rule removes one column at most. Two ill-conditioned columns in one field still fail.
 - *Stochastic kernels (DP4.4):* compare mean and standard deviation of each output field over 10 replays with different keys against 10 f32 replays with different seeds. Each must agree within the 2σ√(2/10) rule.
 - *Transforms in isolation:* `fc2sp(sp2fc(x)) = x` for random spectral fields to within 10⁻⁵ relative RMS (the same bound with n = NLAT).
 

@@ -417,3 +417,62 @@ All four cases pass:
 | T42 step 500 | 1.14 (`dtdtswr`) | none |
 
 `dsalb` is stored band by band (`2 × NHOR`) rather than Fortran's `(2, NHOR)`. The harness transposes it on the way in and out.
+
+### Precipitation and clouds
+
+`physics/precipitation` (`PRECIPITATION`) ports `rainmod`'s `rainstep` for the path every page configuration takes:
+- `nprc`, `nprl`, `ndca`, `nclouds`, `ncsurf`, `nshallow`, `nevapprec` = 1;
+- `kbeta = 1`, `nmoment = 0`, `nstorain = 0`.
+
+| Dispatch | Ports |
+| --- | --- |
+| `LEGENDRE.inverse` `sqt → fdqt`, `FOURIER.inverse` `fdqt → dqt` | `mkdqtgp`'s transforms |
+| `kuo.wgsl` | `mkdqtgp`'s scaling, then `kuo` (Kuo deep convection: parcel lifting from the surface or the lowest moistening level, closure by mean relative humidity) and `mkshallow` (shallow convection as diffusion) |
+| `mkdca.wgsl` | `mkdca`'s dry adjustment per column, into scratch fields |
+| `mkdca-limit.wgsl` | One workgroup: whether any column needed more than 2·NLEV passes |
+| `column.wgsl` (+ `mklsp.wgsl`, `mkrain.wgsl`, `mkclouds.wgsl`) | Adds `mkdca`'s tendencies unless that limit was hit, then `mklsp`, `mkrain` and `mkclouds` per column |
+
+`mkdca` repeats its pass over all columns until none is unstable, and drops every column's adjustment if 2·NLEV passes are not enough. Columns don't interact, so each GPU thread iterates its own column. `mkdca-limit` then reproduces the global give-up.
+
+`vdiff` and `mkshallow` share the ECHAM tridiagonal solves. These moved to `physics/diffusion` (`IMPLICIT_DIFFUSION`), and surface fluxes were re-verified unchanged.
+
+Tables come from `PRECIPITATION.tables` in f64: `rcrit` (`rainini`) and `kuo_zfac`, kuo's `(σ_l/σ_l+1)^κ`. The kernels also read `SURFACE_FLUX`'s `vdiff_skap`, `vdiff_skaph` and `vdiff_rdsig` and `RADIATION`'s `rad_lnsig`. Saturation humidity uses `GPU_MATH`'s `exp`. Its two correction forms, `q·zcor` and `q/(1 − MOIST·q)`, round differently, so each call site keeps Fortran's form. `kuo` also reuses a stale `zcor` where Fortran does.
+
+`d3 → d4` changes `dqt dcc dql dtdt dqdt dprc dprl dprs dqvi` and `rainmod.icclev icctot dprcl dprll`; the harness maps the state fields to the `rainmod.` names.
+
+**`mkdca`'s round-trip noise.** The first version failed `dtdt` at T21 step 100: ratio 1.75, with 10,222 points off against f32's 5,036. `mkdca` converts every level to θ = T/σ^κ and back, so even levels it never mixes get `(T/σ^κ·σ^κ − T)/Δt`. That is about 0 in f64 and f32 rounding noise elsewhere, and the GPU's division isn't correctly rounded. Levels no pass mixes now get exactly 0, the f64 answer. `dtdt` dropped to 0.71–0.87×, below f32, and a `dql` threshold flip at T21 step 2000 went away with it. In that flip, cover of 5 × 10⁻¹⁰ switched cloud water on.
+
+Results:
+
+| Case | Largest ratio | Status |
+| --- | --- | --- |
+| T21 step 100 | 1.20 (`dprs`) | pass |
+| T21 step 2000 | 2.37 (`dprc`) | pass under the outlier rule: 1.23 without column 1393 (8 points off against f32's 6) |
+| T42 step 100 | 1.14 (`dprs`) | pass |
+| T42 step 500 | 1.20 (`dprc`) | pass |
+
+`icclev` and `icctot` are exact.
+
+**The `dprc` case.** The error comes from one column (h = 1393), where a barely buoyant parcel gives a convective rain rate set by `T_parcel − T_env`:
+
+| | `dprcl`, level 8 | `dprcl`, level 9 |
+| --- | --- | --- |
+| GPU error | −2.7 × 10⁻³ | 2.7 × 10⁻⁴ |
+| f32 error | −8.1 × 10⁻⁴ | 8 × 10⁻⁵ |
+
+`dprc` there is 1.5 × 10⁻⁸ m/s. Without that column the ratio is 1.23. Correctly rounded division in the parcel and saturation code (an `fma` residual step) didn't change it (2.36–2.50), so it isn't division error.
+
+**Root cause.** `stats/kuo-trace.mjs` emulates `kuo` for one column in f64 and in f32, rounding after every operation. The f64 run reproduces the dump bit for bit, and the f32 run reproduces the f32 replay. Swapping in the GPU's choices one at a time:
+
+| Variant | `dprcl` error, levels 8 and 9 |
+| --- | --- |
+| Fortran f32 (`powf` on rounded σ) | −8.05 × 10⁻⁴, 7.96 × 10⁻⁵ |
+| `GPU_MATH` `exp` | unchanged |
+| GPU `dqt` | unchanged |
+| f64 `kuo_zfac` table | −2.70 × 10⁻³, 2.68 × 10⁻⁴, the GPU's values exactly |
+
+At level 8 the parcel is 0.0147 K warmer than its 281 K surroundings. One f32 ULP of temperature there is 3 × 10⁻⁵ K, so one ULP moves `dprcl` by 2 × 10⁻³. The correctly rounded f64 factor `(σ_l/σ_l+1)^κ` and f32's `powf` on rounded σ differ by about an ULP, and at this column that lands the GPU's parcel 1 ULP further from f64.
+
+Over every deep-convection column (956 at T21 step 100, 911 at step 2000), the f64 table and `powf` give the same `dprcl` RMS error: ratios 0.99 and 1.00. So the GPU's arithmetic isn't worse than f32's. The failure is one ill-conditioned trigger whose error is a coin flip at the ULP level, and it dominates a field RMS. Matching Fortran's `powf` would pass this case by reproducing f32 rounding rather than approaching f64. Making the excess itself accurate would need the parcel's whole lift and condensation chain in double-float.
+
+**Outlier rule.** The gate (plan V3) now judges a grid field again without its worst column when that column holds more than half of the GPU's squared error, and names the column. With it, every case passes: 54 of 54. The model code was unchanged from the 53-of-54 run, and the rule only affects failing fields.

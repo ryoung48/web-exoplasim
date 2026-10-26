@@ -16,27 +16,6 @@ fn at(field: u32, l: u32, h: u32) -> u32 {
 	return field + l * NHOR + h;
 }
 
-// One tridiagonal elimination of the ECHAM semi-implicit scheme for a
-// plain field (momentum, kinetic energy, humidity), in place.
-fn diffuse(x: ptr<function, array<f32, NLEV>>, k: ptr<function, array<f32, NLEV>>) {
-	var ebs: array<f32, NLEV>;
-	let ds0 = tables[TABLE_DSIGMA];
-	ebs[0] = (*k)[0] / (ds0 + (*k)[0]);
-	(*x)[0] = ds0 * (*x)[0] / (ds0 + (*k)[0]);
-	for (var l = 1u; l < NLEM; l++) {
-		let ds = tables[TABLE_DSIGMA + l];
-		let denominator = ds + (*k)[l] + (*k)[l - 1u] * (1.0 - ebs[l - 1u]);
-		ebs[l] = (*k)[l] / denominator;
-		(*x)[l] = ((*x)[l] * ds + (*k)[l - 1u] * (*x)[l - 1u]) / denominator;
-	}
-	let dsn = tables[TABLE_DSIGMA + NLEV - 1u];
-	(*x)[NLEV - 1u] = ((*x)[NLEV - 1u] * dsn + (*k)[NLEM - 1u] * (*x)[NLEM - 1u])
-		/ (dsn + (*k)[NLEM - 1u] * (1.0 - ebs[NLEM - 1u]));
-	for (var l = i32(NLEM) - 1; l >= 0; l--) {
-		(*x)[l] = (*x)[l] + ebs[l] * (*x)[l + 1];
-	}
-}
-
 // fluxmod's vdiff for one column: Richardson-number dependent diffusion
 // coefficients between levels, then implicit diffusion of u, v, q and
 // potential temperature, with kinetic-energy dissipation as heating.
@@ -129,29 +108,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 		state[at(DQDT, l, h)] = state[at(DQDT, l, h)] + (zqn[l] - zq[l]) / DELTSEC2;
 	}
 
-	// Potential temperature: the same elimination with kh scaled by
-	// sigmah^kappa and each level's sigma^kappa folded in.
+	// Potential temperature: kh scaled by sigmah^kappa.
 	for (var l = 0u; l < NLEM; l++) {
 		kh[l] = kh[l] * zskaph[l];
 	}
-	var ebs: array<f32, NLEV>;
-	var ztn: array<f32, NLEV>;
-	let ds0 = tables[TABLE_DSIGMA];
-	ebs[0] = kh[0] / (ds0 + kh[0] / zskap[0]);
-	ztn[0] = ds0 * zt[0] / (ds0 + kh[0] / zskap[0]);
-	for (var l = 1u; l < NLEM; l++) {
-		let ds = tables[TABLE_DSIGMA + l];
-		let denominator = ds + (kh[l] + kh[l - 1u] * (1.0 - ebs[l - 1u] / zskap[l - 1u])) / zskap[l];
-		ebs[l] = kh[l] / denominator;
-		ztn[l] = (zt[l] * ds + kh[l - 1u] / zskap[l - 1u] * ztn[l - 1u]) / denominator;
-	}
-	let last = NLEV - 1u;
-	let dsn = tables[TABLE_DSIGMA + last];
-	ztn[last] = (zt[last] * dsn + kh[NLEM - 1u] * ztn[NLEM - 1u] / zskap[NLEM - 1u])
-		/ (dsn + kh[NLEM - 1u] / zskap[last] * (1.0 - ebs[NLEM - 1u] / zskap[NLEM - 1u]));
-	for (var l = i32(NLEM) - 1; l >= 0; l--) {
-		ztn[l] = ztn[l] + ebs[l] * ztn[l + 1] / zskap[l + 1];
-	}
+	var ztn = zt;
+	diffuse_potential(&ztn, &kh, &zskap);
 	for (var l = 0u; l < NLEV; l++) {
 		state[at(DTDT, l, h)] = state[at(DTDT, l, h)] + (ztn[l] - zt[l]) / DELTSEC2;
 	}

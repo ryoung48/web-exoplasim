@@ -4,6 +4,7 @@ import type {
 	GcmFieldSpec,
 	GcmTableValues,
 } from "@/model/climate/gcm/layout/types"
+import { IMPLICIT_DIFFUSION } from "@/model/climate/gcm/physics/diffusion"
 import type {
 	GcmSurfaceFluxRequest,
 	GcmSurfaceFluxTablesRequest,
@@ -105,7 +106,7 @@ function kernels({
 		KERNEL.pipeline({
 			context,
 			label: "vdiff",
-			code: vdiffCode,
+			code: IMPLICIT_DIFFUSION.CODE + vdiffCode,
 			constants: shared,
 		}),
 	])
