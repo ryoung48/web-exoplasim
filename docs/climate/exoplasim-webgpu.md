@@ -360,3 +360,60 @@ All four cases pass:
 | T42 step 500 | 1.77 (`dvdt`) | `dvdt` 1.77 |
 
 Fluxes, transfer coefficients and `dtsa` are at 0.6–1.2×. The tendency margins are thin. If more states push them past 2×, the next step is f64 or compensated evaluation of the coefficient terms.
+
+Replacing `surflx`'s `log` and `pow` with the precise versions from the radiation port (below) did not help: `dqdt` at T21 step 2000 went from 1.98 to 2.08. The surface-flux margin doesn't come from transcendentals, so `surflx` keeps WGSL's built-ins.
+
+### Radiation
+
+`physics/radiation` (`RADIATION`) ports `radmod`'s `radstep` as five column kernels:
+
+| Kernel | Ports |
+| --- | --- |
+| `solang.wgsl` | `solang` (`ncstsol = 0`): `gmu0` from the declination and hour angle |
+| `mko3.wgsl` | `mko3` (`no3 = 1`, synthetic ozone); not built when the page turns ozone off |
+| `swr.wgsl` | `swr`: two bands (ozone, water vapour), adding method, cloud optics from liquid water (`nswrcl = 1`), surface Rayleigh scattering (`newrsc = 0`), open-water albedo (`necham = 1`), both `nstartemp` paths |
+| `lwr.wgsl` | `lwr`: water vapour, ozone and CO₂ emissivities between every pair of levels, pressure broadening, cloud emissivity from liquid water |
+| `radstep.wgsl` | The tail of `radstep`: `dflux`, the heating rates `dtdt`, `dtdtswr`, `dtdtlwr`, and `dconv` |
+
+Terms that a fixed switch multiplies by zero are left out, with the switch named in the kernel. Examples are `l_aerorad = 0` aerosols, `necham6`, and `lwr`'s entropy fluxes (`nentropy = 0`).
+
+**Per-step values from the CPU.** `CALENDAR.solar` (`calendar/`) ports `solang`'s calendar and `orb_decl` in f64. `RADIATION.step` turns its output into the 5-float `radiation_step` field:
+- sin and cos of the declination;
+- `zmins·zrtim`;
+- `gdist2`;
+- `mko3`'s `cos 2π(zcday − toffo3)`.
+
+The orbit matches the dump's `zcdayf`, `zdeclf`, `gdist2`, `orbnu`, `lambm` and `rasc` exactly (difference 0) at all four probe steps. `orb_params` runs once in `radini`, so its outputs (`eccen`, `obliqr`, `mvelpp`, `lambm0`) are inputs here and still come from the dump.
+
+**f64 constants.** These come from `RADIATION.tables`:
+- `sid` and `cola` per latitude;
+- `rad_lnsig`, the log-σ layer thickness that `mko3` and `radstep` use;
+- `lwr`'s per-level absorber factor `zzf1` and cloud factor `zzf3`.
+
+`lwr`'s absorptivity offsets (`zao30` … `zth2oc`) and `swr`'s diffuse-light coefficients (`zb3`–`zb5`) are pipeline constants computed in f64.
+
+**Precise `log`, `exp` and `pow`.** The first `lwr` failed every case at 11–54× the f32 error, worst near the surface:
+
+| Field | f32 / f64 RMS | GPU / f64 RMS |
+| --- | --- | --- |
+| `dftd`, T21 step 2000 | 2.2 × 10⁻⁷ | 1.2 × 10⁻⁵ |
+| `dlwfl`, T21 step 2000 | 3.4 × 10⁻⁷ | 1.7 × 10⁻⁵ |
+
+There are two causes:
+- `lwr` divides by `log τ₀` with `τ₀` near 1;
+- its absorptivity fits subtract `0.846·(u + 3.59·10⁻⁵)^0.243` from a nearly equal constant.
+
+WGSL bounds `log` and `exp` by absolute error, not relative, so both lose most of their digits.
+
+`src/model/shared/gpu/math` (`GPU_MATH.PRECISE`, DP4.3) holds f32 ports of musl's `logf` and `expf`, and `pow` built from them. The radiation kernels use them for every `log`, `exp` and `pow`. That brought `lwr` to 1.00–1.03×. `swr` and `mko3` hardly changed (`dfu` 1.15 → 1.13).
+
+All four cases pass:
+
+| Case | Largest ratio | Fields at or above 1.2 |
+| --- | --- | --- |
+| T21 step 100 | 1.13 (`dfu`) | none |
+| T21 step 2000 | 1.12 (`dtdtswr`) | none |
+| T42 step 100 | 1.15 (`dfu`) | none |
+| T42 step 500 | 1.14 (`dtdtswr`) | none |
+
+`dsalb` is stored band by band (`2 × NHOR`) rather than Fortran's `(2, NHOR)`. The harness transposes it on the way in and out.
