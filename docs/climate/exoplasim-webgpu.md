@@ -283,3 +283,54 @@ The first start-up step begins from rest:
 All four cases pass a tolerance of 10⁻¹² of each array's largest value. The worst error is 2.9 × 10⁻¹⁵ (`rcsq` at T42); `bm1` reaches at most 1.4 × 10⁻¹⁵ across the three timesteps. The days-to-seconds conversion is exercised, since the page's diffusion times are in days.
 
 `verify-dynamics.mjs` now builds its constants with this port, taking only `sop` and `srp` from the dumps. Main-loop cases give the same errors as with the dumped constants.
+
+## P3: physics (started 2026-10-25)
+
+### Probing the physics
+
+Physics state lives in each scheme's own module, so the probe now dumps and replays 15 modules:
+- `pumamod`;
+- `miscmod`, `fluxmod`, `radmod` and `orbconst`, `rainmod`, `surfmod`, `landmod`, `seamod`, `icemod`, `oceanmod`;
+- `vegmod` (`simba.f90`), `carbonmod`, `glaciermod`, `specblock`.
+
+That is 1,066 variables, with non-`pumamod` names prefixed by their module (`miscmod.zgw`). `probe_source.py` parses each module after `gfortran -cpp -E`, because `carbonmod` declares arrays inside `#if` blocks, and generates one dump and one load routine per module.
+
+Points inside `gridpointd`:
+- `d0` after dimensionalizing, before `miscstep`;
+- `d1`…`d6` after `miscstep`, `fluxstep`, `radstep`, `rainstep`, `surfstep` and `carbonstep`.
+
+`hurricanestep` and the de-dimensionalizing tail run between `d6` and `a3`. The f64 replay reproduces all 1,066 variables bit for bit at every point.
+
+Diffs between consecutive dumps (T21, step 100):
+
+| Segment | Changes |
+| --- | --- |
+| `a2 → d0` (frame in) | `gt gq gu gv gp dp du dv dt dq` and the zeroed `gudt gvdt gtdt gqdt dudt dvdt dtdt dqdt` |
+| `d0 → d1` (`miscstep`) | `dq gqdt` |
+| `d6 → a3` (`hurricanestep`, frame out) | `sdt stt szt sqt gudt gvdt gtdt gqdt` |
+
+`hurricanestep` changes nothing in any probed module.
+
+### Frame and fixer
+
+- **`DYNAMICS.physicsIn`.** `invlegd` (`dv2uv`; `sq`, `st`, `sp` to Fourier), 5 inverse Fourier transforms, then `physics-in.wgsl`: `dp = psurf·exp(gp)`, `du`, `dv`, `dt`, `dq` in physical units, every tendency zeroed. Level `NLEP` of `dt`, `dq`, `du`, `dv` is left to the surface schemes. The `sqout` output field, computed on output steps, isn't ported.
+- **`DYNAMICS.physicsOut`.** `physics-out.wgsl` adds the dimensional tendencies to the model-unit ones the schemes write directly. Then 4 forward Fourier transforms, Legendre `gtdt → stt` and `gqdt → sqt`, and `uv2dv` to `sdt`, `szt`.
+- **`physics/fixer` (`FIXER`).** `miscmod`'s fixer with `nfixer = 1`, in four kernels:
+
+  | Kernel | Work |
+  | --- | --- |
+  | `column.wgsl` | Per-column deficit and surplus, `fix0d` |
+  | `row.wgsl` | `fix1d`, one thread per latitude, summing in longitude order |
+  | `global.wgsl` | One workgroup: strided partial sums, then a fixed-order tree; the first global reduction |
+  | `apply.wgsl` | Global scale factor, `gqdt` and the new `dq` |
+
+  Fortran skips `fix0d` and `fix1d` when the global deficit is zero. In that case every column's deficit is zero and they change nothing, so the GPU runs them unconditionally. `zgw` (`miscini`) comes from `GCM_GRID`'s weights.
+
+### Verification
+
+`verify-dynamics.mjs` adds `physicsIn` (`a2 → d0`), `fixer` (`d0 → d1`) and `physicsOut` (`d6 → a3`) on the main-loop steps. All pass at T21 steps 100 and 2000 and T42 steps 100 and 500:
+- `physicsIn`: worst 2.1 × 10⁻⁶ relative, ratio ≤ 1.31;
+- `fixer`: worst 4.6 × 10⁻⁶, ratio ≤ 1.26;
+- `physicsOut`: spectral tendencies with ratios 0.00–0.04.
+
+`physicsOut` compares only `sdt`, `stt`, `szt` and `sqt`. Fortran's `gp2fc` transforms `gudt`…`gqdt` in place, so at `a3` those arrays hold Fourier coefficients, while the GPU writes separate Fourier fields. `gridpointd` zeroes them before they are used again.

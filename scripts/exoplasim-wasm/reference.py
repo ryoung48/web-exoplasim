@@ -9,7 +9,15 @@ import subprocess
 import time
 
 from model_source import ModelSource, copy_sources, object_names, patch_sources
-from probe_source import module_variables, state_dump_source, state_load_source
+from probe_source import module_variables, state_source
+
+# Modules whose variables the probe dumps and replays, with their sources:
+# the dynamics' pumamod and every physics module the page reaches.
+PROBED_MODULES = {
+    "pumamod": "plasimmod.f90", "miscmod": "miscmod.f90", "fluxmod": "fluxmod.f90", "radmod": "radmod.f90", "orbconst": "radmod.f90",
+    "rainmod": "rainmod.f90", "surfmod": "surfmod.f90", "landmod": "landmod.f90", "seamod": "seamod.f90", "icemod": "icemod.f90",
+    "oceanmod": "oceanmod.f90", "vegmod": "simba.f90", "carbonmod": "carbonmod.f90", "glaciermod": "glaciermod.f90", "specblock": "specblock.f90",
+}
 
 
 parser = argparse.ArgumentParser(description="Native gfortran ExoPlaSim references for the WebGPU port")
@@ -91,13 +99,23 @@ def build_reference():
             ("         call spectrala" + newline + newline, "         call spectrala" + newline + "         call gcm_probe_state('a2')" + newline + newline),
             ("         call gridpointd" + newline + newline, "         call gridpointd" + newline + "         call gcm_probe_state('a3')" + newline + newline),
             ("         call spectrald" + newline + "         call outaccu", "         call spectrald" + newline + "         call gcm_probe_state('a4')" + newline + "         call outaccu"),
+            # Inside gridpointd: d0 before the first physics routine, then d1..d6
+            # after each of misc, flux, radiation, rain, surface and carbon.
+            ("      call miscstep" + newline, "      call gcm_probe_state('d0')" + newline + "      call miscstep" + newline + "      call gcm_probe_state('d1')" + newline),
+            ("      call fluxstep" + newline, "      call fluxstep" + newline + "      call gcm_probe_state('d2')" + newline),
+            ("      if(nrad > 0) call radstep" + newline, "      if(nrad > 0) call radstep" + newline + "      call gcm_probe_state('d3')" + newline),
+            ("      call rainstep" + newline, "      call rainstep" + newline + "      call gcm_probe_state('d4')" + newline),
+            ("      call surfstep" + newline, "      call surfstep" + newline + "      call gcm_probe_state('d5')" + newline),
+            ("      call carbonstep" + newline, "      call carbonstep" + newline + "      call gcm_probe_state('d6')" + newline),
         ]
         for anchor, replacement in hooks:
             if main.count(anchor) != 1:
                 raise RuntimeError(f"Expected one probe anchor: {anchor.strip()}")
             main = main.replace(anchor, replacement)
-        variables = module_variables((build / "plasimmod.f90").read_text(), "pumamod")
-        main += state_dump_source(variables) + state_load_source(variables)
+        # Parse what the compiler sees: carbonmod declares some arrays in #if blocks.
+        preprocessed = {file: subprocess.run(["gfortran", "-cpp", "-E", "-P", build / file], capture_output=True, text=True, check=True).stdout for file in set(PROBED_MODULES.values())}
+        modules = {module: module_variables(preprocessed[file], module) for module, file in PROBED_MODULES.items()}
+        main += state_source(modules)
         (build / "plasim.f90").write_text(main)
     precision = {8: "-fdefault-real-8 -fdefault-double-8", 4: "-freal-8-real-4" if args.demote_double else ""}[args.precision]
     optimization = "-O0 --coverage" if args.coverage else "-O2"
@@ -147,7 +165,7 @@ def run_reference():
     if args.replay:
         # Each routine starts from the other run's state just before it; the
         # last point is only an output.
-        for dump in args.replay.glob("probe-*-a[0-3].bin"):
+        for dump in [*args.replay.glob("probe-*-a[0-3].bin"), *args.replay.glob("probe-*-d[0-6].bin")]:
             source_bytes = int((dump.with_suffix(".txt")).read_text().split("\n", 1)[0].split()[1])
             values = array.array({8: "d", 4: "f"}[source_bytes], dump.read_bytes())
             # Round once to the target build's default real; out-of-range

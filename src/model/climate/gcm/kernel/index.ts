@@ -112,6 +112,7 @@ function dispatch({ pass, context, kernel }: GcmKernelDispatch): void {
 }
 
 export const KERNEL = {
+	WORKGROUP_SIZE,
 	context,
 	pipeline,
 	dispatch,

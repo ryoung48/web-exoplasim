@@ -10,10 +10,10 @@ await fs.mkdir(output, { recursive: true })
 // Main-loop steps, then the three nkits start-up steps (delt halved per
 // remaining step, bm1 rebuilt by makebm, no leapfrog filter).
 const CASES = [
-	{ truncation: 21, steps: [100, 2000], dumps: "state", f32: "replay-f32", f64: "replay-f64" },
-	{ truncation: 42, steps: [100, 500], dumps: "state", f32: "replay-f32", f64: "replay-f64" },
-	{ truncation: 21, steps: ["kits3", "kits2", "kits1"], dumps: "kits", f32: "kits-replay-f32", f64: "kits-replay-f64" },
-	{ truncation: 42, steps: ["kits3", "kits2", "kits1"], dumps: "kits", f32: "kits-replay-f32", f64: "kits-replay-f64" },
+	{ truncation: 21, steps: [100, 2000], dumps: "state", f32: "replay-f32", f64: "replay-f64", physics: true },
+	{ truncation: 42, steps: [100, 500], dumps: "state", f32: "replay-f32", f64: "replay-f64", physics: true },
+	{ truncation: 21, steps: ["kits3", "kits2", "kits1"], dumps: "kits", f32: "kits-replay-f32", f64: "kits-replay-f64", physics: false },
+	{ truncation: 42, steps: ["kits3", "kits2", "kits1"], dumps: "kits", f32: "kits-replay-f32", f64: "kits-replay-f64", physics: false },
 ]
 // Each routine runs from the f64 state dumped just before it; its outputs
 // are compared with the f64 state after it and with the f32 build's replay
@@ -22,6 +22,12 @@ const ROUTINES = [
 	{ name: "gridpointa", before: "a0", after: "a1", outputs: ["sdt", "stt", "szt", "sqt", "spt", "gd", "gt", "gz", "gq", "gu", "gv", "gp", "gpj", "dw", "dp0", "du0", "dv0"] },
 	{ name: "spectrala", before: "a1", after: "a2", outputs: ["sd", "st", "sz", "sq", "sp", "sdp", "stp", "szp", "sqp", "spp", "sdt", "stt", "spt", "sdm", "stm", "szm", "sqm", "spm"] },
 	{ name: "spectrald", before: "a3", after: "a4", outputs: ["sd", "st", "sz", "sq", "sdp", "stp", "szp", "sqp", "sdt", "stt", "szt", "sqt", "sdm", "stm", "szm", "sqm", "spm"] },
+	{ name: "physicsIn", physics: true, before: "a2", after: "d0", outputs: ["gu", "gv", "gt", "gp", "gq", "dp", "du", "dv", "dt", "dq", "gudt", "gvdt", "gtdt", "gqdt", "dudt", "dvdt", "dtdt", "dqdt"] },
+	{ name: "fixer", physics: true, before: "d0", after: "d1", outputs: ["dq", "gqdt"] },
+	// gp2fc transforms gudt..gqdt in place, so Fortran leaves Fourier
+	// coefficients there; the GPU writes them to separate fields. gridpointd
+	// zeroes them before their next use, so only the spectral tendencies count.
+	{ name: "physicsOut", physics: true, before: "d6", after: "a3", outputs: ["sdt", "stt", "szt", "sqt"] },
 ]
 const SCALARS = ["psurf", "ww", "cv", "ct", "akap", "rdbrv", "adv", "acpd", "ga", "plavor", "delt", "delt2", "deltsec2", "pnu", "pnu21", "nkits"]
 const FILTER_SCALARS = ["nfilter", "ngptfilter", "nspvfilter", "filterkappa", "nfilterexp", "landhoskn0"]
@@ -43,7 +49,8 @@ async function portedTables({ truncation, delt }) {
 	const tables = DYNAMICS_SETUP.tables({ setup, bm1: DYNAMICS_SETUP.makebm({ setup, truncation, delt }), rcsq: DYNAMICS_SETUP.latitudeFactors({ grid: GRID.forLatitudes(scalar("NLAT")) }) })
 	return Object.fromEntries(Object.entries(tables).map(([name, values]) => [name, Array.from(values)]))
 }
-const NEEDED = new Set([...DYNAMICS.fields(10).map((field) => field.name), ...DYNAMICS.TABLES.map((table) => table.name)])
+const { FIXER } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/physics/fixer/index.ts"))
+const NEEDED = new Set([...DYNAMICS.fields(10), ...FIXER.fields(10)].map((field) => field.name).concat(DYNAMICS.TABLES.map((table) => table.name)))
 const browser = await chromium.launch({ executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe", headless: true, args: ["--enable-unsafe-webgpu"] })
 const report = { cases: [] }
 try {
@@ -55,11 +62,11 @@ try {
 	for (const { truncation, steps, ...kinds } of CASES) {
 		const dumps = (kind, step, point) => readProbe(path.join(probeRoot, `${kind}-t${truncation}`, `probe-${step}-${point}`))
 		for (const step of steps) {
-			const f64 = Object.fromEntries(await Promise.all(["a0", "a1", "a2", "a3", "a4"].map(async (point) => [point, await dumps(kinds.dumps, step, point)])))
-			const f32 = Object.fromEntries(await Promise.all(["a1", "a2", "a4"].map(async (point) => [point, await dumps(kinds.f32, step, point)])))
+			const f64 = Object.fromEntries(await Promise.all([...["a0", "a1", "a2", "a3", "a4"], ...(kinds.physics ? ["d0", "d1", "d6"] : [])].map(async (point) => [point, await dumps(kinds.dumps, step, point)])))
+			const f32 = Object.fromEntries(await Promise.all([...["a1", "a2", "a4"], ...(kinds.physics ? ["d0", "d1", "a3"] : [])].map(async (point) => [point, await dumps(kinds.f32, step, point)])))
 			const sanity = await dumps(kinds.f64, step, "a4")
 			const replayExact = Object.keys(f64.a4).every((name) => f64.a4[name].every((value, i) => Object.is(value, sanity[name][i])))
-			for (const routine of ROUTINES) {
+			for (const routine of ROUTINES.filter((entry) => kinds.physics || !entry.physics)) {
 				const before = f64[routine.before]
 				const scalars = Object.fromEntries([...SCALARS, ...FILTER_SCALARS].map((name) => [name, before[name][0]]))
 				const ported = await portedTables({ truncation, delt: scalars.delt })
@@ -71,17 +78,19 @@ try {
 					const { FOURIER } = await import("/src/model/climate/gcm/fourier/index.ts")
 					const { LEGENDRE } = await import("/src/model/climate/gcm/legendre/index.ts")
 					const { DYNAMICS } = await import("/src/model/climate/gcm/dynamics/index.ts")
+					const { FIXER } = await import("/src/model/climate/gcm/physics/fixer/index.ts")
 					const latitudes = { 21: 32, 42: 64 }[truncation]
 					const grid = GCM_GRID.forLatitudes(latitudes)
 					const dimensions = { truncation, latitudes, longitudes: grid.longitudes, levels: 10 }
 					const { device } = await GCM_DEVICE.request({ storageBytes: 0, onLost: () => {} })
-					const state = LAYOUT.create({ dimensions, fields: DYNAMICS.fields(dimensions.levels) })
+					const state = LAYOUT.create({ dimensions, fields: [...DYNAMICS.fields(dimensions.levels), ...FIXER.fields(dimensions.levels)] })
 					const filters = LEGENDRE.filters({ truncation, ...Object.fromEntries(["nfilter", "ngptfilter", "nspvfilter", "filterkappa", "nfilterexp", "landhoskn0"].map((name) => [name, scalars[name]])) })
 					const fourier = FOURIER.tables({ longitudes: grid.longitudes, truncation })
 					const tableValues = {
 						fourier_forward: fourier.forward,
 						fourier_inverse: fourier.inverse,
 						...LEGENDRE.kernelTables({ tables: LEGENDRE.tables({ grid, truncation }), filters, truncation }),
+						...FIXER.tables({ grid }),
 						...Object.fromEntries(DYNAMICS.TABLES.map(({ name, count }) => {
 							const values = ported[name] ?? before[name]
 							if (values.length !== count(dimensions)) throw new Error(`${name}: ${values.length} values, expected ${count(dimensions)}`)
@@ -117,7 +126,8 @@ try {
 					})
 					const encoder = device.createCommandEncoder()
 					const pass = encoder.beginComputePass()
-					for (const kernel of kernels[routine.name]) KERNEL.dispatch({ pass, context, kernel })
+					const lists = { ...kernels, fixer: await FIXER.kernels({ context, delt2: scalars.delt2, psurf: scalars.psurf }) }
+					for (const kernel of lists[routine.name]) KERNEL.dispatch({ pass, context, kernel })
 					pass.end()
 					device.queue.submit([encoder.finish()])
 					const result = await LAYOUT.read({ device, buffer: context.stateBuffer, layout: state, names: routine.outputs })

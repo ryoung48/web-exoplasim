@@ -37,6 +37,8 @@ export interface GcmDynamicsKernels {
 	gridpointa: GcmKernel[]
 	spectrala: GcmKernel[]
 	spectrald: GcmKernel[]
+	physicsIn: GcmKernel[]
+	physicsOut: GcmKernel[]
 }
 
 export interface GcmDynamicsTable {

@@ -10,6 +10,8 @@ import type {
 import calcgpCode from "@/model/climate/gcm/dynamics/wgsl/calcgp.wgsl?raw"
 import meanModeCode from "@/model/climate/gcm/dynamics/wgsl/mean-mode.wgsl?raw"
 import mkdheatCode from "@/model/climate/gcm/dynamics/wgsl/mkdheat.wgsl?raw"
+import physicsInCode from "@/model/climate/gcm/dynamics/wgsl/physics-in.wgsl?raw"
+import physicsOutCode from "@/model/climate/gcm/dynamics/wgsl/physics-out.wgsl?raw"
 import spectralaCode from "@/model/climate/gcm/dynamics/wgsl/spectrala.wgsl?raw"
 import diffusionCode from "@/model/climate/gcm/dynamics/wgsl/spectrald-diffusion.wgsl?raw"
 import updateCode from "@/model/climate/gcm/dynamics/wgsl/spectrald-update.wgsl?raw"
@@ -32,13 +34,18 @@ const GRID_LEVELS = [
 	...["gd", "gt", "gz", "gq", "gu", "gv", "dw"],
 	...["gtn", "gqn", "guz", "gvz", "gke", "gut", "gvt", "guq", "gvq"],
 	...["zu", "zv", "zdu", "zdv", "zdtdt", "zdekin"],
+	...["gudt", "gvdt", "gtdt", "gqdt"],
 ]
 const GRID_SURFACE = ["gp", "gpj", "gpmt", "gvpp", "dp0", "dp"]
-const GRID_HALF_LEVELS = ["du0", "dv0", "dq"]
+const GRID_HALF_LEVELS = [
+	...["du0", "dv0", "dq", "du", "dv", "dt"],
+	...["dudt", "dvdt", "dtdt", "dqdt"],
+]
 const FOURIER_LEVELS = [
 	...["fgd", "fgt", "fgz", "fgq", "fgu", "fgv"],
 	...["fgtn", "fgqn", "fguz", "fgvz", "fgke", "fgut", "fgvt", "fguq", "fgvq"],
 	...["fzu", "fzv", "fzdu", "fzdv", "fzdtdt", "fzdekin"],
+	...["fgudt", "fgvdt", "fgtdt", "fgqdt"],
 ]
 const FOURIER_SURFACE = ["fgp", "fgpj", "fgpmt", "fgvpp"]
 
@@ -284,13 +291,67 @@ async function kernels({
 			},
 		}),
 	]
-	const [a, b, d] = await Promise.all(
-		[gridpointa, spectrala, spectrald].map((list) => Promise.all(list)),
+	// gridpointd's frame around the parameterizations: invlegd and
+	// dimensionalizing before, de-dimensionalizing and the transforms back
+	// after.
+	const physicsIn = [
+		winds({ divergence: "sd", vorticity: "sz", u: "fgu", v: "fgv" }),
+		...["q", "t", "p"].map((name) =>
+			toFourier({ source: `s${name}`, target: `fg${name}` }),
+		),
+		...["u", "v", "t", "p", "q"].map((name) =>
+			toGrid({ source: `fg${name}`, target: `g${name}` }),
+		),
+		pipeline({
+			label: "physics in",
+			code: physicsInCode,
+			values: {
+				THREADS: points,
+				PSURF: constants.psurf,
+				CV: constants.cv,
+				CT: constants.ct,
+			},
+		}),
+	]
+	const physicsOut = [
+		pipeline({
+			label: "physics out",
+			code: physicsOutCode,
+			values: {
+				THREADS: levels * points,
+				PSURF: constants.psurf,
+				CV: constants.cv,
+				CT: constants.ct,
+				WW: constants.ww,
+			},
+		}),
+		...["t", "u", "v", "q"].map((name) =>
+			fromGrid({ source: `g${name}dt`, target: `fg${name}dt` }),
+		),
+		toSpectral({ source: "fgtdt", target: "stt" }),
+		toSpectral({ source: "fgqdt", target: "sqt" }),
+		LEGENDRE.uv2dv({
+			context,
+			u: "fgudt",
+			v: "fgvdt",
+			kinetic: null,
+			divergence: "sdt",
+			vorticity: "szt",
+			planes: levels,
+		}),
+	]
+	const [a, b, d, pIn, pOut] = await Promise.all(
+		[gridpointa, spectrala, spectrald, physicsIn, physicsOut].map((list) =>
+			Promise.all(list),
+		),
 	)
-	return { gridpointa: a, spectrala: b, spectrald: d } satisfies Record<
-		string,
-		GcmKernel[]
-	>
+	return {
+		gridpointa: a,
+		spectrala: b,
+		spectrald: d,
+		physicsIn: pIn,
+		physicsOut: pOut,
+	} satisfies Record<string, GcmKernel[]>
 }
 
 export const DYNAMICS = {
