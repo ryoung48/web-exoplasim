@@ -8,6 +8,7 @@ const grids = new Map<number, GcmGrid>()
 
 function gaussianLatitudes(count: number): GcmGaussianLatitudes {
 	const degrees = new Float64Array(count)
+	const sines = new Float64Array(count)
 	const weights = new Float64Array(count)
 	for (let root = 0; root < count / 2; root++) {
 		let x = Math.cos((Math.PI * (root + 0.75)) / (count + 0.5))
@@ -30,17 +31,19 @@ function gaussianLatitudes(count: number): GcmGaussianLatitudes {
 		const weight = 2 / ((1 - x * x) * derivative * derivative)
 		degrees[root] = latitude
 		degrees[count - 1 - root] = -latitude
+		sines[root] = x
+		sines[count - 1 - root] = -x
 		weights[root] = weight
 		weights[count - 1 - root] = weight
 	}
-	return { degrees, weights }
+	return { degrees, sines, weights }
 }
 
 // PlaSim grids have twice as many longitudes as Gaussian latitudes.
 function forLatitudes(latitudes: number): GcmGrid {
 	const cached = grids.get(latitudes)
 	if (cached) return cached
-	const { degrees, weights } = gaussianLatitudes(latitudes)
+	const { degrees, sines, weights } = gaussianLatitudes(latitudes)
 	const longitudes = 2 * latitudes
 	const grid: GcmGrid = {
 		longitudes,
@@ -48,6 +51,7 @@ function forLatitudes(latitudes: number): GcmGrid {
 		points: longitudes * latitudes,
 		longitudeStepDeg: 360 / longitudes,
 		latitudesDeg: degrees,
+		latitudeSines: sines,
 		latitudeWeights: weights,
 	}
 	grids.set(latitudes, grid)
