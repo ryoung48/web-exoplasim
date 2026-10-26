@@ -7,9 +7,13 @@ import { readProbe } from "./probe.mjs"
 const probeRoot = path.resolve(process.argv[2] ?? "stats/exoplasim-reference/probe")
 const output = path.resolve("stats/exoplasim-webgpu/kernels")
 await fs.mkdir(output, { recursive: true })
+// Main-loop steps, then the three nkits start-up steps (delt halved per
+// remaining step, bm1 rebuilt by makebm, no leapfrog filter).
 const CASES = [
-	{ truncation: 21, steps: [100, 2000] },
-	{ truncation: 42, steps: [100, 500] },
+	{ truncation: 21, steps: [100, 2000], dumps: "state", f32: "replay-f32", f64: "replay-f64" },
+	{ truncation: 42, steps: [100, 500], dumps: "state", f32: "replay-f32", f64: "replay-f64" },
+	{ truncation: 21, steps: ["kits3", "kits2", "kits1"], dumps: "kits", f32: "kits-replay-f32", f64: "kits-replay-f64" },
+	{ truncation: 42, steps: ["kits3", "kits2", "kits1"], dumps: "kits", f32: "kits-replay-f32", f64: "kits-replay-f64" },
 ]
 // Each routine runs from the f64 state dumped just before it; its outputs
 // are compared with the f64 state after it and with the f32 build's replay
@@ -48,12 +52,12 @@ try {
 	page.on("pageerror", (error) => errors.push(error.message))
 	page.on("console", (message) => message.type() === "error" && errors.push(message.text()))
 	await page.goto(server.resolvedUrls.local[0])
-	for (const { truncation, steps } of CASES) {
+	for (const { truncation, steps, ...kinds } of CASES) {
 		const dumps = (kind, step, point) => readProbe(path.join(probeRoot, `${kind}-t${truncation}`, `probe-${step}-${point}`))
 		for (const step of steps) {
-			const f64 = Object.fromEntries(await Promise.all(["a0", "a1", "a2", "a3", "a4"].map(async (point) => [point, await dumps("state", step, point)])))
-			const f32 = Object.fromEntries(await Promise.all(["a1", "a2", "a4"].map(async (point) => [point, await dumps("replay-f32", step, point)])))
-			const sanity = await dumps("replay-f64", step, "a4")
+			const f64 = Object.fromEntries(await Promise.all(["a0", "a1", "a2", "a3", "a4"].map(async (point) => [point, await dumps(kinds.dumps, step, point)])))
+			const f32 = Object.fromEntries(await Promise.all(["a1", "a2", "a4"].map(async (point) => [point, await dumps(kinds.f32, step, point)])))
+			const sanity = await dumps(kinds.f64, step, "a4")
 			const replayExact = Object.keys(f64.a4).every((name) => f64.a4[name].every((value, i) => Object.is(value, sanity[name][i])))
 			for (const routine of ROUTINES) {
 				const before = f64[routine.before]
@@ -121,7 +125,13 @@ try {
 					return Object.fromEntries(Object.entries(result).map(([name, values]) => [name, Array.from(values)]))
 				}, { truncation, before: Object.fromEntries(Object.entries(before).filter(([name]) => NEEDED.has(name))), ported, scalars, routine })
 				const fields = {}
-				for (const name of routine.outputs) {
+				// On output and diagnostic steps gridpointa overwrites gp with the
+				// Fourier coefficients of exp(ln ps) - 1 to compute span, which only
+				// diagnostics read; invlegd rewrites gp before anything else uses it.
+				const nstep = before.nstep[0]
+				const diagnosticStep = nstep % before.nafter[0] === 0 || nstep % before.ndiag[0] === 0
+				const skipped = routine.name === "gridpointa" && diagnosticStep ? ["gp"] : []
+				for (const name of routine.outputs.filter((output) => !skipped.includes(output))) {
 					const exact = f64[routine.after][name]
 					const scale = rms(exact)
 					const gpuError = rms(gpu[name], exact) / scale
@@ -129,9 +139,9 @@ try {
 					const gpuOff = countOff(gpu[name], exact, scale)
 					const f32Off = countOff(f32[routine.after][name], exact, scale)
 					const pass = scale === 0 ? rms(gpu[name]) === 0 : gpuError <= 2 * f32Error && gpuOff <= 2 * f32Off + 1
-					fields[name] = { gpuRelativeRms: gpuError, f32RelativeRms: f32Error, ratio: gpuError / f32Error, gpuPointsOff: gpuOff, f32PointsOff: f32Off, pass }
+					fields[name] = { gpuRelativeRms: gpuError, f32RelativeRms: f32Error, ratio: gpuError / f32Error, gpuPointsOff: gpuOff, f32PointsOff: f32Off, pass, ...(pass ? {} : { gpu: gpu[name], f64: exact, f32: f32[routine.after][name] }) }
 				}
-				const entry = { truncation, step, routine: routine.name, replayExact, pass: Object.values(fields).every((field) => field.pass), fields }
+				const entry = { truncation, step, routine: routine.name, replayExact, skipped, pass: Object.values(fields).every((field) => field.pass), fields }
 				report.cases.push(entry)
 				console.log(`T${truncation} step ${step} ${routine.name.padEnd(10)} ${entry.pass ? "pass" : "FAIL"}  ` + Object.entries(fields).map(([name, f]) => `${name}=${f.ratio.toFixed(2)}${f.pass ? "" : "!"}`).join(" "))
 			}

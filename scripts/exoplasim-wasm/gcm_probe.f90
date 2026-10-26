@@ -28,6 +28,7 @@
       integer, save :: icount = -1
       integer :: ios
       character(len=64) :: yname
+      if (mypid /= NROOT) return
       if (icount < 0) then
          icount = 0
          open(97, file='probe-steps.txt', status='old', iostat=ios)
@@ -40,33 +41,46 @@
             close(97)
          endif
       endif
-      if (mypid /= NROOT .or. .not. any(isteps(1:icount) == nstep - nstep1)) return
-      write(yname, '(a,i0,a,a)') 'probe-', nstep - nstep1, '-', cpoint
-      call gcm_probe_open(95, trim(yname))
-      call gcm_probe_state_dump
-      close(95)
-      close(96)
-!     Replay: continue from another run's state at this point, converted to
-!     this build's precision, so the next routine runs on that run's inputs.
-      write(yname, '(a,i0,a,a)') 'replay-', nstep - nstep1, '-', cpoint
-      open(95, file=trim(yname)//'.bin', access='stream',                &
-     &     form='unformatted', status='old', iostat=ios)
-      if (ios == 0) then
-         call gcm_probe_state_load(95)
-         close(95)
-      endif
+      if (.not. any(isteps(1:icount) == nstep - nstep1)) return
+      write(yname, '(i0,a,a)') nstep - nstep1, '-', cpoint
+      call gcm_probe_point(trim(yname))
       end subroutine gcm_probe_state
+
+!     The nkits start-up steps, as probe-kits<nkits>-<point> (nkits counts
+!     down from 3).
+      subroutine gcm_probe_kits(cpoint)
+      use pumamod
+      character(len=*), intent(in) :: cpoint
+      character(len=64) :: yname
+      write(yname, '(a,i0,a,a)') 'kits', nkits, '-', cpoint
+      call gcm_probe_point(trim(yname))
+      end subroutine gcm_probe_kits
 
 !     Dumps every pumamod variable once, during set-up, as probe-<cname>.
       subroutine gcm_probe_init(cname)
+      character(len=*), intent(in) :: cname
+      call gcm_probe_point(cname)
+      end subroutine gcm_probe_init
+
+!     Dumps the state as probe-<cname>. If replay-<cname>.bin exists (another
+!     run's dump converted to this build's precision), continues from it, so
+!     the next routine runs on that run's inputs.
+      subroutine gcm_probe_point(cname)
       use pumamod
       character(len=*), intent(in) :: cname
+      integer :: ios
       if (mypid /= NROOT) return
       call gcm_probe_open(95, 'probe-'//cname)
       call gcm_probe_state_dump
       close(95)
       close(96)
-      end subroutine gcm_probe_init
+      open(95, file='replay-'//cname//'.bin', access='stream',           &
+     &     form='unformatted', status='old', iostat=ios)
+      if (ios == 0) then
+         call gcm_probe_state_load(95)
+         close(95)
+      endif
+      end subroutine gcm_probe_point
 
       subroutine gcm_probe_tables
       use legmod

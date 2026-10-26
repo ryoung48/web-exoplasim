@@ -8,7 +8,7 @@ fn level(field: u32, l: u32, s: u32) -> u32 {
 // spectrald up to mkdheat: add the diabatic tendencies, then implicit
 // restoration, friction and biharmonic diffusion, keeping planetary
 // vorticity (Re mode (0, 1), coefficient 2) free of both. Also writes the
-// two partially updated states mkdheat converts to winds.
+// friction (1) and diffusion (2) increments mkdheat converts to winds.
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) id: vec3u) {
 	let s = id.x;
@@ -52,9 +52,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 		state[level(SQT, l, s)] = sqt;
 		state[level(SDT, l, s)] = zsdt1 + zsdt2;
 		state[level(SZT, l, s)] = szt;
-		state[level(ZSDPA, l, s)] = sdp + zsdt1 * DELT2;
-		state[level(ZSZPA, l, s)] = szp + zszt1 * DELT2;
-		state[level(ZSDPB, l, s)] = sdp + zsdt2 * DELT2;
-		state[level(ZSZPB, l, s)] = szp + zszt2 * DELT2;
+		state[level(ZDSDP1, l, s)] = zsdt1 * DELT2;
+		state[level(ZDSZP1, l, s)] = zszt1 * DELT2;
+		state[level(ZDSDP2, l, s)] = zsdt2 * DELT2;
+		state[level(ZDSZP2, l, s)] = zszt2 * DELT2;
 	}
 }

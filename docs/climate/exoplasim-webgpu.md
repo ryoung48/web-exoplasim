@@ -224,7 +224,8 @@ All pass the same rule.
 - **Spectral kernels.** These run one thread per real coefficient and loop over levels.
 - **Fortran order.** Every expression keeps Fortran's grouping and order.
 - **Diagnostics left out.** The branches the page never enables (`nentropy`, `nenergy`, `ndiagsp`, `ndiaggp`, `nsponge`, `ndivdamp`, `ndheat > 1`, GUI and diagnostic-step output) are not ported.
-- **Start-up steps.** The `nkits` start-up steps use the same kernels with `filter: false` and their own `delt`. That path is built but not yet verified.
+- **Start-up steps.** The `nkits` start-up steps use the same kernels with `filter: false`, their own `delt` and `deltsec2`, and the `bm1` that `makebm` builds for that `delt` (verified below).
+- **`mkdheat` winds.** Fortran forms `un² − u²` from winds before and after friction or diffusion. In f32 the small increment is rounded away first and the difference then cancels. `dv2uv` is linear apart from `plavor`, which cancels in a difference. So the GPU transforms the spectral increments (`zsdt·delt2`, `zszt·delt2`, with `plavor = 0`) into wind increments `du`, `dv` and uses the identical `du (2u + du) + dv (2v + dv)`. That made `stt` 50–500× closer to f64 than the f32 build.
 - **Constants.** Until `SETUP` ports `initpm`/`initsi`/`makebm`, `DYNAMICS.TABLES` lists the constants by their `pumamod` names, and verification fills them from the dumps.
 
 ### Verification
@@ -233,18 +234,29 @@ All pass the same rule.
 
 A field passes when RMS(GPU − f64) ≤ 2 × RMS(f32 − f64), and its count of points off by more than 10⁻⁵ × RMS is at most 2 × the f32 count + 1 (V3).
 
-All 12 cases pass (T21 steps 100 and 2000, T42 steps 100 and 500, three routines each), with no device or page errors. Largest relative RMS per case:
+All 30 cases pass, with no device or page errors: T21 steps 100 and 2000, T42 steps 100 and 500, and the three start-up steps at each resolution, each with three routines. Start-up dumps come from `probe-kits.sh`, with points `kits<nkits>-a0`…`a4` around the start-up loop; `a1` follows `makebm`. Largest relative RMS per case, GPU / f32:
 
-| Case | `gridpointa` GPU / f32 | `spectrala` GPU / f32 | `spectrald` GPU / f32 |
+| Case | `gridpointa` | `spectrala` | `spectrald` |
 | --- | --- | --- | --- |
-| T21 step 100 | 2.4 × 10⁻⁶ / 2.0 × 10⁻⁵ | 7.0 × 10⁻⁷ / 7.1 × 10⁻⁷ | 5.3 × 10⁻⁵ / 5.5 × 10⁻⁵ |
-| T21 step 2000 | 1.3 × 10⁻⁶ / 1.2 × 10⁻⁴ | 3.2 × 10⁻⁶ / 3.2 × 10⁻⁶ | 5.4 × 10⁻⁵ / 5.7 × 10⁻⁵ |
-| T42 step 100 | 3.4 × 10⁻⁶ / 1.2 × 10⁻⁴ | 1.2 × 10⁻⁶ / 1.2 × 10⁻⁶ | 5.8 × 10⁻⁶ / 5.9 × 10⁻⁶ |
-| T42 step 500 | 3.6 × 10⁻⁶ / 1.0 × 10⁻⁴ | 6.6 × 10⁻⁶ / 6.7 × 10⁻⁶ | 1.7 × 10⁻⁵ / 1.7 × 10⁻⁵ |
+| T21 step 100 | 2.4 × 10⁻⁶ / 2.0 × 10⁻⁵ | 7.0 × 10⁻⁷ / 7.1 × 10⁻⁷ | 9.5 × 10⁻⁷ / 5.5 × 10⁻⁵ |
+| T21 step 2000 | 1.3 × 10⁻⁶ / 1.2 × 10⁻⁴ | 3.2 × 10⁻⁶ / 3.2 × 10⁻⁶ | 5.0 × 10⁻⁷ / 5.7 × 10⁻⁵ |
+| T42 step 100 | 3.4 × 10⁻⁶ / 1.2 × 10⁻⁴ | 1.2 × 10⁻⁶ / 1.2 × 10⁻⁶ | 1.1 × 10⁻⁷ / 1.0 × 10⁻⁷ |
+| T42 step 500 | 3.6 × 10⁻⁶ / 1.0 × 10⁻⁴ | 6.6 × 10⁻⁶ / 6.7 × 10⁻⁶ | 1.1 × 10⁻⁷ / 1.7 × 10⁻⁵ |
+| T21 start-up 3 | 2.1 × 10⁻⁷ / 3.6 × 10⁻⁶ (`sdt`) | 9.1 × 10⁻⁸ / 9.1 × 10⁻⁸ | 2.1 × 10⁻⁴ / 2.1 × 10⁻⁴ (`szt`) |
+| T21 start-up 2 | 2.3 × 10⁻⁵ / 2.6 × 10⁻⁴ | 9.9 × 10⁻⁸ / 9.9 × 10⁻⁸ | 2.4 × 10⁻⁶ / 1.2 × 10⁻⁵ |
+| T21 start-up 1 | 7.3 × 10⁻⁶ / 1.5 × 10⁻⁴ | 1.1 × 10⁻⁷ / 1.1 × 10⁻⁷ | 6.4 × 10⁻⁷ / 4.4 × 10⁻⁷ |
+| T42 start-up 3 | 2.4 × 10⁻⁷ / 4.4 × 10⁻⁵ (`sdt`) | 9.3 × 10⁻⁸ / 9.3 × 10⁻⁸ | 1.7 × 10⁻⁶ / 1.7 × 10⁻⁶ |
+| T42 start-up 2 | 9.7 × 10⁻⁶ / 4.9 × 10⁻⁴ | 1.1 × 10⁻⁷ / 1.1 × 10⁻⁷ | 4.4 × 10⁻⁷ / 1.7 × 10⁻⁶ |
+| T42 start-up 1 | 3.5 × 10⁻⁶ / 3.5 × 10⁻⁴ | 1.6 × 10⁻⁷ / 1.6 × 10⁻⁷ | 9.5 × 10⁻⁸ / 1.7 × 10⁻⁷ |
+
+The first start-up step begins from rest:
+- **`szt` after `gridpointa`** is essentially zero in f64 (RMS 3 × 10⁻¹⁹), so its relative errors (10⁶ GPU, 10⁸ f32) are left out of the table. In absolute terms the GPU is about 50× closer.
+- **All-zero fields** (humidity, winds) pass because the GPU's are zero too.
+- **`gp` is not compared after `gridpointa`** on steps where `mod(nstep, nafter) = 0`, which includes every start-up step. There Fortran overwrites `gp` with the Fourier coefficients of exp(ln ps) − 1 to compute the output-only `span`, and `invlegd` rewrites `gp` before anything reads it. The GPU skips that branch; the harness records the skip.
 
 - **`gridpointa`.** The GPU is 3–100× more accurate than f32 Fortran for the spectral tendencies (ratios 0.003–0.13). It uses Legendre and Fourier tables computed in f64, while the f32 build computes `legini` and its FFT twiddles in f32.
 - **`spectrala`.** Errors match the f32 build (ratio 1.00): both are set by rounding the inputs.
-- **`spectrald`.** The largest error is `stt` after `mkdheat`, whose difference of squared winds (`un² − u²`) cancels in either precision. Its ratios are 0.90–1.14.
+- **`spectrald`.** With wind increments, `stt` is 50–500× closer to f64 than the f32 build (ratio 0.001–0.017). Before that change it matched f32 (0.90–1.14) and failed at the first start-up step (2.59).
 - **Sensitivity.** Flipping the sign of one term on the top level of `guz` in `calcgp.wgsl` failed `sdt` and `szt` at ratios of about 10⁴, and nothing else.
 
 ### Dynamics set-up port
@@ -270,4 +282,4 @@ All 12 cases pass (T21 steps 100 and 2000, T42 steps 100 and 500, three routines
 
 All four cases pass a tolerance of 10⁻¹² of each array's largest value. The worst error is 2.9 × 10⁻¹⁵ (`rcsq` at T42); `bm1` reaches at most 1.4 × 10⁻¹⁵ across the three timesteps. The days-to-seconds conversion is exercised, since the page's diffusion times are in days.
 
-`verify-dynamics.mjs` now builds its constants with this port, taking only `sop` and `srp` from the dumps. All 12 cases pass with the same errors as with the dumped constants.
+`verify-dynamics.mjs` now builds its constants with this port, taking only `sop` and `srp` from the dumps. Main-loop cases give the same errors as with the dumped constants.

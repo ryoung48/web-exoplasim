@@ -25,20 +25,20 @@ import { LEGENDRE } from "@/model/climate/gcm/legendre"
 const SPECTRAL_LEVELS = [
 	...["sd", "st", "sz", "sq", "sdp", "stp", "szp", "sqp"],
 	...["sdt", "stt", "szt", "sqt", "sdm", "stm", "szm", "sqm"],
-	...["zsdpa", "zszpa", "zsdpb", "zszpb", "zstt1", "zstt2", "zsdef"],
+	...["zdsdp1", "zdszp1", "zdsdp2", "zdszp2", "zstt1", "zstt2", "zsdef"],
 ]
 const SPECTRAL_SURFACE = ["sp", "spp", "spt", "spm"]
 const GRID_LEVELS = [
 	...["gd", "gt", "gz", "gq", "gu", "gv", "dw"],
 	...["gtn", "gqn", "guz", "gvz", "gke", "gut", "gvt", "guq", "gvq"],
-	...["zu", "zv", "zun", "zvn", "zdtdt", "zdekin"],
+	...["zu", "zv", "zdu", "zdv", "zdtdt", "zdekin"],
 ]
 const GRID_SURFACE = ["gp", "gpj", "gpmt", "gvpp", "dp0", "dp"]
 const GRID_HALF_LEVELS = ["du0", "dv0", "dq"]
 const FOURIER_LEVELS = [
 	...["fgd", "fgt", "fgz", "fgq", "fgu", "fgv"],
 	...["fgtn", "fgqn", "fguz", "fgvz", "fgke", "fgut", "fgvt", "fguq", "fgvq"],
-	...["fzu", "fzv", "fzun", "fzvn", "fzdtdt", "fzdekin"],
+	...["fzu", "fzv", "fzdu", "fzdv", "fzdtdt", "fzdekin"],
 ]
 const FOURIER_SURFACE = ["fgp", "fgpj", "fgpmt", "fgvpp"]
 
@@ -128,6 +128,18 @@ async function kernels({
 			v,
 			planes: levels,
 			plavor: constants.plavor,
+		})
+	// dv2uv is linear apart from plavor, which cancels in a difference, so
+	// wind increments come straight from spectral increments.
+	const increments = ({ divergence, vorticity, u, v }: GcmDynamicsWinds) =>
+		LEGENDRE.dv2uv({
+			context,
+			divergence,
+			vorticity,
+			u,
+			v,
+			planes: levels,
+			plavor: 0,
 		})
 	const mkdheat = (stage: number) =>
 		pipeline({
@@ -225,19 +237,29 @@ async function kernels({
 				PLAVOR: constants.plavor,
 			},
 		}),
-		// mkdheat: winds before diffusion, after friction, after diffusion.
+		// mkdheat: winds, then the wind increments from friction and diffusion.
 		winds({ divergence: "sdp", vorticity: "szp", u: "fzu", v: "fzv" }),
 		toGrid({ source: "fzu", target: "zu" }),
 		toGrid({ source: "fzv", target: "zv" }),
-		winds({ divergence: "zsdpa", vorticity: "zszpa", u: "fzun", v: "fzvn" }),
-		toGrid({ source: "fzun", target: "zun" }),
-		toGrid({ source: "fzvn", target: "zvn" }),
+		increments({
+			divergence: "zdsdp1",
+			vorticity: "zdszp1",
+			u: "fzdu",
+			v: "fzdv",
+		}),
+		toGrid({ source: "fzdu", target: "zdu" }),
+		toGrid({ source: "fzdv", target: "zdv" }),
 		mkdheat(1),
 		fromGrid({ source: "zdtdt", target: "fzdtdt" }),
 		toSpectral({ source: "fzdtdt", target: "zstt1" }),
-		winds({ divergence: "zsdpb", vorticity: "zszpb", u: "fzun", v: "fzvn" }),
-		toGrid({ source: "fzun", target: "zun" }),
-		toGrid({ source: "fzvn", target: "zvn" }),
+		increments({
+			divergence: "zdsdp2",
+			vorticity: "zdszp2",
+			u: "fzdu",
+			v: "fzdv",
+		}),
+		toGrid({ source: "fzdu", target: "zdu" }),
+		toGrid({ source: "fzdv", target: "zdv" }),
 		mkdheat(2),
 		fromGrid({ source: "zdekin", target: "fzdekin" }),
 		toSpectral({ source: "fzdekin", target: "zsdef" }),
