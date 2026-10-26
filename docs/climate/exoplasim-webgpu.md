@@ -334,3 +334,29 @@ Diffs between consecutive dumps (T21, step 100):
 - `physicsOut`: spectral tendencies with ratios 0.00–0.04.
 
 `physicsOut` compares only `sdt`, `stt`, `szt` and `sqt`. Fortran's `gp2fc` transforms `gudt`…`gqdt` in place, so at `a3` those arrays hold Fourier coefficients, while the GPU writes separate Fourier fields. `gridpointd` zeroes them before they are used again.
+
+### Surface fluxes and vertical diffusion
+
+`physics/surface-flux` (`SURFACE_FLUX`) ports `fluxmod`'s `fluxstep` for the path the page reaches: `nvdiff`, `nshfl`, `nevap` and `nstress` are all 1, and `ntsa` is 2. It has two column kernels:
+
+| Kernel | Ports |
+| --- | --- |
+| `surflx.wgsl` | `surflx`: 2 m temperature, bulk Richardson number, ECHAM stability functions (Miller et al. 1992 over unstable sea), transfer coefficients. Then the implicit `mkstress` (drag, with its kinetic-energy loss heating the lowest level, `ndheat = 1`), `mkshfl` and `mkevap` (with soil-water limit and latent heat of vaporization or sublimation) |
+| `vdiff.wgsl` | `vdiff`: Richardson-number dependent diffusion coefficients between levels, then the ECHAM semi-implicit tridiagonal solves for u, v, kinetic energy (as heating), q and potential temperature |
+
+`d1 → d2` changes `dtdt dqdt dudt dvdt dtaux dtauy dust3 dshfl dshdt devap dlhfl dlhdt dtsa` and `fluxmod.dtransh`/`dtransm`; only `fluxmod` reads the last two. The harness maps the state fields `dtransh`/`dtransm` to those dump names.
+
+**Level constants in f64.** The first GPU version evaluated `σ^κ`, `σh^κ`, the mixing lengths, `vdiff`'s cube-root stability factor `zzkfac`, `1/Δσ`, and `surflx`'s `σ_N^−κ` and `ln σ_N` in every column. `dqdt` at T42 step 100 then failed at 2.54× the f32 error, concentrated in the boundary layer (levels 8–10). These depend only on the level, so `SURFACE_FLUX.tables` now computes them in f64. That brought it to 1.08×, the same move as DP1.4 for the transform tables. WGSL defines `pow` only as accurately as `exp2(y·log2 x)`.
+
+An increment form of the tridiagonal solves (solving directly for `y − x`, with the flux divergence on the right) changed no ratio measurably, so `vdiff` keeps Fortran's form. A deliberate doubling of `du` was caught (`dudt` ratio 4 × 10⁴, nothing else), so the harness was running the edited kernel. The remaining ~2× on some tendencies (`dqdt` 1.98, `dvdt` 1.94 at T21 step 2000) comes from computing the diffusion coefficients. WGSL doesn't require correctly rounded division or square root.
+
+All four cases pass:
+
+| Case | Largest ratio | Fields at or above 1.5 |
+| --- | --- | --- |
+| T21 step 100 | 1.22 (`dqdt`) | none |
+| T21 step 2000 | 1.98 (`dqdt`) | `dqdt` 1.98, `dvdt` 1.94, `dudt` 1.72 |
+| T42 step 100 | 1.17 (`dtdt`, `dshfl`) | none |
+| T42 step 500 | 1.77 (`dvdt`) | `dvdt` 1.77 |
+
+Fluxes, transfer coefficients and `dtsa` are at 0.6–1.2×. The tendency margins are thin. If more states push them past 2×, the next step is f64 or compensated evaluation of the coefficient terms.

@@ -24,6 +24,7 @@ const ROUTINES = [
 	{ name: "spectrald", before: "a3", after: "a4", outputs: ["sd", "st", "sz", "sq", "sdp", "stp", "szp", "sqp", "sdt", "stt", "szt", "sqt", "sdm", "stm", "szm", "sqm", "spm"] },
 	{ name: "physicsIn", physics: true, before: "a2", after: "d0", outputs: ["gu", "gv", "gt", "gp", "gq", "dp", "du", "dv", "dt", "dq", "gudt", "gvdt", "gtdt", "gqdt", "dudt", "dvdt", "dtdt", "dqdt"] },
 	{ name: "fixer", physics: true, before: "d0", after: "d1", outputs: ["dq", "gqdt"] },
+	{ name: "surfaceFlux", physics: true, before: "d1", after: "d2", outputs: ["dtdt", "dqdt", "dudt", "dvdt", "dtaux", "dtauy", "dust3", "dshfl", "dshdt", "devap", "dlhfl", "dlhdt", "dtsa", "dtransh", "dtransm"] },
 	// gp2fc transforms gudt..gqdt in place, so Fortran leaves Fourier
 	// coefficients there; the GPU writes them to separate fields. gridpointd
 	// zeroes them before their next use, so only the spectral tendencies count.
@@ -31,6 +32,12 @@ const ROUTINES = [
 ]
 const SCALARS = ["psurf", "ww", "cv", "ct", "akap", "rdbrv", "adv", "acpd", "ga", "plavor", "delt", "delt2", "deltsec2", "pnu", "pnu21", "nkits"]
 const FILTER_SCALARS = ["nfilter", "ngptfilter", "nspvfilter", "filterkappa", "nfilterexp", "landhoskn0"]
+const PHYSICS_SCALARS = ["gascon", "deltsec", "ra2", "ra4", "tmelt", "alv", "als", "ndheat", "fluxmod.zumin", "fluxmod.vdiff_lamm", "fluxmod.vdiff_b", "fluxmod.vdiff_c", "fluxmod.vdiff_d"]
+// State fields that hold another module's variable, by dump name.
+const ALIASES = { dtransh: "fluxmod.dtransh", dtransm: "fluxmod.dtransm" }
+const dumpName = (name) => ALIASES[name] ?? name
+// ROUTINES=fixer,surfaceFlux runs only those routines.
+const ONLY = process.env.ROUTINES?.split(",")
 // V3: a point counts as off when it differs from f64 by more than this
 // fraction of the field's RMS (about 84 f32 ULPs, see the plan).
 const POINT_TOLERANCE = 1e-5
@@ -50,7 +57,8 @@ async function portedTables({ truncation, delt }) {
 	return Object.fromEntries(Object.entries(tables).map(([name, values]) => [name, Array.from(values)]))
 }
 const { FIXER } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/physics/fixer/index.ts"))
-const NEEDED = new Set([...DYNAMICS.fields(10), ...FIXER.fields(10)].map((field) => field.name).concat(DYNAMICS.TABLES.map((table) => table.name)))
+const { SURFACE_FLUX } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/physics/surface-flux/index.ts"))
+const NEEDED = new Set([...DYNAMICS.fields(10), ...FIXER.fields(10), ...SURFACE_FLUX.fields()].map((field) => field.name).concat(DYNAMICS.TABLES.map((table) => table.name)))
 const browser = await chromium.launch({ executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe", headless: true, args: ["--enable-unsafe-webgpu"] })
 const report = { cases: [] }
 try {
@@ -62,13 +70,14 @@ try {
 	for (const { truncation, steps, ...kinds } of CASES) {
 		const dumps = (kind, step, point) => readProbe(path.join(probeRoot, `${kind}-t${truncation}`, `probe-${step}-${point}`))
 		for (const step of steps) {
-			const f64 = Object.fromEntries(await Promise.all([...["a0", "a1", "a2", "a3", "a4"], ...(kinds.physics ? ["d0", "d1", "d6"] : [])].map(async (point) => [point, await dumps(kinds.dumps, step, point)])))
-			const f32 = Object.fromEntries(await Promise.all([...["a1", "a2", "a4"], ...(kinds.physics ? ["d0", "d1", "a3"] : [])].map(async (point) => [point, await dumps(kinds.f32, step, point)])))
+			const f64 = Object.fromEntries(await Promise.all([...["a0", "a1", "a2", "a3", "a4"], ...(kinds.physics ? ["d0", "d1", "d2", "d6"] : [])].map(async (point) => [point, await dumps(kinds.dumps, step, point)])))
+			const f32 = Object.fromEntries(await Promise.all([...["a1", "a2", "a4"], ...(kinds.physics ? ["d0", "d1", "d2", "a3"] : [])].map(async (point) => [point, await dumps(kinds.f32, step, point)])))
 			const sanity = await dumps(kinds.f64, step, "a4")
 			const replayExact = Object.keys(f64.a4).every((name) => f64.a4[name].every((value, i) => Object.is(value, sanity[name][i])))
-			for (const routine of ROUTINES.filter((entry) => kinds.physics || !entry.physics)) {
+			for (const routine of ROUTINES.filter((entry) => (kinds.physics || !entry.physics) && (!ONLY || ONLY.includes(entry.name)))) {
 				const before = f64[routine.before]
-				const scalars = Object.fromEntries([...SCALARS, ...FILTER_SCALARS].map((name) => [name, before[name][0]]))
+				// Start-up dumps predate the physics modules' variables.
+				const scalars = Object.fromEntries([...SCALARS, ...FILTER_SCALARS, ...(kinds.physics ? PHYSICS_SCALARS : [])].map((name) => [name, before[name][0]]))
 				const ported = await portedTables({ truncation, delt: scalars.delt })
 				const gpu = await page.evaluate(async ({ truncation, before, ported, scalars, routine }) => {
 					const { GCM_GRID } = await import("/src/model/climate/gcm/grid/index.ts")
@@ -79,11 +88,12 @@ try {
 					const { LEGENDRE } = await import("/src/model/climate/gcm/legendre/index.ts")
 					const { DYNAMICS } = await import("/src/model/climate/gcm/dynamics/index.ts")
 					const { FIXER } = await import("/src/model/climate/gcm/physics/fixer/index.ts")
+					const { SURFACE_FLUX } = await import("/src/model/climate/gcm/physics/surface-flux/index.ts")
 					const latitudes = { 21: 32, 42: 64 }[truncation]
 					const grid = GCM_GRID.forLatitudes(latitudes)
 					const dimensions = { truncation, latitudes, longitudes: grid.longitudes, levels: 10 }
 					const { device } = await GCM_DEVICE.request({ storageBytes: 0, onLost: () => {} })
-					const state = LAYOUT.create({ dimensions, fields: [...DYNAMICS.fields(dimensions.levels), ...FIXER.fields(dimensions.levels)] })
+					const state = LAYOUT.create({ dimensions, fields: [...DYNAMICS.fields(dimensions.levels), ...FIXER.fields(dimensions.levels), ...SURFACE_FLUX.fields()] })
 					const filters = LEGENDRE.filters({ truncation, ...Object.fromEntries(["nfilter", "ngptfilter", "nspvfilter", "filterkappa", "nfilterexp", "landhoskn0"].map((name) => [name, scalars[name]])) })
 					const fourier = FOURIER.tables({ longitudes: grid.longitudes, truncation })
 					const tableValues = {
@@ -91,6 +101,7 @@ try {
 						fourier_inverse: fourier.inverse,
 						...LEGENDRE.kernelTables({ tables: LEGENDRE.tables({ grid, truncation }), filters, truncation }),
 						...FIXER.tables({ grid }),
+						...SURFACE_FLUX.tables({ sigma: Float64Array.from(ported.sigma), sigmah: Float64Array.from(ported.sigmah), akap: scalars.akap, gascon: scalars.gascon, ga: scalars.ga, vdiffLamm: scalars["fluxmod.vdiff_lamm"], vdiffD: scalars["fluxmod.vdiff_d"] }),
 						...Object.fromEntries(DYNAMICS.TABLES.map(({ name, count }) => {
 							const values = ported[name] ?? before[name]
 							if (values.length !== count(dimensions)) throw new Error(`${name}: ${values.length} values, expected ${count(dimensions)}`)
@@ -126,14 +137,24 @@ try {
 					})
 					const encoder = device.createCommandEncoder()
 					const pass = encoder.beginComputePass()
-					const lists = { ...kernels, fixer: await FIXER.kernels({ context, delt2: scalars.delt2, psurf: scalars.psurf }) }
-					for (const kernel of lists[routine.name]) KERNEL.dispatch({ pass, context, kernel })
+					// Physics lists are built only for their own routine: the start-up
+					// dumps carry no physics-module constants.
+					const physics = {
+						fixer: () => FIXER.kernels({ context, delt2: scalars.delt2, psurf: scalars.psurf }),
+						surfaceFlux: () =>
+							SURFACE_FLUX.kernels({
+								context,
+								constants: { rdbrv: scalars.rdbrv, gascon: scalars.gascon, ga: scalars.ga, acpd: scalars.acpd, adv: scalars.adv, deltsec: scalars.deltsec, deltsec2: scalars.deltsec2, ra2: scalars.ra2, ra4: scalars.ra4, tmelt: scalars.tmelt, alv: scalars.alv, als: scalars.als, zumin: scalars["fluxmod.zumin"], vdiffB: scalars["fluxmod.vdiff_b"], vdiffC: scalars["fluxmod.vdiff_c"], vdiffD: scalars["fluxmod.vdiff_d"], ndheat: scalars.ndheat > 0 },
+							}),
+					}
+					const list = physics[routine.name] ? await physics[routine.name]() : kernels[routine.name]
+					for (const kernel of list) KERNEL.dispatch({ pass, context, kernel })
 					pass.end()
 					device.queue.submit([encoder.finish()])
 					const result = await LAYOUT.read({ device, buffer: context.stateBuffer, layout: state, names: routine.outputs })
 					device.destroy()
 					return Object.fromEntries(Object.entries(result).map(([name, values]) => [name, Array.from(values)]))
-				}, { truncation, before: Object.fromEntries(Object.entries(before).filter(([name]) => NEEDED.has(name))), ported, scalars, routine })
+				}, { truncation, before: Object.fromEntries([...NEEDED].filter((name) => before[dumpName(name)]).map((name) => [name, before[dumpName(name)]])), ported, scalars, routine })
 				const fields = {}
 				// On output and diagnostic steps gridpointa overwrites gp with the
 				// Fourier coefficients of exp(ln ps) - 1 to compute span, which only
@@ -142,14 +163,14 @@ try {
 				const diagnosticStep = nstep % before.nafter[0] === 0 || nstep % before.ndiag[0] === 0
 				const skipped = routine.name === "gridpointa" && diagnosticStep ? ["gp"] : []
 				for (const name of routine.outputs.filter((output) => !skipped.includes(output))) {
-					const exact = f64[routine.after][name]
+					const exact = f64[routine.after][dumpName(name)]
 					const scale = rms(exact)
 					const gpuError = rms(gpu[name], exact) / scale
-					const f32Error = rms(f32[routine.after][name], exact) / scale
+					const f32Error = rms(f32[routine.after][dumpName(name)], exact) / scale
 					const gpuOff = countOff(gpu[name], exact, scale)
-					const f32Off = countOff(f32[routine.after][name], exact, scale)
+					const f32Off = countOff(f32[routine.after][dumpName(name)], exact, scale)
 					const pass = scale === 0 ? rms(gpu[name]) === 0 : gpuError <= 2 * f32Error && gpuOff <= 2 * f32Off + 1
-					fields[name] = { gpuRelativeRms: gpuError, f32RelativeRms: f32Error, ratio: gpuError / f32Error, gpuPointsOff: gpuOff, f32PointsOff: f32Off, pass, ...(pass ? {} : { gpu: gpu[name], f64: exact, f32: f32[routine.after][name] }) }
+					fields[name] = { gpuRelativeRms: gpuError, f32RelativeRms: f32Error, ratio: gpuError / f32Error, gpuPointsOff: gpuOff, f32PointsOff: f32Off, pass, ...(pass ? {} : { gpu: gpu[name], f64: exact, f32: f32[routine.after][dumpName(name)] }) }
 				}
 				const entry = { truncation, step, routine: routine.name, replayExact, skipped, pass: Object.values(fields).every((field) => field.pass), fields }
 				report.cases.push(entry)

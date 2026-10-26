@@ -68,10 +68,12 @@ function fields(levels: number): GcmFieldSpec[] {
 // Constants initpm, initsi, makebm and the horizontal-diffusion setup
 // compute, under their pumamod names.
 const TABLES: GcmDynamicsTable[] = [
-	...["t0", "dsigma", "sigmah", "rdsig", "t01s2", "tkp"].map((name) => ({
-		name,
-		count: ({ levels }: GcmDimensions) => levels,
-	})),
+	...["t0", "dsigma", "sigma", "sigmah", "rdsig", "t01s2", "tkp"].map(
+		(name) => ({
+			name,
+			count: ({ levels }: GcmDimensions) => levels,
+		}),
+	),
 	...["damp", "tdisst", "tdissq", "tdissd", "tdissz", "tfrc"].map((name) => ({
 		name,
 		count: ({ levels }: GcmDimensions) => levels,

@@ -261,6 +261,7 @@ function tables({
 	return {
 		t0: setup.t0,
 		dsigma: setup.dsigma,
+		sigma: setup.sigma,
 		sigmah: setup.sigmah,
 		rdsig: setup.rdsig,
 		t01s2: setup.t01s2,
