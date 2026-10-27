@@ -581,6 +581,15 @@ The T21 48-step failures are fields with O(0.1–1) relative error in both runs 
 `setup/` (`SETUP`) builds the model's inputs from the namelist text the page writes (`GCM_NAMELIST`), so a run no longer needs a Fortran dump:
 - `GCM_NAMELIST.parse` reads a namelist file back into key–value pairs.
 - `SETUP.pumamod` ports `planet_ini` (Earth defaults from `p_earth.f90`) and `readnl`, with plasimmod's defaults, the resolution-dependent diffusion and drag, and the derived day lengths, timestep, `ww`, `cv`, `ct`, `acpd`, `adv` and `rdbrv`. All 72 values match the `initpm-in` dump exactly at T21 and T42.
-- `RADIATION`'s `spectrum/` (`SPECTRUM.split`) ports `solarini` for a blackbody star. It gives the band split at 0.75 µm, the Rayleigh coefficient relative to the Sun, and eight star-weighted albedo pairs (snow, sea ice, glacier, ground, ocean). The spectral tables come from `specblock.f90` via `scripts/exoplasim-webgpu/specblock.mjs`. All match to within 8 × 10⁻¹⁶ (`pow`/`exp` last bits).
+- `RADIATION`'s `spectrum/` (`SPECTRUM.split`) ports `solarini` for a blackbody star. It gives the band split at 0.75 µm, the Rayleigh coefficient relative to the Sun, and eight star-weighted albedo pairs (snow, sea ice, glacier, ground, ocean). The spectral tables come from `specblock.f90` via `scripts/exoplasim-webgpu/fortran-tables.mjs`. All match to within 8 × 10⁻¹⁶ (`pow`/`exp` last bits).
+- `SETUP.constants` assembles everything `STEPPER` takes apart from the initial state: every kernel's constants, the step calendar and the constant tables' inputs other than `DYNAMICS.TABLES`. `setup/modules/` (`MODULE_SETUP`) holds each physics module's namelist defaults and what its `*ini` derives:
+  - `landini`'s band albedos for snow and glacier and its vegetation time scales in seconds;
+  - `iceini`'s timestep;
+  - `carbonini`'s weathering interval and yearly-mean weight;
+  - `rainini`'s `gamma` at T42 and `clwfac`;
+  - `radini`'s resolution tuning and `solarini`.
+  `CALENDAR.orbit` ports `orb_params`: the fixed orbit, or Berger's series (tables generated from `pumamod`'s data by `fortran-tables.mjs`) for `radini`'s year.
+- prolog lowers `psurf` from the sea-level value to the mean surface pressure using the initial orography's mean spectral coefficient `so(1)`, so `SETUP.constants` takes it as `meanOrography`. Until the initial state is ported, the check takes it from the dump.
+- Every constant, calendar value (including the orbit's four angles) and table input matches the main-loop dumps to within 10⁻¹⁴ at T21 and T42.
 
-`scripts/exoplasim-webgpu/verify-namelist.mjs` runs these checks in about 15 s.
+`scripts/exoplasim-webgpu/verify-namelist.mjs` runs these checks in about 20 s. Still to port: `sop`/`srp`, and the initial state (the `.sra` surface files, the `*ini` fields, `initpm`/`setzt` and the noise kick).

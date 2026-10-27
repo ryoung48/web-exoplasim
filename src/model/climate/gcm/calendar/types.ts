@@ -6,6 +6,33 @@ export interface GcmOrbit {
 	meanLongitudeAtEquinoxRad: number
 }
 
+// orb_params' inputs: planet_nl's orbit, used as given when fixed
+// (nfixorb = 1), otherwise replaced by Berger's values for the year.
+export interface GcmOrbitRequest {
+	fixed: boolean
+	eccentricity: number
+	obliquityDeg: number
+	perihelionDeg: number
+	meanAnomalyDeg: number
+	// radini's iyrad = 1950 − iyrbp, the year AD the Berger series is for.
+	year: number
+}
+
+export interface GcmOrbitParameters extends GcmOrbit {
+	obliquityDeg: number
+	perihelionDeg: number
+	meanAnomalyRad: number
+}
+
+// One of orb_params' sums Σ amplitude·wave((rate·years + phase)°).
+export interface GcmBergerSeries {
+	amplitudes: number[]
+	rates: number[]
+	phases: number[]
+	years: number
+	wave: (radians: number) => number
+}
+
 export interface GcmSolarRequest {
 	step: number
 	stepsPerYear: number

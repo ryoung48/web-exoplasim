@@ -46,10 +46,17 @@ async function dynamicsTables({ modules, probeRoot, truncation, delt, dump }) {
 
 // STEPPER.tables' request, serializable: plain arrays instead of typed ones.
 export async function tablesInputs({ modules, probeRoot, truncation, dump }) {
+	return {
+		...physicsTablesInputs({ truncation, dump }),
+		dynamics: await dynamicsTables({ modules, probeRoot, truncation, delt: dump.delt[0], dump }),
+	}
+}
+
+// The request's inputs other than DYNAMICS.TABLES (SETUP.constants' tables).
+export function physicsTablesInputs({ truncation, dump }) {
 	const scalar = (name) => dump[name]?.[0]
 	return {
 		filters: { truncation, ...Object.fromEntries(["nfilter", "ngptfilter", "nspvfilter", "filterkappa", "nfilterexp", "landhoskn0"].map((name) => [name, scalar(name)])) },
-		dynamics: await dynamicsTables({ modules, probeRoot, truncation, delt: scalar("delt"), dump }),
 		akap: scalar("akap"),
 		gascon: scalar("gascon"),
 		ga: scalar("ga"),

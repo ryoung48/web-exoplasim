@@ -1,3 +1,21 @@
+import type { GcmPumamod } from "@/model/climate/gcm/setup/pumamod/types"
+import type {
+	GcmStepCalendar,
+	GcmStepperConstants,
+	GcmStepperTablesRequest,
+} from "@/model/climate/gcm/stepper/types"
+
+// Everything the GPU model takes from set-up apart from the initial state:
+// the kernels' constants, the per-step calendar, the constant tables'
+// inputs except DYNAMICS.TABLES, and pumamod's CO2.
+export interface GcmSetup {
+	pumamod: GcmPumamod
+	stepper: GcmStepperConstants
+	calendar: GcmStepCalendar
+	tables: Omit<GcmStepperTablesRequest, "dynamics">
+	co2: number
+}
+
 // The page's model inputs, as the Fortran reads them: each namelist file's
 // text by file name (plasim_namelist, planet_namelist, …).
 export interface GcmSetupRequest {
@@ -6,86 +24,8 @@ export interface GcmSetupRequest {
 	namelists: Record<string, string>
 }
 
-// pumamod's values when initpm starts: planet_ini's planet, then readnl's
-// namelist and the quantities it derives. Keys are the Fortran names, so
-// the record maps one to one onto the namelists and the probe dumps.
-export interface GcmPumamod {
-	ga: number
-	gascon: number
-	akap: number
-	alr: number
-	ra1: number
-	ra2: number
-	ra4: number
-	pnu: number
-	plarad: number
-	rotspd: number
-	gsol0: number
-	eccen: number
-	mvelp: number
-	obliq: number
-	meananom0: number
-	nfixorb: number
-	ngenkeplerian: number
-	day_24hr: number
-	solar_day: number
-	sidereal_day: number
-	sidereal_year: number
-	tropical_year: number
-	ww: number
-	acpd: number
-	adv: number
-	cv: number
-	ct: number
-	pnu21: number
-	rdbrv: number
-	tmelt: number
-	alv: number
-	als: number
-	dawn: number
-	psurf: number
-	plavor: number
-	mpstep: number
-	mtspd: number
-	ntspd: number
-	nafter: number
-	n_steps_per_year: number
-	n_days_per_year: number
-	n_days_per_month: number
-	m_days_per_year: number
-	nkits: number
-	kick: number
-	ndheat: number
-	nveg: number
-	nqspec: number
-	nhdiff: number
-	nhordif: number
-	neqsig: number
-	nfilter: number
-	ngptfilter: number
-	nspvfilter: number
-	filterkappa: number
-	nfilterexp: number
-	landhoskn0: number
-	dtep: number
-	dtns: number
-	dtrop: number
-	dttrp: number
-	tgr: number
-	ptop: number
-	ndel: number[]
-	tdissd: number[]
-	tdissz: number[]
-	tdisst: number[]
-	tdissq: number[]
-	restim: number[]
-	t0: number[]
-	tfrc: number[]
-	seed: number[]
-}
-
-// A namelist value (as written) over a default of the same shape.
-export interface GcmNamelistOverride<T> {
-	value: string | undefined
-	fallback: T
+// The namelists plus so(1), the initial orography's mean spectral
+// coefficient, which prolog uses to lower psurf to the mean surface pressure.
+export interface GcmSetupConstantsRequest extends GcmSetupRequest {
+	meanOrography: number
 }

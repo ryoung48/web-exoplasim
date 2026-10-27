@@ -1,234 +1,333 @@
-import { GCM_NAMELIST } from "@/model/climate/gcm/namelist"
+import { CALENDAR } from "@/model/climate/gcm/calendar"
+import { MODULE_SETUP } from "@/model/climate/gcm/setup/modules"
+import { PUMAMOD } from "@/model/climate/gcm/setup/pumamod"
 import type {
-	GcmNamelistOverride,
-	GcmPumamod,
-	GcmSetupRequest,
+	GcmSetup,
+	GcmSetupConstantsRequest,
 } from "@/model/climate/gcm/setup/types"
 
-// pumamod's parameters (plasimmod.f90 at 5f8dff4).
-const PI = 3.14159265359
-const TWOPI = PI + PI
-// 1 / sqrt(3/8): planetary vorticity in spectral units.
-const EZ = 1.63299310207
-// Gas constant and specific heat of water vapour.
-const RV = 461.51
-const ACPV = 1870
-
-// p_earth.f90's planet_ini defaults.
-const EARTH = {
-	eccen: 0.016715,
-	mvelp: 102.7,
-	obliq: 23.441,
-	rotspd: 1,
-	sidereal_day: 86164.0916,
-	solar_day: 86400,
-	sidereal_year: 31558149,
-	tropical_year: 31556956,
-	meananom0: -2.9589,
-	akap: 0.286,
-	alr: 0.0065,
-	gascon: 287,
-	ra1: 610.78,
-	ra2: 17.2693882,
-	ra4: 35.86,
-	pnu: 0.1,
-	ga: 9.80665,
-	plarad: 6371220,
-	gsol0: 1365,
-	nfixorb: 0,
-	ngenkeplerian: 0,
+// radmod's Stefan–Boltzmann constant, and icemod's and oceanmod's water,
+// ice and snow parameters (all Fortran parameters).
+const SBK = 5.67e-8
+const ICE = {
+	TMELT: 273.16,
+	CRHOI: 920,
+	CRHOS: 1030,
+	CRHOSN: 330,
+	CPI: 2070,
+	CKAPI: 2.03,
+	CKAPSN: 0.31,
+	CLFI: 3.28e5,
+	CLFSN: 3.337e5,
 }
+const CPS = 4180
+// carbonmod's Earth references: CO2 (ppmv) and radius² (m²).
+const CO2EARTH = 330
+const RAD_EARTHSQ = 6371220 * 6371220
 
-// plasimmod.f90's namelist defaults for one level count.
-function pumamodDefaults(levels: number) {
-	return {
-		psurf: 101100,
-		mpstep: 0,
-		ntspd: 0,
-		n_days_per_year: 360,
-		nkits: 3,
-		kick: 1,
-		ndheat: 1,
-		nveg: 1,
-		nqspec: 1,
-		nhdiff: 15,
-		nhordif: 1,
-		neqsig: 0,
-		nfilter: 0,
-		ngptfilter: 0,
-		nspvfilter: 0,
-		filterkappa: 8,
-		nfilterexp: 8,
-		landhoskn0: 15,
-		nwpd: 0,
-		nlowio: 0,
-		nstpw: 0,
-		dtep: 0,
-		dtns: 0,
-		dtrop: 12000,
-		dttrp: 2,
-		tgr: 288,
-		ptop: 7500,
-		frcmod: 1,
-		ndel: new Array<number>(levels).fill(2),
-		tdissd: new Array<number>(levels).fill(0.2),
-		tdissz: new Array<number>(levels).fill(1.1),
-		tdisst: new Array<number>(levels).fill(5.6),
-		tdissq: new Array<number>(levels).fill(0.1),
-		restim: new Array<number>(levels).fill(0),
-		t0: new Array<number>(levels).fill(250),
-		tfrc: new Array<number>(levels).fill(0),
-		seed: new Array<number>(8).fill(0),
+// prolog's set-up from the page's namelist text: pumamod, each physics
+// module's *ini, and master's main-loop timestep.
+function constants(request: GcmSetupConstantsRequest): GcmSetup {
+	const namelist = PUMAMOD.read(request)
+	// prolog: psurf is the sea-level pressure until the orography lowers it.
+	const meanHeight =
+		(request.meanOrography * namelist.cv * namelist.cv) / Math.SQRT2
+	const pumamod = {
+		...namelist,
+		psurf: Math.exp(
+			Math.log(namelist.psurf) - meanHeight / namelist.gascon / namelist.tgr,
+		),
 	}
-}
-
-// A namelist value over a default: numbers, and comma lists for arrays.
-function override<T extends number | number[]>({
-	value,
-	fallback,
-}: GcmNamelistOverride<T>): T {
-	if (value === undefined) return fallback
-	const numbers = value
-		.split(",")
-		.map((part) => Number(part.trim().replace(/d/i, "e")))
-	if (!Array.isArray(fallback)) return numbers[0] as T
-	const result = [...fallback]
-	numbers.forEach((number, i) => {
-		result[i] = number
-	})
-	return result as T
-}
-
-// planet_ini then readnl (plasim.f90), up to the start of initpm.
-function pumamod({
-	truncation,
-	levels,
-	namelists,
-}: GcmSetupRequest): GcmPumamod {
-	const planetText = GCM_NAMELIST.parse(namelists.planet_namelist ?? "")
-	const plasimText = GCM_NAMELIST.parse(namelists.plasim_namelist ?? "")
-	const planet = Object.fromEntries(
-		Object.entries(EARTH).map(([key, value]) => [
-			key,
-			override({ value: planetText[key.toUpperCase()], fallback: value }),
-		]),
-	) as typeof EARTH
-	const day24hr = 86400
-	const defaults = pumamodDefaults(levels)
-	// readnl's resolution defaults, before the namelist.
-	if (levels === 10) {
-		defaults.tfrc = defaults.tfrc.map(
-			(_, l) => (l === 0 ? 20 : l === 1 ? 100 : 0) * day24hr * defaults.frcmod,
-		)
-	}
-	if (truncation === 42) {
-		defaults.nhdiff = 16
-		defaults.ndel = defaults.ndel.map(() => 4)
-		defaults.tdissq = defaults.tdissq.map(() => 0.1 * day24hr)
-		defaults.tdisst = defaults.tdisst.map(() => 0.76 * day24hr)
-		defaults.tdissz = defaults.tdissz.map(() => 0.3 * day24hr)
-		defaults.tdissd = defaults.tdissd.map(() => 0.06 * day24hr)
-	}
-	const nl = Object.fromEntries(
-		Object.entries(defaults).map(([key, value]) => [
-			key,
-			override({ value: plasimText[key.toUpperCase()], fallback: value }),
-		]),
-	) as typeof defaults
-
-	let solarDay = day24hr
-	let siderealDay = (solarDay * (nl.n_days_per_year - 1)) / nl.n_days_per_year
-	if (planet.rotspd !== 1) {
-		siderealDay = day24hr / planet.rotspd
-		solarDay =
-			nl.n_days_per_year !== 1
-				? (siderealDay * nl.n_days_per_year) / (nl.n_days_per_year - 1)
-				: siderealDay
-	}
-	const mDaysPerYear = Math.round((nl.n_days_per_year * siderealDay) / day24hr)
-	const ww = TWOPI / siderealDay
-	const acpd = planet.gascon / planet.akap
-	const cv = planet.plarad * ww
-	let mpstep = nl.mpstep
-	if (mpstep <= 0 && nl.ntspd <= 0) {
-		const latitudes = { 21: 32, 42: 64 }[truncation] ?? 32
-		mpstep =
-			latitudes <= 32
-				? 45
-				: latitudes <= 48
-					? 36
-					: Math.trunc((30 * 64) / latitudes)
-	}
-	let mtspd = 0
-	if (mpstep > 0) {
-		mtspd = Math.trunc(Math.round(day24hr) / Math.round(mpstep * 60))
-		mtspd = mtspd + (mtspd % 2)
-	}
-	mpstep = day24hr / (mtspd * 60)
-	const ntspd = Math.trunc(Math.round(solarDay) / Math.round(mpstep * 60))
-	let nafter = mtspd
-	if (nl.nwpd > 0 && nl.nwpd <= mtspd) nafter = Math.trunc(mtspd / nl.nwpd)
-	if (nl.nlowio > 0 && nl.nstpw > 0) nafter = nl.nstpw
-	const hordif = nl.nhordif !== 0
-	const zeroed = (values: number[]) => (hordif ? values : values.map(() => 0))
-	return {
-		...planet,
-		day_24hr: day24hr,
-		solar_day: solarDay,
-		sidereal_day: siderealDay,
-		ww,
+	const module = { request, pumamod }
+	const rad = MODULE_SETUP.radmod(module)
+	const rain = MODULE_SETUP.rainmod(module)
+	const flux = MODULE_SETUP.fluxmod(module)
+	const land = MODULE_SETUP.landmod({ ...module, albedos: rad.albedos })
+	const sea = MODULE_SETUP.seamod({ ...module, albedos: rad.albedos })
+	const ice = MODULE_SETUP.icemod(module)
+	const veg = MODULE_SETUP.vegmod(module)
+	const carbon = MODULE_SETUP.carbonmod(module)
+	const glacier = MODULE_SETUP.glaciermod(module)
+	const {
+		ga,
+		gascon,
 		acpd,
-		adv: ACPV / acpd - 1,
-		cv,
-		ct: (cv * cv) / planet.gascon,
-		pnu21: 1 - 2 * planet.pnu,
-		rdbrv: planet.gascon / RV,
-		tmelt: 273.16,
-		alv: 2.5008e6,
-		als: 2.8345e6,
-		dawn: 0,
-		psurf: nl.psurf,
-		plavor: EZ,
-		mpstep,
-		mtspd,
-		ntspd,
-		nafter,
-		n_steps_per_year: Math.round(planet.sidereal_year / (mpstep * 60)),
-		n_days_per_year: nl.n_days_per_year,
-		n_days_per_month: Math.trunc(mDaysPerYear / 12),
-		m_days_per_year: mDaysPerYear,
-		nkits: nl.nkits,
-		kick: nl.kick,
-		ndheat: nl.ndheat,
-		nveg: nl.nveg,
-		nqspec: nl.nqspec,
-		nhdiff: nl.nhdiff,
-		nhordif: nl.nhordif,
-		neqsig: nl.neqsig,
-		nfilter: nl.nfilter,
-		ngptfilter: nl.ngptfilter,
-		nspvfilter: nl.nspvfilter,
-		filterkappa: nl.filterkappa,
-		nfilterexp: nl.nfilterexp,
-		landhoskn0: nl.landhoskn0,
-		dtep: nl.dtep,
-		dtns: nl.dtns,
-		dtrop: nl.dtrop,
-		dttrp: nl.dttrp,
-		tgr: nl.tgr,
-		ptop: nl.ptop,
-		ndel: nl.ndel,
-		tdissd: zeroed(nl.tdissd),
-		tdissz: zeroed(nl.tdissz),
-		tdisst: zeroed(nl.tdisst),
-		tdissq: zeroed(nl.tdissq),
-		restim: zeroed(nl.restim),
-		t0: nl.t0,
-		tfrc: zeroed(nl.tfrc),
-		seed: nl.seed,
+		adv,
+		rdbrv,
+		ra1,
+		ra2,
+		ra4,
+		tmelt,
+		alv,
+		als,
+		psurf,
+	} = pumamod
+	const deltsec = pumamod.day_24hr / pumamod.mtspd
+	const deltsec2 = deltsec + deltsec
+	const delt = PUMAMOD.TWOPI / pumamod.ntspd
+	const delt2 = delt + delt
+	const dtmix = pumamod.solar_day / pumamod.ntspd
+	return {
+		pumamod,
+		co2: rad.co2,
+		stepper: {
+			dynamics: {
+				psurf,
+				ww: pumamod.ww,
+				cv: pumamod.cv,
+				ct: pumamod.ct,
+				akap: pumamod.akap,
+				rdbrv,
+				adv,
+				acpd,
+				ga,
+				plavor: pumamod.plavor,
+				delt,
+				delt2,
+				deltsec2,
+				pnu: pumamod.pnu,
+				pnu21: pumamod.pnu21,
+				filter: true,
+			},
+			fixer: { delt2, psurf },
+			surfaceFlux: {
+				rdbrv,
+				gascon,
+				ga,
+				acpd,
+				adv,
+				deltsec,
+				deltsec2,
+				ra2,
+				ra4,
+				tmelt,
+				alv,
+				als,
+				zumin: flux.zumin,
+				vdiffB: flux.vdiff_b,
+				vdiffC: flux.vdiff_c,
+				vdiffD: flux.vdiff_d,
+				ndheat: pumamod.ndheat > 0,
+			},
+			radiation: {
+				ga,
+				gascon,
+				acpd,
+				adv,
+				gsol0: rad.gsol0,
+				zsolar1: rad.zsolar1,
+				zsolar2: rad.zsolar2,
+				zsolars1: rad.zsolars[0],
+				zsolars2: rad.zsolars[1],
+				tswr1: rad.tswr1,
+				tswr2: rad.tswr2,
+				tswr3: rad.tswr3,
+				rcoeff: rad.rcoeff,
+				nstartemp: rad.nstartemp > 0,
+				ozone: rad.no3 === 1,
+				a0o3: rad.a0o3,
+				a1o3: rad.a1o3,
+				aco3: rad.aco3,
+				bo3: rad.bo3,
+				co3: rad.co3,
+				dawnDeg: rad.dawn,
+				sbk: SBK,
+				th2oc: rad.th2oc,
+				tpofmt: rad.tpofmt,
+			},
+			precipitation: {
+				deltsec2,
+				psurf,
+				ww: pumamod.ww,
+				ga,
+				gascon,
+				acpd,
+				adv,
+				alv,
+				als,
+				rdbrv,
+				ra1,
+				ra2,
+				ra4,
+				tmelt,
+				rhbeta: rain.rhbeta,
+				nbeta: rain.nbeta,
+				pdeep: rain.pdeep,
+				pdeepth: rain.pdeepth,
+				rkshallow: rain.rkshallow,
+				gamma: rain.gamma,
+				solarDay: pumamod.solar_day,
+				clwfac: rain.clwfac,
+				clwcrit1: rain.clwcrit1,
+				clwcrit2: rain.clwcrit2,
+			},
+			surface: {
+				soil: {
+					DELTSEC: deltsec,
+					TMELT: tmelt,
+					ALS: als,
+					ALV: alv,
+					SICECAP: land.sicecap,
+					SOILCAP: land.soilcap,
+					SICEDIFF: land.sicediff,
+					SOILDIFF: land.soildiff,
+					SNOWCAP: land.snowcap,
+					SNOWDIFF: land.snowdiff,
+					RHOSNOW: land.rhosnow,
+					DZTOP: land.dztop,
+					DSMAX: land.dsmax,
+				},
+				land: {
+					DELTSEC: deltsec,
+					TMELT: tmelt,
+					RDBRV: rdbrv,
+					RA1: ra1,
+					RA2: ra2,
+					RA4: ra4,
+					ALBSMAX: land.albsmax,
+					ALBSMIN: land.albsmin,
+					ALBSMAXF: land.albsmaxf,
+					ALBSMINF: land.albsminf,
+					ALBSMAX1: land.albsmax1,
+					ALBSMIN1: land.albsmin1,
+					ALBSMAXF1: land.albsmaxf1,
+					ALBSMINF1: land.albsminf1,
+					ALBSMAX2: land.albsmax2,
+					ALBSMIN2: land.albsmin2,
+					ALBSMAXF2: land.albsmaxf2,
+					ALBSMINF2: land.albsminf2,
+					ALBGMAX: land.albgmax,
+					ALBGMIN: land.albgmin,
+					ALBGMAX1: land.albgmax1,
+					ALBGMIN1: land.albgmin1,
+					ALBGMAX2: land.albgmax2,
+					ALBGMIN2: land.albgmin2,
+					DRHSFULL: land.drhsfull,
+					NWETSOIL: land.nwetsoil,
+					WSMAX: land.wsmax,
+					ALBLAND: land.albland,
+					ALBLANDMAX: land.alblandmax,
+					DGROUNDALB1: land.dgroundalb[0],
+					DGROUNDALB2: land.dgroundalb[1],
+					DOCEANALB1: sea.doceanalb[0],
+					DOCEANALB2: sea.doceanalb[1],
+				},
+				vegetation: {
+					NVEG: pumamod.nveg,
+					RLUE: land.rlue,
+					CO2CONV: land.co2conv,
+					TAU_VEG: land.tau_veg,
+					TAU_SOIL: land.tau_soil,
+					VWS_CRIT: 0.25,
+					Q10: 2,
+					ZLAIMAX: 9,
+					ZLAIMIN: 0.1,
+					VALB_MIN: 0.12,
+					VALB_MAX: 0.3,
+					VSALB_MIN: 0.2,
+					VWMAX_MAX: 0.5,
+					VWMAX_MIN: 0.05,
+					VZ0_MIN: 0.05,
+					CVEG_A: 2.9,
+					CVEG_C: 1.570796326794897,
+					CVEG_D: -1.9,
+					CVEG_F: 3,
+					CVEG_K: 0.5,
+					CVEG_L: 0.25,
+					CT_CRIT: 5,
+					CO2_REF: 360,
+					CO2_COMP: 0,
+					CO2_SENS: 0.3,
+					NCVEG: veg.ncveg,
+				},
+				nglacier: glacier.nglacier > 0,
+				ice: {
+					XDT: ice.xdt,
+					XMIND: ice.xmind,
+					XMAXD: ice.xmaxd,
+					CICEMIN: ice.cicemin,
+					THICEC: ice.thicec,
+					TFREEZE: ice.tfreeze,
+					...ICE,
+				},
+				ocean: { DTMIX: dtmix, CPS },
+				sea: {
+					RDBRV: rdbrv,
+					RA1: ra1,
+					RA2: ra2,
+					RA4: ra4,
+					GASCON: gascon,
+					GA: ga,
+					CHARNOCK: sea.charnock,
+					DZ0SEA: sea.dz0sea,
+					DZ0ICE: sea.dz0ice,
+					DRHSSEA: sea.drhssea,
+					DRHSICE: sea.drhsice,
+					ALBSEA: sea.albsea,
+					ALBICE: sea.albice,
+					DICEALBMX1: sea.dicealbmx[0],
+					DICEALBMX2: sea.dicealbmx[1],
+					DICEALBMN1: sea.dicealbmn[0],
+					DICEALBMN2: sea.dicealbmn[1],
+				},
+			},
+			carbon: {
+				NCARBON: carbon.ncarbon,
+				NSUPPLY: carbon.nsupply,
+				TIMEWEIGHT: carbon.timeweight,
+				CO2EARTH,
+				BETA: carbon.beta,
+				KACT: carbon.kact,
+				PEARTH: carbon.pearth,
+				WMAX: carbon.wmax,
+				VEARTH: carbon.vearth,
+				PLARAD: pumamod.plarad,
+				RAD_EARTHSQ,
+			},
+		},
+		calendar: {
+			stepsPerYear: pumamod.n_steps_per_year,
+			stepsPerDay: pumamod.ntspd,
+			stepMinutes: pumamod.mpstep,
+			daysPerYear: pumamod.n_days_per_year,
+			daysPerMonth: pumamod.n_days_per_month,
+			solarDay: pumamod.solar_day,
+			rotationSpeed: pumamod.rotspd,
+			toffo3: rad.toffo3,
+			orbit: CALENDAR.orbit({
+				fixed: pumamod.nfixorb === 1,
+				eccentricity: pumamod.eccen,
+				obliquityDeg: pumamod.obliq,
+				perihelionDeg: pumamod.mvelp,
+				meanAnomalyDeg: pumamod.meananom0,
+				year: rad.year,
+			}),
+			carbonInterval: carbon.interval,
+		},
+		tables: {
+			filters: {
+				truncation: request.truncation,
+				nfilter: pumamod.nfilter,
+				ngptfilter: pumamod.ngptfilter,
+				nspvfilter: pumamod.nspvfilter,
+				filterkappa: pumamod.filterkappa,
+				nfilterexp: pumamod.nfilterexp,
+				landhoskn0: pumamod.landhoskn0,
+			},
+			akap: pumamod.akap,
+			gascon,
+			ga,
+			vdiffLamm: flux.vdiff_lamm,
+			vdiffD: flux.vdiff_d,
+			acllwr: rad.acllwr,
+			rcritmod: rain.rcritmod,
+			rcritslope: rain.rcritslope,
+			dsoilz: land.dsoilz,
+		},
 	}
 }
 
 export const SETUP = {
-	pumamod,
+	pumamod: PUMAMOD.read,
+	constants,
 }
