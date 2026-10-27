@@ -690,7 +690,7 @@ Decision (2026-10-27): the T21 V5 result is accepted as noise; 30-year reference
 - **Worker:** `gcm.worker.ts` owns the `GPUDevice`. It runs `SETUP.state`/`SETUP.schedule` and the start-up steps (or loads a restart), then pumps batches. It reports device loss and uncaptured GPU errors, and stops with a message when a snapshot has a non-finite value.
 - **Snapshots:** `SNAPSHOT`'s pack kernel writes `gcm_publish.f90`'s 18 fields into a `snapshot` state slot after every step whose `nstep` is a multiple of `publishEvery`. Dates come from `CALENDAR.date`, the `step2cal30` port that `monthInterpolation` now shares.
 - **Batches:** `STEPPER.batch` encodes a batch as one command buffer. The batch's per-step CPU values go into a parameter buffer in one `writeBuffer`, and each step copies its slice into the state slots before its compute pass. After each publishing step, the snapshot slot is copied into a staging buffer (ring of 3).
-- **Batch size:** the plan's 25 ms GPU budget, at most 2 batches in flight, and at most 16 intervals per batch (9.4 MB staging at T42).
+- **Batch size:** a 20 ms GPU budget (see below), at most 2 batches in flight, and at most 16 intervals per batch (9.4 MB staging at T42).
 - **Backpressure:** each batch's snapshots go to the page as one message, and the page acknowledges it after handling. The worker submits only while the page has handled every posted batch. Without that the worker ran ahead (30 model days/s shown, pause lagging by seconds). With per-snapshot messages the page handled one snapshot per message turn (7.5 days/s).
 - **Checkpoints (format 3):** Save reads the whole state at a batch boundary and keeps running (or stays paused). `checkpoint/restart/` (`RESTART`) stores every field as f32 with a name and size index, the next step and carbonmod's counter. Load checks the index against the current fields and skips the start-up steps. Formats 2 and earlier (Wasm `plasim_status`) are rejected with a message. A T21 checkpoint is 11 MB.
 
@@ -706,5 +706,25 @@ Decision (2026-10-27): the T21 V5 result is accepted as noise; 30-year reference
 | Format-2 checkpoint | rejected | rejected |
 
 - **Where the dev server's main thread goes:** a CPU profile (`stats/page-profile.mjs`) puts 33% in React 19's development prop diffing, about 38% more in `jsxDEV` and the scheduler, and about 15% in drawing coastlines. The runner's message handling is 0.1%.
-- **Pause:** most presses meet the 100 ms target. Some reach 106–145 ms when a page frame or the worker's batch encoding sits between the click and the last batch. A 20 ms budget gave the same spread, so the plan's 25 ms is kept.
-- **Pause latency is not yet V6-compliant.** Bounding it needs the remaining time between the click and the worker's last post, measured on the worker side.
+- **Pause, first version:** most presses met the 100 ms target, but some reached 106–145 ms. The section below finds the cause and fixes it.
+
+#### Pause latency (2026-10-27)
+
+Temporary timestamps in the worker (`stats/worker-timing.py` adds and removes them), on the page's clock, traced each press (`stats/pause-trace.mjs`, production build):
+- **The pause itself is fast:** it reaches the worker within 0–6 ms of the click. After that, only the batches already submitted matter: their GPU work, then about 5 ms of mapping and posting, then the page handling the last message (0–25 ms, depending on where its frame is).
+- **The batches were the problem:** they swung between 4 and 64 steps. The old rule sized each batch from one measurement, `floor(25 ms × n / t)`, and a single fast measurement doubled the next batch. Two such batches in flight (about 55 ms each) gave the 106–145 ms presses.
+- **And the GPU is shared:** while the page draws, a batch takes up to about 1.7× its budget, because the page's drawing uses the same GPU.
+
+The fix:
+- **Pacing:** `STEPPER.pace` keeps a per-interval GPU-time estimate. It follows a slower batch at once but a faster one only by a factor of 0.8 per batch, and sizes batches as `floor(budget / estimate)`. Batches then stayed within 4–28 steps.
+- **Budget:** measured 30 presses each with `verify-page.mjs` (`PREVIEW=1 PAUSES=30`):
+
+| Budget | Median | 90th percentile | Max | Over 100 ms | Steady speed |
+|---|---|---|---|---|---|
+| 25 ms | 48 ms | 76 ms | 86 ms (93 ms in the trace run) | 0 | 16.3–18.5 model days/s |
+| 20 ms (chosen) | 52 ms | 74 ms | 78 ms | 0 | 15.6 model days/s |
+| 15 ms | 47 ms (trace) | | 73 ms (trace) | 0 | 10.9 model days/s |
+
+- **In-flight limit:** letting the page fall two batches behind instead of one gave no speed (9.6 against 10.9 days/s at 15 ms), so the limit stays at one.
+- **Speed measurement:** speed is now measured over 10 s of steady running. The 20.5–21.3 days/s in the table above came from the page's early 2-second reading and overstated it.
+- **V6's pause criterion now passes:** 0 of 30 presses over 100 ms, worst 78 ms.

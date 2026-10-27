@@ -22,6 +22,7 @@ import { SURFACE } from "@/model/climate/gcm/physics/surface"
 import { SURFACE_FLUX } from "@/model/climate/gcm/physics/surface-flux"
 import { SNAPSHOT } from "@/model/climate/gcm/snapshot"
 import type {
+	GcmBatchPace,
 	GcmBatchRequest,
 	GcmBatchSizing,
 	GcmStepperContextRequest,
@@ -160,17 +161,30 @@ function encode({ pass, context, kernels }: GcmStepperEncode): void {
 }
 
 // DP5.2: a batch is a whole number of publish intervals sized to about
-// BATCH_BUDGET_MS of GPU time, with at most IN_FLIGHT batches queued, so
-// Pause leaves at most 50 ms of queued work. MAX_INTERVALS bounds a
-// staging buffer (18 fields × 8192 points × 4 B × 16 = 9.4 MB at T42).
-const BATCH_BUDGET_MS = 25
+// BATCH_BUDGET_MS of GPU time, with at most IN_FLIGHT batches queued. While
+// the page draws, a batch takes up to ~1.7× its budget on the GPU: the
+// plan's 25 ms let Pause reach 93 ms, 20 ms kept 30 presses under 78 ms for
+// 5% less speed, and 15 ms halved speed (docs).
+// MAX_INTERVALS bounds a staging buffer (18 fields × 8192 points × 4 B ×
+// 16 = 9.4 MB at T42).
+const BATCH_BUDGET_MS = 20
 const IN_FLIGHT = 2
 const MAX_INTERVALS = 16
 
-function intervals({ previous, milliseconds }: GcmBatchSizing): number {
+// The per-interval GPU time estimate follows a slower batch at once but a
+// faster one only by ESTIMATE_DECAY per batch, so one fast measurement
+// cannot double the next batch past the budget.
+const ESTIMATE_DECAY = 0.8
+
+function pace({ pace: previous, milliseconds }: GcmBatchSizing): GcmBatchPace {
 	if (!(milliseconds > 0)) return previous
-	const next = Math.floor((BATCH_BUDGET_MS * previous) / milliseconds)
-	return Math.min(MAX_INTERVALS, Math.max(1, next))
+	const sample = milliseconds / previous.intervals
+	const estimate = Math.max(sample, ESTIMATE_DECAY * previous.estimate)
+	const intervals = Math.floor(BATCH_BUDGET_MS / estimate)
+	return {
+		estimate,
+		intervals: Math.min(MAX_INTERVALS, Math.max(1, intervals)),
+	}
 }
 
 // One batch as one command buffer: each step copies its CPU values from
@@ -283,6 +297,6 @@ export const STEPPER = {
 	values,
 	IN_FLIGHT,
 	MAX_INTERVALS,
-	intervals,
+	pace,
 	batch,
 }

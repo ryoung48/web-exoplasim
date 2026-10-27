@@ -13,15 +13,20 @@ import { SETUP } from "@/model/climate/gcm/setup"
 import { PUMAMOD } from "@/model/climate/gcm/setup/pumamod"
 import { SNAPSHOT } from "@/model/climate/gcm/snapshot"
 import { STEPPER } from "@/model/climate/gcm/stepper"
+import type { GcmBatchPace } from "@/model/climate/gcm/stepper/types"
 
 // DP5.3: triple-buffered staging, so mapping one never blocks the next batch.
 const STAGING_BUFFERS = 3
+// Batches posted to the page but not yet handled before the worker stops
+// submitting. Allowing 2 did not raise speed (9.6 against 10.9 model
+// days/s at a 15 ms budget), so the page is never more than one behind.
+const UNACKNOWLEDGED = 1
 const LEVELS = 10
 
 let model: GcmWorkerModel | null = null
 let step = 0
 let carbonStep = 0
-let intervals = 1
+let pace: GcmBatchPace = { intervals: 1, estimate: 0 }
 let inFlight = 0
 // Batches of snapshots posted and not yet handled by the page.
 let unacknowledged = 0
@@ -169,9 +174,9 @@ async function start(request: GcmWorkerStart) {
 	pump()
 }
 
-// Submits while the GPU has fewer than IN_FLIGHT batches and the page has
-// handled every posted batch, so Pause only waits for queued GPU work and
-// at most one batch of snapshots. Each batch is one message: the page
+// Submits while the GPU has fewer than IN_FLIGHT batches and the page is
+// fewer than UNACKNOWLEDGED batches behind, so Pause only waits for queued
+// GPU work and a few small messages. Each batch is one message: the page
 // handles a message per turn between frames, not a snapshot per turn.
 function pump() {
 	while (
@@ -180,7 +185,7 @@ function pump() {
 		!checkpointPending &&
 		!stopped &&
 		inFlight < STEPPER.IN_FLIGHT &&
-		unacknowledged < 1
+		unacknowledged < UNACKNOWLEDGED
 	)
 		submit(model)
 }
@@ -190,7 +195,7 @@ function submit(current: GcmWorkerModel) {
 	const { device, context, publishEvery, calendar } = current
 	const firstPublish =
 		step + ((publishEvery - (step % publishEvery)) % publishEvery)
-	const count = firstPublish + (intervals - 1) * publishEvery - step + 1
+	const count = firstPublish + (pace.intervals - 1) * publishEvery - step + 1
 	const steps = Array.from({ length: count }, (_, k) => {
 		const values = STEPPER.values({ step: step + k, carbonStep, calendar })
 		carbonStep = values.carbonStep
@@ -198,7 +203,8 @@ function submit(current: GcmWorkerModel) {
 	})
 	const staging = current.staging[ring]
 	ring = (ring + 1) % STAGING_BUFFERS
-	const published = intervals
+	const batchPace = pace
+	const published = pace.intervals
 	device.queue.submit([
 		STEPPER.batch({
 			context,
@@ -219,8 +225,8 @@ function submit(current: GcmWorkerModel) {
 		await done
 		if (stopped) return
 		const finished = performance.now()
-		intervals = STEPPER.intervals({
-			previous: published,
+		pace = STEPPER.pace({
+			pace: batchPace,
 			milliseconds: finished - Math.max(submitted, lastDone),
 		})
 		lastDone = finished

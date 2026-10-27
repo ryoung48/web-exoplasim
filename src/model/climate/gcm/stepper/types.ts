@@ -91,8 +91,16 @@ export interface GcmStepValues {
 	carbonStep: number
 }
 
+// The batch size in publish intervals and the GPU time estimate per
+// interval (ms) it came from.
+export interface GcmBatchPace {
+	intervals: number
+	estimate: number
+}
+
+// The last batch's pace and its measured GPU time (ms).
 export interface GcmBatchSizing {
-	previous: number
+	pace: GcmBatchPace
 	milliseconds: number
 }
 

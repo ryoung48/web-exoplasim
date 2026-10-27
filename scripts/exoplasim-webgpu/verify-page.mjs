@@ -10,7 +10,7 @@ import { createServer, preview } from "vite"
 const output = path.resolve(process.env.PREVIEW ? "stats/exoplasim-webgpu/page-build" : "stats/exoplasim-webgpu/page")
 await fs.mkdir(output, { recursive: true })
 const PUBLISH_EVERY = 4
-const PAUSES = 10
+const PAUSES = Number(process.env.PAUSES ?? 10)
 const CONTINUE_STEPS = 48
 
 // PREVIEW=1 serves `pnpm build`'s dist instead of the dev server, without
@@ -67,8 +67,11 @@ try {
 	const gaps = first.slice(1).map((s, i) => s.step - first[i].step)
 	report.checks.sequence = { snapshots: first.length, firstStep: first[0].step, firstDate: first[0].date, strictlyByPublishEvery: gaps.every((gap) => gap === PUBLISH_EVERY) }
 	report.device = await row("GPU")
-	await page.waitForTimeout(2500)
-	report.speed = await row("Speed")
+	// Steady-state speed: steps advanced over 10 s, at 45-minute steps.
+	const before = (await snapshots()).at(-1)
+	await page.waitForTimeout(10000)
+	const after = (await snapshots()).at(-1)
+	report.speed = `${(((after.step - before.step) * 45) / 1440 / ((after.time - before.time) / 1000)).toFixed(2)} model days/s`
 
 	// Pause latency: click to the last snapshot that arrives after it.
 	const latencies = []
