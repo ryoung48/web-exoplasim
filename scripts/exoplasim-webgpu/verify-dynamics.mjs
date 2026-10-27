@@ -2,6 +2,7 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { chromium } from "playwright"
 import { createServer } from "vite"
+import { dumped, loadModules, stepCalendar, stepperConstants, dynamicsConstants, tablesInputs } from "./model-inputs.mjs"
 import { readProbe } from "./probe.mjs"
 
 const probeRoot = path.resolve(process.argv[2] ?? "stats/exoplasim-reference/probe")
@@ -47,33 +48,6 @@ const ROUTINES = [
 	// zeroes them before their next use, so only the spectral tendencies count.
 	{ name: "physicsOut", physics: true, before: "d6", after: "a3", outputs: ["sdt", "stt", "szt", "sqt"] },
 ]
-const SCALARS = ["psurf", "ww", "cv", "ct", "akap", "rdbrv", "adv", "acpd", "ga", "plavor", "delt", "delt2", "deltsec2", "pnu", "pnu21", "nkits"]
-const FILTER_SCALARS = ["nfilter", "ngptfilter", "nspvfilter", "filterkappa", "nfilterexp", "landhoskn0"]
-const RAIN_SCALARS = ["ww", "rdbrv", "ra1", "ra2", "ra4", "solar_day", "rainmod.rhbeta", "rainmod.nbeta", "rainmod.pdeep", "rainmod.pdeepth", "rainmod.rkshallow", "rainmod.gamma", "rainmod.clwfac", "rainmod.clwcrit1", "rainmod.clwcrit2", "rainmod.rcritmod", "rainmod.rcritslope"]
-const PHYSICS_SCALARS = [...RAIN_SCALARS, "gascon", "deltsec", "ra2", "ra4", "tmelt", "alv", "als", "ndheat", "fluxmod.zumin", "fluxmod.vdiff_lamm", "fluxmod.vdiff_b", "fluxmod.vdiff_c", "fluxmod.vdiff_d"]
-// State fields that hold another module's variable, by dump name.
-const ALIASES = {
-	dtransh: "fluxmod.dtransh",
-	dtransm: "fluxmod.dtransm",
-	gmu0: "radmod.gmu0",
-	...Object.fromEntries(["icclev", "icctot", "dprcl", "dprll", "dprscl", "dprsll"].map((name) => [name, `rainmod.${name}`])),
-	...Object.fromEntries(["dts", "dtsm", "dqs"].map((name) => [`land_${name}`, `landmod.${name}`])),
-	...Object.fromEntries(["driver", "duroff", "dvroff", "darea", "dsoilt", "dsnowt", "dsnowz", "dwater", "dz0climo", "dalbclim", "dalbclim1", "dalbclim2", "dalbcl", "dalbcl1", "dalbcl2"].map((name) => [name, `landmod.${name}`])),
-	...Object.fromEntries(["dcveg", "dcsoil", "dlai", "dvsoil", "dagg", "dgrow", "dsc", "dmr"].map((name) => [name, `vegmod.${name}`])),
-	...Object.fromEntries(["xts", "xsst", "xmld", "xls", "xiced", "xicec", "xsnow", "xqmelt", "xicecc", "xcflux", "xcfluxf", "xoheat", "xoflux", "xgw", "xclsst2", "xclicec2", "xcliced2", "xclssto", "xclsst", "xclicec", "xcliced"].map((name) => [name, `icemod.${name}`])),
-	...Object.fromEntries(["ysst", "ymld", "yls", "yfldo", "yclsst2", "yclsst"].map((name) => [name, `oceanmod.${name}`])),
-	...Object.fromEntries(["dts", "dqs", "dsst"].map((name) => [`sea_${name}`, `seamod.${name}`])),
-	...Object.fromEntries(["localprecip", "localavgprecip", "localweathering", "localavgweather", "localavgtemps"].map((name) => [name, `carbonmod.${name}`])),
-}
-// Fields Fortran stores as (bands, NHOR); the GPU keeps each band contiguous.
-const BANDS = { dsalb: 2 }
-function dumped(dump, name) {
-	const values = dump[ALIASES[name] ?? name]
-	const bands = BANDS[name]
-	if (!values || !bands) return values
-	const points = values.length / bands
-	return Array.from(values, (_, i) => values[(i % points) * bands + Math.floor(i / points)])
-}
 // ROUTINES=fixer,surfaceFlux runs only those routines.
 const ONLY = process.env.ROUTINES?.split(",")
 // V3: a point counts as off when it differs from f64 by more than this
@@ -86,100 +60,19 @@ const POINTS = { 21: 64 * 32, 42: 128 * 64 }
 
 const server = await createServer({ server: { host: "127.0.0.1", port: 0, watch: null }, logLevel: "error" })
 await server.listen()
-const { DYNAMICS } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/dynamics/index.ts"))
-const { DYNAMICS_SETUP } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/dynamics/setup/index.ts"))
-const { GCM_GRID: GRID } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/grid/index.ts"))
-// Constants from the TypeScript set-up port (checked by verify-setup.mjs);
-// sop and srp have no port yet and come from the dump.
-async function portedTables({ truncation, delt }) {
-	const input = await readProbe(path.join(probeRoot, `setup-earth-t${truncation}`, "probe-initpm-in"))
-	const scalar = (key) => input[key][0]
-	const setup = DYNAMICS_SETUP.initpm({ truncation, levels: scalar("NLEV"), neqsig: scalar("neqsig"), restim: input.restim, tfrc: input.tfrc, tdissd: input.tdissd, tdissz: input.tdissz, tdisst: input.tdisst, tdissq: input.tdissq, ndel: input.ndel, nhdiff: scalar("nhdiff"), dayLengthS: scalar("day_24hr"), stepsPerDay: scalar("mtspd"), t0: input.t0, dtns: scalar("dtns"), dtep: scalar("dtep"), dttrp: scalar("dttrp"), ct: scalar("ct"), akap: scalar("akap") })
-	const tables = DYNAMICS_SETUP.tables({ setup, bm1: DYNAMICS_SETUP.makebm({ setup, truncation, delt }), rcsq: DYNAMICS_SETUP.latitudeFactors({ grid: GRID.forLatitudes(scalar("NLAT")) }) })
-	return Object.fromEntries(Object.entries(tables).map(([name, values]) => [name, Array.from(values)]))
-}
-const { FIXER } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/physics/fixer/index.ts"))
-const { SURFACE_FLUX } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/physics/surface-flux/index.ts"))
-const { RADIATION } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/physics/radiation/index.ts"))
-const { CALENDAR } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/calendar/index.ts"))
-const { PRECIPITATION } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/physics/precipitation/index.ts"))
-const { SURFACE } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/physics/surface/index.ts"))
-const { CARBON } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/physics/carbon/index.ts"))
-const STATE_FIELDS = [...DYNAMICS.fields(10), ...FIXER.fields(10), ...SURFACE_FLUX.fields(), ...RADIATION.fields(10), ...PRECIPITATION.fields(10), ...SURFACE.fields(), ...CARBON.fields()]
-const NEEDED = new Set(STATE_FIELDS.map((field) => field.name).concat(DYNAMICS.TABLES.map((table) => table.name)))
+const modules = await loadModules(server)
+const STATE_FIELDS = modules.STEPPER.fields(10)
+const NEEDED = new Set(STATE_FIELDS.map((field) => field.name).concat(modules.DYNAMICS.TABLES.map((table) => table.name)))
 const GRID_FIELDS = new Set(STATE_FIELDS.filter((field) => field.shape === "grid").map((field) => field.name))
-// carbonmod's values, and its step counter run on the CPU and checked
-// against the counter dumped after the step.
-function carbonInputs({ before, after }) {
-	const scalar = (name) => before[name][0]
-	const cycle = CARBON.cycle({ cstep: scalar("carbonmod.cstep"), interval: scalar("carbonmod.interval") })
-	if (cycle.cstep !== after["carbonmod.cstep"][0]) throw new Error(`carbon counter ${cycle.cstep}, dump ${after["carbonmod.cstep"][0]}`)
-	const upper = (names) => Object.fromEntries(names.map((name) => [name.toUpperCase(), scalar(`carbonmod.${name}`)]))
-	return {
-		step: [cycle.weathers ? 1 : 0],
-		constants: { ...upper(["ncarbon", "nsupply", "timeweight", "beta", "kact"]), PEARTH: scalar("carbonmod.PEARTH"), CO2EARTH: scalar("carbonmod.CO2EARTH"), WMAX: scalar("carbonmod.WMAX"), VEARTH: scalar("carbonmod.VEARTH"), RAD_EARTHSQ: scalar("carbonmod.RAD_EARTHSQ"), PLARAD: scalar("plarad") },
-	}
-}
-// surfmod's modules' values for SURFACE.kernels and the month weights.
-function surfaceInputs({ before }) {
-	const scalar = (name) => before[name][0]
-	const month = (step) => CALENDAR.monthInterpolation({ step, stepsPerDay: scalar("ntspd"), daysPerYear: scalar("n_days_per_year"), daysPerMonth: scalar("n_days_per_month"), stepMinutes: scalar("mpstep"), solarDay: scalar("solar_day") })
-	const upper = ({ module, names }) => Object.fromEntries(names.map((name) => [name.toUpperCase(), scalar(`${module}.${name}`)]))
-	const pair = ({ name, key }) => ({ [`${key}1`]: before[name][0], [`${key}2`]: before[name][1] })
-	return {
-		step: Array.from(SURFACE.step({ now: month(scalar("icemod.nstep")), next: month(scalar("nstep") + 1) })),
-		dsoilz: Array.from(before["landmod.dsoilz"]),
-		constants: {
-			soil: { DELTSEC: scalar("deltsec"), TMELT: scalar("tmelt"), ALS: scalar("als"), ALV: scalar("alv"), ...upper({ module: "landmod", names: ["sicecap", "soilcap", "sicediff", "soildiff", "snowcap", "snowdiff", "rhosnow", "dztop", "dsmax"] }) },
-			land: {
-				DELTSEC: scalar("deltsec"), TMELT: scalar("tmelt"), RDBRV: scalar("rdbrv"), RA1: scalar("ra1"), RA2: scalar("ra2"), RA4: scalar("ra4"),
-				...upper({ module: "landmod", names: ["albsmax", "albsmin", "albsmaxf", "albsminf", "albsmax1", "albsmin1", "albsmaxf1", "albsminf1", "albsmax2", "albsmin2", "albsmaxf2", "albsminf2", "albgmax", "albgmin", "albgmax1", "albgmin1", "albgmax2", "albgmin2", "drhsfull", "nwetsoil", "wsmax", "albland", "alblandmax"] }),
-				...pair({ name: "dgroundalb", key: "DGROUNDALB" }),
-				...pair({ name: "doceanalb", key: "DOCEANALB" }),
-			},
-			vegetation: {
-				NVEG: scalar("nveg"), RLUE: scalar("landmod.rlue"), CO2CONV: scalar("landmod.co2conv"), TAU_VEG: scalar("landmod.tau_veg"), TAU_SOIL: scalar("landmod.tau_soil"),
-				...upper({ module: "vegmod", names: ["vws_crit", "q10", "zlaimax", "zlaimin", "valb_min", "valb_max", "vsalb_min", "vwmax_max", "vwmax_min", "vz0_min", "cveg_a", "cveg_c", "cveg_d", "cveg_f", "cveg_k", "cveg_l", "ct_crit", "co2_ref", "co2_comp", "co2_sens", "ncveg"] }),
-			},
-			nglacier: scalar("glaciermod.nglacier") > 0,
-			ice: { ...upper({ module: "icemod", names: ["xdt", "xmind", "xmaxd", "cicemin", "thicec"] }), TFREEZE: scalar("icemod.TFREEZE"), TMELT: scalar("icemod.TMELT"), CRHOI: scalar("icemod.CRHOI"), CRHOS: scalar("icemod.CRHOS"), CRHOSN: scalar("icemod.CRHOSN"), CPI: scalar("icemod.CPI"), CKAPI: scalar("icemod.CKAPI"), CKAPSN: scalar("icemod.CKAPSN"), CLFI: scalar("icemod.CLFI"), CLFSN: scalar("icemod.CLFSN") },
-			ocean: { DTMIX: scalar("oceanmod.dtmix"), CPS: scalar("oceanmod.CPS") },
-			sea: {
-				RDBRV: scalar("rdbrv"), RA1: scalar("ra1"), RA2: scalar("ra2"), RA4: scalar("ra4"), GASCON: scalar("gascon"), GA: scalar("ga"),
-				...upper({ module: "seamod", names: ["charnock", "dz0sea", "dz0ice", "drhssea", "drhsice", "albsea", "albice"] }),
-				...pair({ name: "dicealbmx", key: "DICEALBMX" }),
-				...pair({ name: "dicealbmn", key: "DICEALBMN" }),
-			},
-		},
-	}
-}
-// radmod values for RADIATION.kernels, and the f64 orbit (CALENDAR) checked
-// against what solang leaves in the dump after it.
-function radiationInputs({ before, after }) {
-	const scalar = (name) => before[name][0]
-	const solar = CALENDAR.solar({
-		step: scalar("nstep"),
-		stepsPerYear: scalar("n_steps_per_year"),
-		stepsPerDay: scalar("ntspd"),
-		stepMinutes: scalar("mpstep"),
-		orbit: { eccentricity: scalar("eccen"), obliquityRad: scalar("radmod.obliqr"), perihelionLongitudeRad: scalar("radmod.mvelpp"), meanLongitudeAtEquinoxRad: scalar("radmod.lambm0") },
-	})
+
+// The CPU's orbit (CALENDAR) against what solang leaves in the dump.
+function orbitError({ before, after }) {
+	const { step, calendar } = stepCalendar(before)
+	const solar = modules.CALENDAR.solar({ step, stepsPerYear: calendar.stepsPerYear, stepsPerDay: calendar.stepsPerDay, stepMinutes: calendar.stepMinutes, orbit: calendar.orbit })
 	const expected = { calendarDay: "radmod.zcdayf", declination: "radmod.zdeclf", distanceFactor: "radmod.gdist2", trueAnomaly: "radmod.orbnu", longitude: "radmod.lambm", rightAscension: "radmod.rasc" }
-	const orbitError = Math.max(...Object.entries(expected).map(([key, name]) => Math.abs(solar[key] - after[name][0])))
-	return {
-		orbitError,
-		step: Array.from(RADIATION.step({ solar, rotationSpeed: scalar("rotspd"), toffo3: scalar("radmod.toffo3") })),
-		acllwr: scalar("radmod.acllwr"),
-		constants: {
-			ga: scalar("ga"), gascon: scalar("gascon"), acpd: scalar("acpd"), adv: scalar("adv"),
-			gsol0: scalar("radmod.gsol0"), zsolar1: scalar("radmod.zsolar1"), zsolar2: scalar("radmod.zsolar2"), zsolars1: before["radmod.zsolars"][0], zsolars2: before["radmod.zsolars"][1],
-			tswr1: scalar("radmod.tswr1"), tswr2: scalar("radmod.tswr2"), tswr3: scalar("radmod.tswr3"), rcoeff: scalar("radmod.rcoeff"),
-			nstartemp: scalar("radmod.nstartemp") > 0, ozone: scalar("radmod.no3") === 1,
-			a0o3: scalar("radmod.a0o3"), a1o3: scalar("radmod.a1o3"), aco3: scalar("radmod.aco3"), bo3: scalar("radmod.bo3"), co3: scalar("radmod.co3"),
-			dawnDeg: scalar("dawn"), sbk: scalar("radmod.SBK"), th2oc: scalar("radmod.th2oc"), tpofmt: scalar("radmod.tpofmt"),
-		},
-	}
+	return Math.max(...Object.entries(expected).map(([key, name]) => Math.abs(solar[key] - after[name][0])))
 }
+
 const browser = await chromium.launch({ executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe", headless: true, args: ["--enable-unsafe-webgpu"] })
 const report = { cases: [] }
 try {
@@ -197,107 +90,51 @@ try {
 			const replayExact = Object.keys(f64.a4).every((name) => f64.a4[name].every((value, i) => Object.is(value, sanity[name][i])))
 			for (const routine of ROUTINES.filter((entry) => (kinds.physics || !entry.physics) && (!ONLY || ONLY.includes(entry.name)))) {
 				const before = f64[routine.before]
+				const tables = await tablesInputs({ modules, probeRoot, truncation, dump: before })
 				// Start-up dumps predate the physics modules' variables.
-				const scalars = Object.fromEntries([...SCALARS, ...FILTER_SCALARS, ...(kinds.physics ? PHYSICS_SCALARS : [])].map((name) => [name, before[name][0]]))
-				const ported = await portedTables({ truncation, delt: scalars.delt })
-				const radiation = routine.name === "radiation" ? radiationInputs({ before, after: f64.d3 }) : null
-				const surface = routine.name === "surface" ? surfaceInputs({ before }) : null
-				const carbon = routine.name === "carbon" ? carbonInputs({ before, after: f64.d6 }) : null
-				const gpu = await page.evaluate(async ({ truncation, before, ported, scalars, routine, radiation, surface, carbon }) => {
-					const { PRECIPITATION } = await import("/src/model/climate/gcm/physics/precipitation/index.ts")
-					const { SURFACE } = await import("/src/model/climate/gcm/physics/surface/index.ts")
-					const { LAND } = await import("/src/model/climate/gcm/physics/land/index.ts")
-					const { CARBON } = await import("/src/model/climate/gcm/physics/carbon/index.ts")
-					const { GCM_GRID } = await import("/src/model/climate/gcm/grid/index.ts")
+				const constants = kinds.physics ? stepperConstants(before) : { dynamics: dynamicsConstants(before) }
+				const values = kinds.physics ? modules.STEPPER.values(stepCalendar(before)) : null
+				if (routine.name === "carbon" && values.carbonStep !== f64.d6["carbonmod.cstep"][0]) throw new Error(`carbon counter ${values.carbonStep}, dump ${f64.d6["carbonmod.cstep"][0]}`)
+				const stepFields = values ? Object.fromEntries(Object.entries(values.fields).map(([name, field]) => [name, Array.from(field)])) : {}
+				const gpu = await page.evaluate(async ({ truncation, before, tables, constants, stepFields, routine }) => {
 					const { GCM_DEVICE } = await import("/src/model/climate/gcm/device/index.ts")
 					const { LAYOUT } = await import("/src/model/climate/gcm/layout/index.ts")
 					const { KERNEL } = await import("/src/model/climate/gcm/kernel/index.ts")
-					const { FOURIER } = await import("/src/model/climate/gcm/fourier/index.ts")
-					const { LEGENDRE } = await import("/src/model/climate/gcm/legendre/index.ts")
+					const { STEPPER } = await import("/src/model/climate/gcm/stepper/index.ts")
 					const { DYNAMICS } = await import("/src/model/climate/gcm/dynamics/index.ts")
 					const { FIXER } = await import("/src/model/climate/gcm/physics/fixer/index.ts")
 					const { SURFACE_FLUX } = await import("/src/model/climate/gcm/physics/surface-flux/index.ts")
 					const { RADIATION } = await import("/src/model/climate/gcm/physics/radiation/index.ts")
+					const { PRECIPITATION } = await import("/src/model/climate/gcm/physics/precipitation/index.ts")
+					const { SURFACE } = await import("/src/model/climate/gcm/physics/surface/index.ts")
+					const { CARBON } = await import("/src/model/climate/gcm/physics/carbon/index.ts")
 					const latitudes = { 21: 32, 42: 64 }[truncation]
-					const grid = GCM_GRID.forLatitudes(latitudes)
-					const dimensions = { truncation, latitudes, longitudes: grid.longitudes, levels: 10 }
+					const dimensions = { truncation, latitudes, longitudes: 2 * latitudes, levels: 10 }
 					const { device } = await GCM_DEVICE.request({ storageBytes: 0, onLost: () => {} })
-					const state = LAYOUT.create({ dimensions, fields: [...DYNAMICS.fields(dimensions.levels), ...FIXER.fields(dimensions.levels), ...SURFACE_FLUX.fields(), ...RADIATION.fields(dimensions.levels), ...PRECIPITATION.fields(dimensions.levels), ...SURFACE.fields(), ...CARBON.fields()] })
-					const filters = LEGENDRE.filters({ truncation, ...Object.fromEntries(["nfilter", "ngptfilter", "nspvfilter", "filterkappa", "nfilterexp", "landhoskn0"].map((name) => [name, scalars[name]])) })
-					const fourier = FOURIER.tables({ longitudes: grid.longitudes, truncation })
-					const tableValues = {
-						fourier_forward: fourier.forward,
-						fourier_inverse: fourier.inverse,
-						...LEGENDRE.kernelTables({ tables: LEGENDRE.tables({ grid, truncation }), filters, truncation }),
-						...FIXER.tables({ grid }),
-						...SURFACE_FLUX.tables({ sigma: Float64Array.from(ported.sigma), sigmah: Float64Array.from(ported.sigmah), akap: scalars.akap, gascon: scalars.gascon, ga: scalars.ga, vdiffLamm: scalars["fluxmod.vdiff_lamm"], vdiffD: scalars["fluxmod.vdiff_d"] }),
-							...RADIATION.tables({ grid, sigma: Float64Array.from(ported.sigma), sigmah: Float64Array.from(ported.sigmah), dsigma: Float64Array.from(ported.dsigma), ga: scalars.ga, acllwr: radiation?.acllwr ?? 0 }),
-							...PRECIPITATION.tables({ sigma: Float64Array.from(ported.sigma), akap: scalars.akap, rcritmod: scalars["rainmod.rcritmod"] ?? 1, rcritslope: scalars["rainmod.rcritslope"] ?? 0 }),
-							...LAND.tables({ dsoilz: surface?.dsoilz ?? [0.4, 0.8, 1.6, 3.2, 6.4] }),
-						...Object.fromEntries(DYNAMICS.TABLES.map(({ name, count }) => {
-							const values = ported[name] ?? before[name]
-							if (values.length !== count(dimensions)) throw new Error(`${name}: ${values.length} values, expected ${count(dimensions)}`)
-							return [name, Float64Array.from(values)]
-						})),
-					}
-					const tables = LAYOUT.create({ dimensions, fields: LAYOUT.tableFields(tableValues) })
-					const context = KERNEL.context({ device, state, tables })
-					for (const [name, values] of Object.entries(tableValues)) LAYOUT.write({ device, buffer: context.tableBuffer, layout: tables, name, values: Float32Array.from(values) })
+					const context = STEPPER.context({ device, dimensions, tables })
+					const state = context.state
 					for (const name of Object.keys(state.slots)) {
-						if (before[name]) LAYOUT.write({ device, buffer: context.stateBuffer, layout: state, name, values: Float32Array.from(before[name]) })
+						const values = before[name] ?? stepFields[name]
+						if (values) LAYOUT.write({ device, buffer: context.stateBuffer, layout: state, name, values: Float32Array.from(values) })
 					}
-					if (radiation) LAYOUT.write({ device, buffer: context.stateBuffer, layout: state, name: "radiation_step", values: Float32Array.from(radiation.step) })
-					if (surface) LAYOUT.write({ device, buffer: context.stateBuffer, layout: state, name: "surface_step", values: Float32Array.from(surface.step) })
-					if (carbon) LAYOUT.write({ device, buffer: context.stateBuffer, layout: state, name: "carbon_step", values: Float32Array.from(carbon.step) })
-					const kernels = await DYNAMICS.kernels({
-						context,
-						constants: {
-							psurf: scalars.psurf,
-							ww: scalars.ww,
-							cv: scalars.cv,
-							ct: scalars.ct,
-							akap: scalars.akap,
-							rdbrv: scalars.rdbrv,
-							adv: scalars.adv,
-							acpd: scalars.acpd,
-							ga: scalars.ga,
-							plavor: scalars.plavor,
-							delt: scalars.delt,
-							delt2: scalars.delt2,
-							deltsec2: scalars.deltsec2,
-							pnu: scalars.pnu,
-							pnu21: scalars.pnu21,
-							filter: scalars.nkits === 0,
-						},
-					})
+					const lists = {
+						fixer: () => FIXER.kernels({ context, ...constants.fixer }),
+						surfaceFlux: () => SURFACE_FLUX.kernels({ context, constants: constants.surfaceFlux }),
+						radiation: () => RADIATION.kernels({ context, constants: constants.radiation }),
+						precipitation: () => PRECIPITATION.kernels({ context, constants: constants.precipitation }),
+						surface: () => SURFACE.kernels({ context, constants: constants.surface }),
+						carbon: () => CARBON.kernels({ context, constants: constants.carbon }),
+					}
+					const list = lists[routine.name] ? await lists[routine.name]() : (await DYNAMICS.kernels({ context, constants: constants.dynamics }))[routine.name]
 					const encoder = device.createCommandEncoder()
 					const pass = encoder.beginComputePass()
-					// Physics lists are built only for their own routine: the start-up
-					// dumps carry no physics-module constants.
-					const physics = {
-						fixer: () => FIXER.kernels({ context, delt2: scalars.delt2, psurf: scalars.psurf }),
-						surfaceFlux: () =>
-							SURFACE_FLUX.kernels({
-								context,
-								constants: { rdbrv: scalars.rdbrv, gascon: scalars.gascon, ga: scalars.ga, acpd: scalars.acpd, adv: scalars.adv, deltsec: scalars.deltsec, deltsec2: scalars.deltsec2, ra2: scalars.ra2, ra4: scalars.ra4, tmelt: scalars.tmelt, alv: scalars.alv, als: scalars.als, zumin: scalars["fluxmod.zumin"], vdiffB: scalars["fluxmod.vdiff_b"], vdiffC: scalars["fluxmod.vdiff_c"], vdiffD: scalars["fluxmod.vdiff_d"], ndheat: scalars.ndheat > 0 },
-							}),
-						radiation: () => RADIATION.kernels({ context, constants: radiation.constants }),
-						surface: () => SURFACE.kernels({ context, constants: surface.constants }),
-						carbon: () => CARBON.kernels({ context, constants: carbon.constants }),
-						precipitation: () =>
-							PRECIPITATION.kernels({
-								context,
-								constants: { deltsec2: scalars.deltsec2, psurf: scalars.psurf, ww: scalars.ww, ga: scalars.ga, gascon: scalars.gascon, acpd: scalars.acpd, adv: scalars.adv, alv: scalars.alv, als: scalars.als, rdbrv: scalars.rdbrv, ra1: scalars.ra1, ra2: scalars.ra2, ra4: scalars.ra4, tmelt: scalars.tmelt, rhbeta: scalars["rainmod.rhbeta"], nbeta: scalars["rainmod.nbeta"], pdeep: scalars["rainmod.pdeep"], pdeepth: scalars["rainmod.pdeepth"], rkshallow: scalars["rainmod.rkshallow"], gamma: scalars["rainmod.gamma"], solarDay: scalars.solar_day, clwfac: scalars["rainmod.clwfac"], clwcrit1: scalars["rainmod.clwcrit1"], clwcrit2: scalars["rainmod.clwcrit2"] },
-							}),
-					}
-					const list = physics[routine.name] ? await physics[routine.name]() : kernels[routine.name]
 					for (const kernel of list) KERNEL.dispatch({ pass, context, kernel })
 					pass.end()
 					device.queue.submit([encoder.finish()])
 					const result = await LAYOUT.read({ device, buffer: context.stateBuffer, layout: state, names: routine.outputs })
 					device.destroy()
 					return Object.fromEntries(Object.entries(result).map(([name, values]) => [name, Array.from(values)]))
-				}, { truncation, before: Object.fromEntries([...NEEDED].filter((name) => dumped(before, name)).map((name) => [name, dumped(before, name)])), ported, scalars, routine, radiation, surface, carbon })
+				}, { truncation, before: Object.fromEntries([...NEEDED].filter((name) => dumped(before, name)).map((name) => [name, dumped(before, name)])), tables, constants, stepFields, routine })
 				const fields = {}
 				// On output and diagnostic steps gridpointa overwrites gp with the
 				// Fourier coefficients of exp(ln ps) - 1 to compute span, which only
@@ -318,7 +155,7 @@ try {
 					if (outlier) pass = withinGate(outlier)
 					fields[name] = { gpuRelativeRms: gpuError, f32RelativeRms: f32Error, ratio: gpuError / f32Error, gpuPointsOff: gpuOff, f32PointsOff: f32Off, pass, ...(outlier ? { outlier } : {}), ...(pass && !process.env.KEEP_VALUES ? {} : { gpu: gpu[name], f64: exact, f32: f32Values }) }
 				}
-				const entry = { truncation, step, routine: routine.name, replayExact, skipped, ...(radiation ? { orbitError: radiation.orbitError } : {}), pass: Object.values(fields).every((field) => field.pass), fields }
+				const entry = { truncation, step, routine: routine.name, replayExact, skipped, ...(routine.name === "radiation" ? { orbitError: orbitError({ before, after: f64.d3 }) } : {}), pass: Object.values(fields).every((field) => field.pass), fields }
 				report.cases.push(entry)
 				console.log(`T${truncation} step ${step} ${routine.name.padEnd(10)} ${entry.pass ? "pass" : "FAIL"}  ` + Object.entries(fields).map(([name, f]) => `${name}=${f.ratio.toFixed(2)}${f.outlier ? `(column ${f.outlier.column}: ${f.outlier.ratio.toFixed(2)} without)` : ""}${f.pass ? "" : "!"}`).join(" "))
 			}

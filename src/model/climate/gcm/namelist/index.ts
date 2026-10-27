@@ -114,9 +114,22 @@ function apply({ text, values }: GcmNamelistApplication): string {
 	return result
 }
 
+// A namelist file's "KEY = value" lines, keys upper-cased and values as
+// written (comma lists such as SEED stay one string). The group header and
+// /END are skipped.
+function parse(text: string): Record<string, string> {
+	const values: Record<string, string> = {}
+	for (const line of text.split(/\r?\n/)) {
+		const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line)
+		if (match) values[match[1].toUpperCase()] = match[2]
+	}
+	return values
+}
+
 export const GCM_NAMELIST = {
 	edits,
 	apply,
+	parse,
 	wetSoilOverridden(config: GcmConfig): boolean {
 		return config.wetSoil && config.starTemperatureK > 0
 	},

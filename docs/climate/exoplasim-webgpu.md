@@ -537,3 +537,50 @@ The step counter `cstep` stays on the CPU. `CARBON.cycle` advances it and sets t
 The first kernel used the runoff law and was 3–4× off on every weathering step. An f64 evaluation of both laws from the dumped inputs matched the precipitation law exactly. `precise_pow` now returns 0 for a zero base, as `powf` does, since dry land has zero precipitation. pumamod's `co2` moved from `VEGETATION` to `CARBON`.
 
 All four cases pass at 0.99–1.01 (`d5 → d6` changes the means, `localprecip`, `localweathering` on weathering steps, and the counters). After the `precise_pow` change, radiation, precipitation, surface and carbon, the routines that call it, were rerun: 16 of 16 pass, with only the known `dprc` outlier. The other 46 cases use no changed code since the last full 58-of-58 run.
+
+## P4: integration (started 2026-10-26)
+
+### Step encoder
+
+`stepper/` (`STEPPER`) assembles the model:
+- `fields`: every domain's state.
+- `context`: the state and table buffers with every table written.
+- `kernels`: one step in `master`'s order (`gridpointa`, `spectrala`, physics in, fixer, surface fluxes, radiation, precipitation, surface, carbon, physics out, `spectrald`), 98 dispatches.
+- `encode`.
+- `values`: the CPU's per-step parameters, namely the orbit (`radiation_step`), momint weights (`surface_step`), and the carbon counter with its flag (`carbon_step`).
+
+Outside these routines, `master` only writes output and diagnostics, advances counters and runs `stability_check`.
+
+`scripts/exoplasim-webgpu/model-inputs.mjs` turns a probe dump into `STEPPER`'s constants, tables and calendar. Both `verify-dynamics.mjs` (rewritten on it, still 62 of 62) and the new `verify-trajectory.mjs` use it.
+
+### Short trajectories (V4)
+
+`stats/exoplasim-reference/probe-trajectory.sh` runs the f64 build with `a0` dumps at steps 100, 102 and 148 (T21) or 100, 102 and 132 (T42). The f32 build replays only step 100's `a0`, which restores every probed module rounded once, then runs free. `verify-trajectory.mjs` starts the GPU from the same rounded state and compares 37 fields (spectral prognostics, physical fields, surface prognostics, carbon means) against both. V4's rule is per-field RMS difference from f64 at most 2× the f32 build's.
+
+| Case | Result | Fields over 2× |
+| --- | --- | --- |
+| T21, 2 steps | pass | none (largest 1.23, `devap`) |
+| T21, 48 steps | fail | `dprl` 3.40 (relative 0.39 vs 0.12), `xiced` 3.06 (5 × 10⁻⁵ vs 2 × 10⁻⁵) |
+| T42, 2 steps | fail | `sq` 6.38, `sqm` 4.66, `localavgweather` 5.05 |
+| T42, 32 steps | pass | none (largest 1.51, `devap`) |
+
+Most fields are near 1× or well below (`sd` 0.02–0.11 at 2 steps: the GPU is closer to f64 than f32 is). A T42 step takes about 1.5 s here, with the harness writing step values and submitting once per step; nothing is batched yet.
+
+**The T42 2-step `sq`.** `stats/diagnose-step.mjs` chains GPU routines from the f64 state and compares against f64 dumps at every probe point. In step 100 every routine's error matches its standalone V3 error (`surfaceFlux`'s `dqdt` 2.1 × 10⁻⁴ against f32's 2.0 × 10⁻⁴). Fields Fortran changes are all reproduced, and no field Fortran leaves alone is disturbed.
+
+In step 101 (dumped by `probe-step101.sh`), `rainstep`'s discrete decisions flip in 2 of 8192 columns:
+- column 3595: no deep convection in f64, a trace (4.7 × 10⁻¹⁰ m/s) on the GPU;
+- column 5087: a different number of convective levels.
+
+Those two columns carry `dqdt`'s error to 1.1 × 10⁻², then `sqt` to 6.6 × 10⁻³ and `sq` to 1.4 × 10⁻⁴. This is the discontinuity that needed V3's outlier rule. A single f32 run happened to flip fewer columns. By 32 steps the GPU and f32 errors are equal (`sq` 0.95).
+
+The T21 48-step failures are fields with O(0.1–1) relative error in both runs (large-scale rain), or tiny errors in both (ice thickness). A ratio of two single chaotic realisations is a noisy statistic. Judging V4 needs a spread of f32-like runs rather than one.
+
+### Set-up from the page's configuration
+
+`setup/` (`SETUP`) builds the model's inputs from the namelist text the page writes (`GCM_NAMELIST`), so a run no longer needs a Fortran dump:
+- `GCM_NAMELIST.parse` reads a namelist file back into key–value pairs.
+- `SETUP.pumamod` ports `planet_ini` (Earth defaults from `p_earth.f90`) and `readnl`, with plasimmod's defaults, the resolution-dependent diffusion and drag, and the derived day lengths, timestep, `ww`, `cv`, `ct`, `acpd`, `adv` and `rdbrv`. All 72 values match the `initpm-in` dump exactly at T21 and T42.
+- `RADIATION`'s `spectrum/` (`SPECTRUM.split`) ports `solarini` for a blackbody star. It gives the band split at 0.75 µm, the Rayleigh coefficient relative to the Sun, and eight star-weighted albedo pairs (snow, sea ice, glacier, ground, ocean). The spectral tables come from `specblock.f90` via `scripts/exoplasim-webgpu/specblock.mjs`. All match to within 8 × 10⁻¹⁶ (`pow`/`exp` last bits).
+
+`scripts/exoplasim-webgpu/verify-namelist.mjs` runs these checks in about 15 s.
