@@ -97,6 +97,7 @@ fn precise_powi(x: f32, n: i32) -> f32 {
 	return select(result, 1.0 / result, n < 0);
 }
 
+// For x ≥ 0; 0^y is 0 for y > 0, as Fortran's powf gives.
 fn precise_pow(x: f32, y: f32) -> f32 {
-	return precise_exp(y * precise_log(x));
+	return select(precise_exp(y * precise_log(x)), 0.0, x == 0.0);
 }

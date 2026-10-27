@@ -41,6 +41,7 @@ const ROUTINES = [
 			...["ysst", "yclsst2", "sea_dts", "sea_dqs", "sea_dsst"],
 		],
 	},
+	{ name: "carbon", physics: true, before: "d5", after: "d6", outputs: ["localprecip", "localavgprecip", "localweathering", "localavgweather", "localavgtemps"] },
 	// gp2fc transforms gudt..gqdt in place, so Fortran leaves Fourier
 	// coefficients there; the GPU writes them to separate fields. gridpointd
 	// zeroes them before their next use, so only the spectral tendencies count.
@@ -62,6 +63,7 @@ const ALIASES = {
 	...Object.fromEntries(["xts", "xsst", "xmld", "xls", "xiced", "xicec", "xsnow", "xqmelt", "xicecc", "xcflux", "xcfluxf", "xoheat", "xoflux", "xgw", "xclsst2", "xclicec2", "xcliced2", "xclssto", "xclsst", "xclicec", "xcliced"].map((name) => [name, `icemod.${name}`])),
 	...Object.fromEntries(["ysst", "ymld", "yls", "yfldo", "yclsst2", "yclsst"].map((name) => [name, `oceanmod.${name}`])),
 	...Object.fromEntries(["dts", "dqs", "dsst"].map((name) => [`sea_${name}`, `seamod.${name}`])),
+	...Object.fromEntries(["localprecip", "localavgprecip", "localweathering", "localavgweather", "localavgtemps"].map((name) => [name, `carbonmod.${name}`])),
 }
 // Fields Fortran stores as (bands, NHOR); the GPU keeps each band contiguous.
 const BANDS = { dsalb: 2 }
@@ -102,9 +104,22 @@ const { RADIATION } = await server.ssrLoadModule(path.resolve("src/model/climate
 const { CALENDAR } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/calendar/index.ts"))
 const { PRECIPITATION } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/physics/precipitation/index.ts"))
 const { SURFACE } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/physics/surface/index.ts"))
-const STATE_FIELDS = [...DYNAMICS.fields(10), ...FIXER.fields(10), ...SURFACE_FLUX.fields(), ...RADIATION.fields(10), ...PRECIPITATION.fields(10), ...SURFACE.fields()]
+const { CARBON } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/physics/carbon/index.ts"))
+const STATE_FIELDS = [...DYNAMICS.fields(10), ...FIXER.fields(10), ...SURFACE_FLUX.fields(), ...RADIATION.fields(10), ...PRECIPITATION.fields(10), ...SURFACE.fields(), ...CARBON.fields()]
 const NEEDED = new Set(STATE_FIELDS.map((field) => field.name).concat(DYNAMICS.TABLES.map((table) => table.name)))
 const GRID_FIELDS = new Set(STATE_FIELDS.filter((field) => field.shape === "grid").map((field) => field.name))
+// carbonmod's values, and its step counter run on the CPU and checked
+// against the counter dumped after the step.
+function carbonInputs({ before, after }) {
+	const scalar = (name) => before[name][0]
+	const cycle = CARBON.cycle({ cstep: scalar("carbonmod.cstep"), interval: scalar("carbonmod.interval") })
+	if (cycle.cstep !== after["carbonmod.cstep"][0]) throw new Error(`carbon counter ${cycle.cstep}, dump ${after["carbonmod.cstep"][0]}`)
+	const upper = (names) => Object.fromEntries(names.map((name) => [name.toUpperCase(), scalar(`carbonmod.${name}`)]))
+	return {
+		step: [cycle.weathers ? 1 : 0],
+		constants: { ...upper(["ncarbon", "nsupply", "timeweight", "beta", "kact"]), PEARTH: scalar("carbonmod.PEARTH"), CO2EARTH: scalar("carbonmod.CO2EARTH"), WMAX: scalar("carbonmod.WMAX"), VEARTH: scalar("carbonmod.VEARTH"), RAD_EARTHSQ: scalar("carbonmod.RAD_EARTHSQ"), PLARAD: scalar("plarad") },
+	}
+}
 // surfmod's modules' values for SURFACE.kernels and the month weights.
 function surfaceInputs({ before }) {
 	const scalar = (name) => before[name][0]
@@ -177,7 +192,7 @@ try {
 		const dumps = (kind, step, point) => readProbe(path.join(probeRoot, `${kind}-t${truncation}`, `probe-${step}-${point}`))
 		for (const step of steps) {
 			const f64 = Object.fromEntries(await Promise.all([...["a0", "a1", "a2", "a3", "a4"], ...(kinds.physics ? ["d0", "d1", "d2", "d3", "d4", "d5", "d6"] : [])].map(async (point) => [point, await dumps(kinds.dumps, step, point)])))
-			const f32 = Object.fromEntries(await Promise.all([...["a1", "a2", "a4"], ...(kinds.physics ? ["d0", "d1", "d2", "d3", "d4", "d5", "a3"] : [])].map(async (point) => [point, await dumps(kinds.f32, step, point)])))
+			const f32 = Object.fromEntries(await Promise.all([...["a1", "a2", "a4"], ...(kinds.physics ? ["d0", "d1", "d2", "d3", "d4", "d5", "d6", "a3"] : [])].map(async (point) => [point, await dumps(kinds.f32, step, point)])))
 			const sanity = await dumps(kinds.f64, step, "a4")
 			const replayExact = Object.keys(f64.a4).every((name) => f64.a4[name].every((value, i) => Object.is(value, sanity[name][i])))
 			for (const routine of ROUTINES.filter((entry) => (kinds.physics || !entry.physics) && (!ONLY || ONLY.includes(entry.name)))) {
@@ -187,10 +202,12 @@ try {
 				const ported = await portedTables({ truncation, delt: scalars.delt })
 				const radiation = routine.name === "radiation" ? radiationInputs({ before, after: f64.d3 }) : null
 				const surface = routine.name === "surface" ? surfaceInputs({ before }) : null
-				const gpu = await page.evaluate(async ({ truncation, before, ported, scalars, routine, radiation, surface }) => {
+				const carbon = routine.name === "carbon" ? carbonInputs({ before, after: f64.d6 }) : null
+				const gpu = await page.evaluate(async ({ truncation, before, ported, scalars, routine, radiation, surface, carbon }) => {
 					const { PRECIPITATION } = await import("/src/model/climate/gcm/physics/precipitation/index.ts")
 					const { SURFACE } = await import("/src/model/climate/gcm/physics/surface/index.ts")
 					const { LAND } = await import("/src/model/climate/gcm/physics/land/index.ts")
+					const { CARBON } = await import("/src/model/climate/gcm/physics/carbon/index.ts")
 					const { GCM_GRID } = await import("/src/model/climate/gcm/grid/index.ts")
 					const { GCM_DEVICE } = await import("/src/model/climate/gcm/device/index.ts")
 					const { LAYOUT } = await import("/src/model/climate/gcm/layout/index.ts")
@@ -205,7 +222,7 @@ try {
 					const grid = GCM_GRID.forLatitudes(latitudes)
 					const dimensions = { truncation, latitudes, longitudes: grid.longitudes, levels: 10 }
 					const { device } = await GCM_DEVICE.request({ storageBytes: 0, onLost: () => {} })
-					const state = LAYOUT.create({ dimensions, fields: [...DYNAMICS.fields(dimensions.levels), ...FIXER.fields(dimensions.levels), ...SURFACE_FLUX.fields(), ...RADIATION.fields(dimensions.levels), ...PRECIPITATION.fields(dimensions.levels), ...SURFACE.fields()] })
+					const state = LAYOUT.create({ dimensions, fields: [...DYNAMICS.fields(dimensions.levels), ...FIXER.fields(dimensions.levels), ...SURFACE_FLUX.fields(), ...RADIATION.fields(dimensions.levels), ...PRECIPITATION.fields(dimensions.levels), ...SURFACE.fields(), ...CARBON.fields()] })
 					const filters = LEGENDRE.filters({ truncation, ...Object.fromEntries(["nfilter", "ngptfilter", "nspvfilter", "filterkappa", "nfilterexp", "landhoskn0"].map((name) => [name, scalars[name]])) })
 					const fourier = FOURIER.tables({ longitudes: grid.longitudes, truncation })
 					const tableValues = {
@@ -231,6 +248,7 @@ try {
 					}
 					if (radiation) LAYOUT.write({ device, buffer: context.stateBuffer, layout: state, name: "radiation_step", values: Float32Array.from(radiation.step) })
 					if (surface) LAYOUT.write({ device, buffer: context.stateBuffer, layout: state, name: "surface_step", values: Float32Array.from(surface.step) })
+					if (carbon) LAYOUT.write({ device, buffer: context.stateBuffer, layout: state, name: "carbon_step", values: Float32Array.from(carbon.step) })
 					const kernels = await DYNAMICS.kernels({
 						context,
 						constants: {
@@ -265,6 +283,7 @@ try {
 							}),
 						radiation: () => RADIATION.kernels({ context, constants: radiation.constants }),
 						surface: () => SURFACE.kernels({ context, constants: surface.constants }),
+						carbon: () => CARBON.kernels({ context, constants: carbon.constants }),
 						precipitation: () =>
 							PRECIPITATION.kernels({
 								context,
@@ -278,7 +297,7 @@ try {
 					const result = await LAYOUT.read({ device, buffer: context.stateBuffer, layout: state, names: routine.outputs })
 					device.destroy()
 					return Object.fromEntries(Object.entries(result).map(([name, values]) => [name, Array.from(values)]))
-				}, { truncation, before: Object.fromEntries([...NEEDED].filter((name) => dumped(before, name)).map((name) => [name, dumped(before, name)])), ported, scalars, routine, radiation, surface })
+				}, { truncation, before: Object.fromEntries([...NEEDED].filter((name) => dumped(before, name)).map((name) => [name, dumped(before, name)])), ported, scalars, routine, radiation, surface, carbon })
 				const fields = {}
 				// On output and diagnostic steps gridpointa overwrites gp with the
 				// Fourier coefficients of exp(ln ps) - 1 to compute span, which only

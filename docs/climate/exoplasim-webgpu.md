@@ -521,3 +521,19 @@ Results (all pass; fields at or above 1.2 listed):
 Fields that are zero in every case (no sea ice at step 100, `dmld`, `dglac` unchanged) pass as exact.
 
 With the surface routine, the full `verify-dynamics.mjs` run holds twelve f64 and nine f32 dumps per case and exceeds Node's default 4 GB heap. Run it as `node --max-old-space-size=8192 scripts/exoplasim-webgpu/verify-dynamics.mjs`. All 58 cases pass; the only outlier column is `dprc` at T21 step 2000 (column 1393, 84% of the error, 1.23 without).
+
+### Carbon cycle
+
+`physics/carbon` (`CARBON`) ports `carbonmod`'s `carbonstep` (`d5 → d6`) as one column kernel:
+- Every step adds the step's precipitation (cm/yr) to the year's mean.
+- Every `interval` steps (`mtspd / frequency`, 8 here) it computes silicate weathering on unfrozen land and adds weathering and surface temperature to their yearly means.
+
+The step counter `cstep` stays on the CPU. `CARBON.cycle` advances it and sets the one-float `CARBON_STEP` flag. The harness checks the advanced counter against the dumped `cstep` after the step.
+
+`carbonmod.f90` sets its own preprocessor switches in its first lines:
+- `precipweath = 1`: weathering scales with `(precipitation / PEARTH)^0.65`, not the temperature-runoff law with `tune1`.
+- `keeprecord = 0` and `outputrain = 0`: no weathering record or rain files.
+
+The first kernel used the runoff law and was 3–4× off on every weathering step. An f64 evaluation of both laws from the dumped inputs matched the precipitation law exactly. `precise_pow` now returns 0 for a zero base, as `powf` does, since dry land has zero precipitation. pumamod's `co2` moved from `VEGETATION` to `CARBON`.
+
+All four cases pass at 0.99–1.01 (`d5 → d6` changes the means, `localprecip`, `localweathering` on weathering steps, and the counters). After the `precise_pow` change, radiation, precipitation, surface and carbon, the routines that call it, were rerun: 16 of 16 pass, with only the known `dprc` outlier. The other 46 cases use no changed code since the last full 58-of-58 run.
