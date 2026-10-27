@@ -246,7 +246,7 @@ Dependency direction: `runner` (worker) → `stepper` → domain kernels (`trans
 
 Each physics or dynamics namespace exposes only `pipelines(device)` and `encode({ pass, step })`, with input types in its own `types.ts` (one parameter per function, per AGENTS.md). Physics sub-domains with kernels in more than one Fortran routine (`radiation`: `solang`, `mko3`, `swr`, `lwr`; `precipitation`: `kuo`, `mklsp`, …) keep one WGSL file per routine in their `wgsl/` folder. They are not split into further TypeScript submodules unless `index.ts` passes about 250 lines.
 
-**New shared module `src/model/shared/gpu/`** (`GPU` namespace, generic and not GCM-specific): WGSL composition (header + library + body), the deterministic tree-reduction kernel (DP2.4, called by `fixer`, `carbon`, `stability` and the diagnostics), and Philox (DP4.4, only if V1 reaches a stochastic branch). `df64.wgsl` (DP1.3) and `math/` (DP4.3) are added only when their conditions are met and they have two callers.
+**New shared module `src/model/shared/gpu/`** (generic and not GCM-specific): `math/` (`GPU_MATH`, DP4.3), and Philox (DP4.4, only if V1 reaches a stochastic branch). `df64.wgsl` (DP1.3) is added only when its condition is met and it has two callers. The deterministic tree-reduction kernel (DP2.4) lives in `src/model/climate/gcm/reduction/` (`REDUCTION`) instead, because it addresses fields through the GCM state layout. It is called by `fixer` and sea ice's `getiflx`, and later by `carbon`, `stability` and the diagnostics.
 
 **Edited**
 - `grid/`: already computes Gaussian latitudes in f64 for any count. `setup` reuses it instead of porting `inilat`'s quadrature.

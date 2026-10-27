@@ -476,3 +476,48 @@ At level 8 the parcel is 0.0147 K warmer than its 281 K surroundings. One f32 UL
 Over every deep-convection column (956 at T21 step 100, 911 at step 2000), the f64 table and `powf` give the same `dprcl` RMS error: ratios 0.99 and 1.00. So the GPU's arithmetic isn't worse than f32's. The failure is one ill-conditioned trigger whose error is a coin flip at the ULP level, and it dominates a field RMS. Matching Fortran's `powf` would pass this case by reproducing f32 rounding rather than approaching f64. Making the excess itself accurate would need the parcel's whole lift and condensation chain in double-float.
 
 **Outlier rule.** The gate (plan V3) now judges a grid field again without its worst column when that column holds more than half of the GPU's squared error, and names the column. With it, every case passes: 54 of 54. The model code was unchanged from the 53-of-54 run, and the rule only affects failing fields.
+
+### Surface: land, vegetation, glacier, sea ice and ocean
+
+`surfstep` (`d4 → d5`) runs as six dispatches composed by `physics/surface` (`SURFACE`), with one namespace per Fortran module:
+
+| Dispatch | Ports |
+| --- | --- |
+| `land/wgsl/soil.wgsl` | `soilstep`: `tands` (snow, implicit surface temperature, melt), `mktsoil` (5-layer soil diffusion), `wandr` (bucket and runoff) |
+| `land/wgsl/mkradv.wgsl` | `mkradv`'s river routing, as a stencil: each point applies the Fortran loop's updates to its own runoff in the same order, reading only `driver` |
+| `land/wgsl/surface.wgsl` (+ `vegetation/`, `glacier/`) | `roffstep`'s river store, `getalb`, landstep's humidity, albedo and soil diagnostics, `vegstep`, glacier albedo, `glacierstep` |
+| `sea-ice/wgsl/ice.wgsl` | seastep's coupling, then `icestep` through `iceget`, `skintemp`, `mkcflux`, `subsnow`, `mkice`, `mkicec` and the `xmaxd` cap |
+| `REDUCTION.sum` | `getiflx`'s two Gaussian-weighted global sums |
+| `sea/wgsl/seastep.wgsl` (+ `sea-ice/wgsl/finish.wgsl`, `ocean/`) | The rest of `icestep`, `oceanstep` (slab ocean: `oceanget`, `mksst`, `mkiflux`), and seastep's surface state, humidity, Charnock roughness and albedo |
+
+Switch values let the coupling reduce exactly:
+- `ncpl_atmos_ice = ncpl_ice_ocean = 1`: seamod's and icemod's accumulators each hold one step and divide by 1, so the fluxes pass straight through.
+- `noutput = 0`: the `x…a` and `y…a` output means, and the forcing copies only the LSG ocean reads, are left out.
+- Single ocean layer, `nhdiff = 0`, `nlsg = 0`.
+
+Like Fortran, `icestep` runs on every point, with zero fluxes on land. `glacierstep`'s `persistflag` only feeds the annual glacier update, which is not ported yet.
+
+**Shared pieces:**
+- `reduction/` (`REDUCTION.sum`) is the deterministic two-field global sum of plan DP2.4. The fixer moved onto it with unchanged ratios.
+- `GPU_MATH` gained `precise_atan` (musl `atanf`; WGSL bounds `atan` only to 4096 ULP), `precise_powi` (Fortran's integer powers, now also used by `kuo`) and `precise_divide`.
+
+**Month weights.** `CALENDAR.monthInterpolation` ports `momint` with `step2cal30`. The reference build's `calini` receives `nint(mpstep)` (the calendar fix in `model_source.py`), not upstream's `mcal_days_per_year`. The interpolated `landmod.dalbclim` and `icemod.xclssto` match the dumps bit for bit at all four states. `SURFACE_STEP` carries month, neighbour and weight at `nstep` and `nstep + 1`.
+
+**Biased division.** At first only `dq` failed. All its off points were on the lowest level over hot land, with 38 off against f32's 18 at T21 step 2000 and 30 against 4 at T42 step 500. The GPU's land surface temperature was 2 ULP low (about 5 × 10⁻⁵ K) at every point above 300 K, while f32's errors scattered around zero.
+
+`tands` solves the surface temperature as a ratio of about 6 × 10⁴ to about 200, and 95% of the numerator is `ctop·DZTOP·dtsm/DELTSEC`. Chrome evaluates `x / DELTSEC` as `x · (1/DELTSEC)` with an approximate reciprocal, so every quotient by that constant is off in the same direction.
+
+`precise_divide` (an `fma` residual step) in `surface_temperature`, `snow_layer` and the saturation formulas fixed it. `dq` went to 0.97–1.00 with off counts equal to f32's (1/1, 16/18, 0/0, 4/4). The same correction in `kuo` (above) changed nothing, so it is applied only where a quotient by a constant dominates a cancelling or conditioned result.
+
+Results (all pass; fields at or above 1.2 listed):
+
+| Case | Largest ratio | Fields at or above 1.2 |
+| --- | --- | --- |
+| T21 step 100 | 1.34 (`dz0`) | `dz0` |
+| T21 step 2000 | 1.35 (`xsnow`) | `xsnow`, `dz0` 1.34 |
+| T42 step 100 | 1.14 (`dz0`) | none |
+| T42 step 500 | 1.14 (`dz0`) | none |
+
+Fields that are zero in every case (no sea ice at step 100, `dmld`, `dglac` unchanged) pass as exact.
+
+With the surface routine, the full `verify-dynamics.mjs` run holds twelve f64 and nine f32 dumps per case and exceeds Node's default 4 GB heap. Run it as `node --max-old-space-size=8192 scripts/exoplasim-webgpu/verify-dynamics.mjs`. All 58 cases pass; the only outlier column is `dprc` at T21 step 2000 (column 1393, 84% of the error, 1.23 without).

@@ -27,6 +27,20 @@ const ROUTINES = [
 	{ name: "surfaceFlux", physics: true, before: "d1", after: "d2", outputs: ["dtdt", "dqdt", "dudt", "dvdt", "dtaux", "dtauy", "dust3", "dshfl", "dshdt", "devap", "dlhfl", "dlhdt", "dtsa", "dtransh", "dtransm"] },
 	{ name: "radiation", physics: true, before: "d2", after: "d3", outputs: ["gmu0", "dqo3", "dtdt", "dalb", "dsalb", "dfu", "dfd", "dswfl", "dftu", "dftd", "dlwfl", "dflux", "dtdtswr", "dtdtlwr", "dconv"] },
 	{ name: "precipitation", physics: true, before: "d3", after: "d4", outputs: ["dqt", "dtdt", "dqdt", "dcc", "dql", "dprc", "dprl", "dprs", "dqvi", "icclev", "icctot", "dprcl", "dprll"] },
+	{
+		name: "surface",
+		physics: true,
+		before: "d4",
+		after: "d5",
+		outputs: [
+			...["dt", "dq", "dalb", "dsalb", "drhs", "dz0", "diced", "dicec", "dwmax", "dwatc", "drunoff", "dsnow", "dsmelt", "dsndch"],
+			...["dtsoil", "dtd2", "dtd3", "dtd4", "dtd5", "dmld", "dglac", "dforest"],
+			...["land_dts", "land_dtsm", "land_dqs", "driver", "dsoilt", "dsnowt", "dsnowz", "dwater", "dalbclim"],
+			...["dcveg", "dcsoil", "dlai", "dvsoil"],
+			...["xts", "xsst", "xiced", "xicec", "xsnow", "xicecc", "xcflux", "xqmelt", "xclsst2", "xclicec2", "xcliced2", "xclssto", "xoheat", "xoflux"],
+			...["ysst", "yclsst2", "sea_dts", "sea_dqs", "sea_dsst"],
+		],
+	},
 	// gp2fc transforms gudt..gqdt in place, so Fortran leaves Fourier
 	// coefficients there; the GPU writes them to separate fields. gridpointd
 	// zeroes them before their next use, so only the spectral tendencies count.
@@ -37,7 +51,18 @@ const FILTER_SCALARS = ["nfilter", "ngptfilter", "nspvfilter", "filterkappa", "n
 const RAIN_SCALARS = ["ww", "rdbrv", "ra1", "ra2", "ra4", "solar_day", "rainmod.rhbeta", "rainmod.nbeta", "rainmod.pdeep", "rainmod.pdeepth", "rainmod.rkshallow", "rainmod.gamma", "rainmod.clwfac", "rainmod.clwcrit1", "rainmod.clwcrit2", "rainmod.rcritmod", "rainmod.rcritslope"]
 const PHYSICS_SCALARS = [...RAIN_SCALARS, "gascon", "deltsec", "ra2", "ra4", "tmelt", "alv", "als", "ndheat", "fluxmod.zumin", "fluxmod.vdiff_lamm", "fluxmod.vdiff_b", "fluxmod.vdiff_c", "fluxmod.vdiff_d"]
 // State fields that hold another module's variable, by dump name.
-const ALIASES = { dtransh: "fluxmod.dtransh", dtransm: "fluxmod.dtransm", gmu0: "radmod.gmu0", ...Object.fromEntries(["icclev", "icctot", "dprcl", "dprll", "dprscl", "dprsll"].map((name) => [name, `rainmod.${name}`])) }
+const ALIASES = {
+	dtransh: "fluxmod.dtransh",
+	dtransm: "fluxmod.dtransm",
+	gmu0: "radmod.gmu0",
+	...Object.fromEntries(["icclev", "icctot", "dprcl", "dprll", "dprscl", "dprsll"].map((name) => [name, `rainmod.${name}`])),
+	...Object.fromEntries(["dts", "dtsm", "dqs"].map((name) => [`land_${name}`, `landmod.${name}`])),
+	...Object.fromEntries(["driver", "duroff", "dvroff", "darea", "dsoilt", "dsnowt", "dsnowz", "dwater", "dz0climo", "dalbclim", "dalbclim1", "dalbclim2", "dalbcl", "dalbcl1", "dalbcl2"].map((name) => [name, `landmod.${name}`])),
+	...Object.fromEntries(["dcveg", "dcsoil", "dlai", "dvsoil", "dagg", "dgrow", "dsc", "dmr"].map((name) => [name, `vegmod.${name}`])),
+	...Object.fromEntries(["xts", "xsst", "xmld", "xls", "xiced", "xicec", "xsnow", "xqmelt", "xicecc", "xcflux", "xcfluxf", "xoheat", "xoflux", "xgw", "xclsst2", "xclicec2", "xcliced2", "xclssto", "xclsst", "xclicec", "xcliced"].map((name) => [name, `icemod.${name}`])),
+	...Object.fromEntries(["ysst", "ymld", "yls", "yfldo", "yclsst2", "yclsst"].map((name) => [name, `oceanmod.${name}`])),
+	...Object.fromEntries(["dts", "dqs", "dsst"].map((name) => [`sea_${name}`, `seamod.${name}`])),
+}
 // Fields Fortran stores as (bands, NHOR); the GPU keeps each band contiguous.
 const BANDS = { dsalb: 2 }
 function dumped(dump, name) {
@@ -76,9 +101,43 @@ const { SURFACE_FLUX } = await server.ssrLoadModule(path.resolve("src/model/clim
 const { RADIATION } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/physics/radiation/index.ts"))
 const { CALENDAR } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/calendar/index.ts"))
 const { PRECIPITATION } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/physics/precipitation/index.ts"))
-const STATE_FIELDS = [...DYNAMICS.fields(10), ...FIXER.fields(10), ...SURFACE_FLUX.fields(), ...RADIATION.fields(10), ...PRECIPITATION.fields(10)]
+const { SURFACE } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/physics/surface/index.ts"))
+const STATE_FIELDS = [...DYNAMICS.fields(10), ...FIXER.fields(10), ...SURFACE_FLUX.fields(), ...RADIATION.fields(10), ...PRECIPITATION.fields(10), ...SURFACE.fields()]
 const NEEDED = new Set(STATE_FIELDS.map((field) => field.name).concat(DYNAMICS.TABLES.map((table) => table.name)))
 const GRID_FIELDS = new Set(STATE_FIELDS.filter((field) => field.shape === "grid").map((field) => field.name))
+// surfmod's modules' values for SURFACE.kernels and the month weights.
+function surfaceInputs({ before }) {
+	const scalar = (name) => before[name][0]
+	const month = (step) => CALENDAR.monthInterpolation({ step, stepsPerDay: scalar("ntspd"), daysPerYear: scalar("n_days_per_year"), daysPerMonth: scalar("n_days_per_month"), stepMinutes: scalar("mpstep"), solarDay: scalar("solar_day") })
+	const upper = ({ module, names }) => Object.fromEntries(names.map((name) => [name.toUpperCase(), scalar(`${module}.${name}`)]))
+	const pair = ({ name, key }) => ({ [`${key}1`]: before[name][0], [`${key}2`]: before[name][1] })
+	return {
+		step: Array.from(SURFACE.step({ now: month(scalar("icemod.nstep")), next: month(scalar("nstep") + 1) })),
+		dsoilz: Array.from(before["landmod.dsoilz"]),
+		constants: {
+			soil: { DELTSEC: scalar("deltsec"), TMELT: scalar("tmelt"), ALS: scalar("als"), ALV: scalar("alv"), ...upper({ module: "landmod", names: ["sicecap", "soilcap", "sicediff", "soildiff", "snowcap", "snowdiff", "rhosnow", "dztop", "dsmax"] }) },
+			land: {
+				DELTSEC: scalar("deltsec"), TMELT: scalar("tmelt"), RDBRV: scalar("rdbrv"), RA1: scalar("ra1"), RA2: scalar("ra2"), RA4: scalar("ra4"),
+				...upper({ module: "landmod", names: ["albsmax", "albsmin", "albsmaxf", "albsminf", "albsmax1", "albsmin1", "albsmaxf1", "albsminf1", "albsmax2", "albsmin2", "albsmaxf2", "albsminf2", "albgmax", "albgmin", "albgmax1", "albgmin1", "albgmax2", "albgmin2", "drhsfull", "nwetsoil", "wsmax", "albland", "alblandmax"] }),
+				...pair({ name: "dgroundalb", key: "DGROUNDALB" }),
+				...pair({ name: "doceanalb", key: "DOCEANALB" }),
+			},
+			vegetation: {
+				NVEG: scalar("nveg"), RLUE: scalar("landmod.rlue"), CO2CONV: scalar("landmod.co2conv"), TAU_VEG: scalar("landmod.tau_veg"), TAU_SOIL: scalar("landmod.tau_soil"),
+				...upper({ module: "vegmod", names: ["vws_crit", "q10", "zlaimax", "zlaimin", "valb_min", "valb_max", "vsalb_min", "vwmax_max", "vwmax_min", "vz0_min", "cveg_a", "cveg_c", "cveg_d", "cveg_f", "cveg_k", "cveg_l", "ct_crit", "co2_ref", "co2_comp", "co2_sens", "ncveg"] }),
+			},
+			nglacier: scalar("glaciermod.nglacier") > 0,
+			ice: { ...upper({ module: "icemod", names: ["xdt", "xmind", "xmaxd", "cicemin", "thicec"] }), TFREEZE: scalar("icemod.TFREEZE"), TMELT: scalar("icemod.TMELT"), CRHOI: scalar("icemod.CRHOI"), CRHOS: scalar("icemod.CRHOS"), CRHOSN: scalar("icemod.CRHOSN"), CPI: scalar("icemod.CPI"), CKAPI: scalar("icemod.CKAPI"), CKAPSN: scalar("icemod.CKAPSN"), CLFI: scalar("icemod.CLFI"), CLFSN: scalar("icemod.CLFSN") },
+			ocean: { DTMIX: scalar("oceanmod.dtmix"), CPS: scalar("oceanmod.CPS") },
+			sea: {
+				RDBRV: scalar("rdbrv"), RA1: scalar("ra1"), RA2: scalar("ra2"), RA4: scalar("ra4"), GASCON: scalar("gascon"), GA: scalar("ga"),
+				...upper({ module: "seamod", names: ["charnock", "dz0sea", "dz0ice", "drhssea", "drhsice", "albsea", "albice"] }),
+				...pair({ name: "dicealbmx", key: "DICEALBMX" }),
+				...pair({ name: "dicealbmn", key: "DICEALBMN" }),
+			},
+		},
+	}
+}
 // radmod values for RADIATION.kernels, and the f64 orbit (CALENDAR) checked
 // against what solang leaves in the dump after it.
 function radiationInputs({ before, after }) {
@@ -117,8 +176,8 @@ try {
 	for (const { truncation, steps, ...kinds } of CASES) {
 		const dumps = (kind, step, point) => readProbe(path.join(probeRoot, `${kind}-t${truncation}`, `probe-${step}-${point}`))
 		for (const step of steps) {
-			const f64 = Object.fromEntries(await Promise.all([...["a0", "a1", "a2", "a3", "a4"], ...(kinds.physics ? ["d0", "d1", "d2", "d3", "d4", "d6"] : [])].map(async (point) => [point, await dumps(kinds.dumps, step, point)])))
-			const f32 = Object.fromEntries(await Promise.all([...["a1", "a2", "a4"], ...(kinds.physics ? ["d0", "d1", "d2", "d3", "d4", "a3"] : [])].map(async (point) => [point, await dumps(kinds.f32, step, point)])))
+			const f64 = Object.fromEntries(await Promise.all([...["a0", "a1", "a2", "a3", "a4"], ...(kinds.physics ? ["d0", "d1", "d2", "d3", "d4", "d5", "d6"] : [])].map(async (point) => [point, await dumps(kinds.dumps, step, point)])))
+			const f32 = Object.fromEntries(await Promise.all([...["a1", "a2", "a4"], ...(kinds.physics ? ["d0", "d1", "d2", "d3", "d4", "d5", "a3"] : [])].map(async (point) => [point, await dumps(kinds.f32, step, point)])))
 			const sanity = await dumps(kinds.f64, step, "a4")
 			const replayExact = Object.keys(f64.a4).every((name) => f64.a4[name].every((value, i) => Object.is(value, sanity[name][i])))
 			for (const routine of ROUTINES.filter((entry) => (kinds.physics || !entry.physics) && (!ONLY || ONLY.includes(entry.name)))) {
@@ -127,8 +186,11 @@ try {
 				const scalars = Object.fromEntries([...SCALARS, ...FILTER_SCALARS, ...(kinds.physics ? PHYSICS_SCALARS : [])].map((name) => [name, before[name][0]]))
 				const ported = await portedTables({ truncation, delt: scalars.delt })
 				const radiation = routine.name === "radiation" ? radiationInputs({ before, after: f64.d3 }) : null
-				const gpu = await page.evaluate(async ({ truncation, before, ported, scalars, routine, radiation }) => {
+				const surface = routine.name === "surface" ? surfaceInputs({ before }) : null
+				const gpu = await page.evaluate(async ({ truncation, before, ported, scalars, routine, radiation, surface }) => {
 					const { PRECIPITATION } = await import("/src/model/climate/gcm/physics/precipitation/index.ts")
+					const { SURFACE } = await import("/src/model/climate/gcm/physics/surface/index.ts")
+					const { LAND } = await import("/src/model/climate/gcm/physics/land/index.ts")
 					const { GCM_GRID } = await import("/src/model/climate/gcm/grid/index.ts")
 					const { GCM_DEVICE } = await import("/src/model/climate/gcm/device/index.ts")
 					const { LAYOUT } = await import("/src/model/climate/gcm/layout/index.ts")
@@ -143,7 +205,7 @@ try {
 					const grid = GCM_GRID.forLatitudes(latitudes)
 					const dimensions = { truncation, latitudes, longitudes: grid.longitudes, levels: 10 }
 					const { device } = await GCM_DEVICE.request({ storageBytes: 0, onLost: () => {} })
-					const state = LAYOUT.create({ dimensions, fields: [...DYNAMICS.fields(dimensions.levels), ...FIXER.fields(dimensions.levels), ...SURFACE_FLUX.fields(), ...RADIATION.fields(dimensions.levels), ...PRECIPITATION.fields(dimensions.levels)] })
+					const state = LAYOUT.create({ dimensions, fields: [...DYNAMICS.fields(dimensions.levels), ...FIXER.fields(dimensions.levels), ...SURFACE_FLUX.fields(), ...RADIATION.fields(dimensions.levels), ...PRECIPITATION.fields(dimensions.levels), ...SURFACE.fields()] })
 					const filters = LEGENDRE.filters({ truncation, ...Object.fromEntries(["nfilter", "ngptfilter", "nspvfilter", "filterkappa", "nfilterexp", "landhoskn0"].map((name) => [name, scalars[name]])) })
 					const fourier = FOURIER.tables({ longitudes: grid.longitudes, truncation })
 					const tableValues = {
@@ -154,6 +216,7 @@ try {
 						...SURFACE_FLUX.tables({ sigma: Float64Array.from(ported.sigma), sigmah: Float64Array.from(ported.sigmah), akap: scalars.akap, gascon: scalars.gascon, ga: scalars.ga, vdiffLamm: scalars["fluxmod.vdiff_lamm"], vdiffD: scalars["fluxmod.vdiff_d"] }),
 							...RADIATION.tables({ grid, sigma: Float64Array.from(ported.sigma), sigmah: Float64Array.from(ported.sigmah), dsigma: Float64Array.from(ported.dsigma), ga: scalars.ga, acllwr: radiation?.acllwr ?? 0 }),
 							...PRECIPITATION.tables({ sigma: Float64Array.from(ported.sigma), akap: scalars.akap, rcritmod: scalars["rainmod.rcritmod"] ?? 1, rcritslope: scalars["rainmod.rcritslope"] ?? 0 }),
+							...LAND.tables({ dsoilz: surface?.dsoilz ?? [0.4, 0.8, 1.6, 3.2, 6.4] }),
 						...Object.fromEntries(DYNAMICS.TABLES.map(({ name, count }) => {
 							const values = ported[name] ?? before[name]
 							if (values.length !== count(dimensions)) throw new Error(`${name}: ${values.length} values, expected ${count(dimensions)}`)
@@ -167,6 +230,7 @@ try {
 						if (before[name]) LAYOUT.write({ device, buffer: context.stateBuffer, layout: state, name, values: Float32Array.from(before[name]) })
 					}
 					if (radiation) LAYOUT.write({ device, buffer: context.stateBuffer, layout: state, name: "radiation_step", values: Float32Array.from(radiation.step) })
+					if (surface) LAYOUT.write({ device, buffer: context.stateBuffer, layout: state, name: "surface_step", values: Float32Array.from(surface.step) })
 					const kernels = await DYNAMICS.kernels({
 						context,
 						constants: {
@@ -200,6 +264,7 @@ try {
 								constants: { rdbrv: scalars.rdbrv, gascon: scalars.gascon, ga: scalars.ga, acpd: scalars.acpd, adv: scalars.adv, deltsec: scalars.deltsec, deltsec2: scalars.deltsec2, ra2: scalars.ra2, ra4: scalars.ra4, tmelt: scalars.tmelt, alv: scalars.alv, als: scalars.als, zumin: scalars["fluxmod.zumin"], vdiffB: scalars["fluxmod.vdiff_b"], vdiffC: scalars["fluxmod.vdiff_c"], vdiffD: scalars["fluxmod.vdiff_d"], ndheat: scalars.ndheat > 0 },
 							}),
 						radiation: () => RADIATION.kernels({ context, constants: radiation.constants }),
+						surface: () => SURFACE.kernels({ context, constants: surface.constants }),
 						precipitation: () =>
 							PRECIPITATION.kernels({
 								context,
@@ -213,7 +278,7 @@ try {
 					const result = await LAYOUT.read({ device, buffer: context.stateBuffer, layout: state, names: routine.outputs })
 					device.destroy()
 					return Object.fromEntries(Object.entries(result).map(([name, values]) => [name, Array.from(values)]))
-				}, { truncation, before: Object.fromEntries([...NEEDED].filter((name) => dumped(before, name)).map((name) => [name, dumped(before, name)])), ported, scalars, routine, radiation })
+				}, { truncation, before: Object.fromEntries([...NEEDED].filter((name) => dumped(before, name)).map((name) => [name, dumped(before, name)])), ported, scalars, routine, radiation, surface })
 				const fields = {}
 				// On output and diagnostic steps gridpointa overwrites gp with the
 				// Fourier coefficients of exp(ln ps) - 1 to compute span, which only

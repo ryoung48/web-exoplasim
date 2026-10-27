@@ -10,8 +10,8 @@ import type {
 } from "@/model/climate/gcm/physics/fixer/types"
 import applyCode from "@/model/climate/gcm/physics/fixer/wgsl/apply.wgsl?raw"
 import columnCode from "@/model/climate/gcm/physics/fixer/wgsl/column.wgsl?raw"
-import globalCode from "@/model/climate/gcm/physics/fixer/wgsl/global.wgsl?raw"
 import rowCode from "@/model/climate/gcm/physics/fixer/wgsl/row.wgsl?raw"
+import { REDUCTION } from "@/model/climate/gcm/reduction"
 
 // miscmod's negative-humidity fixer (nfixer = 1): borrow moisture within
 // the column, then the latitude, then globally, conserving the total.
@@ -56,11 +56,12 @@ function kernels({
 			code: rowCode,
 			constants: { THREADS: latitudes },
 		}),
-		KERNEL.pipeline({
+		REDUCTION.sum({
 			context,
 			label: "fixer global",
-			code: globalCode,
-			constants: { THREADS: KERNEL.WORKGROUP_SIZE },
+			first: "fixneg",
+			second: "fixpos",
+			target: "fixsum",
 		}),
 		KERNEL.pipeline({
 			context,

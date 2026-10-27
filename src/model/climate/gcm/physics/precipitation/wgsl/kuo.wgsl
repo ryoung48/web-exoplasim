@@ -47,22 +47,6 @@ fn condense(t0: f32, q0: f32, p: f32) -> Parcel {
 	return Parcel(t, q, cor, true);
 }
 
-// x^n by binary exponentiation, as libgcc's __powisf2 computes it.
-fn power(x: f32, n: i32) -> f32 {
-	var base = x;
-	var m = u32(abs(n));
-	var result = select(1.0, x, (m & 1u) != 0u);
-	m = m >> 1u;
-	while (m != 0u) {
-		base = base * base;
-		if ((m & 1u) != 0u) {
-			result = result * base;
-		}
-		m = m >> 1u;
-	}
-	return select(result, 1.0 / result, n < 0);
-}
-
 // rainmod's mkdqtgp scaling, kuo and mkshallow for one column. Switches
 // fixed for every page configuration: ncsurf = 1 (parcels may start at the
 // surface), kbeta = 1 (moistening fraction from mean relative humidity),
@@ -218,7 +202,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 	}
 	var beta = 1.0;
 	if (zrhm >= RHBETA) {
-		beta = power((1.0 - zrhm) / (1.0 - RHBETA), NBETA);
+		beta = precise_powi((1.0 - zrhm) / (1.0 - RHBETA), NBETA);
 	}
 	var zat = 0.0;
 	var zaq = 0.0;
