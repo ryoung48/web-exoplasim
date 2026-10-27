@@ -1,34 +1,57 @@
 import type {
 	GcmGaussianLatitudes,
 	GcmGrid,
+	GcmLegendrePoint,
 } from "@/model/climate/gcm/grid/types"
 
-const NEWTON_TOLERANCE = 1e-14
+// gaussmod.f90's inigau: Newton steps on the normalised Legendre
+// polynomial's trigonometric series, to 1e-16 or 50 steps.
+const INIGAU_PI = 3.14159265358979
+const INIGAU_TOLERANCE = 1e-16
+const INIGAU_ITERATIONS = 50
 const grids = new Map<number, GcmGrid>()
+
+// ql: the normalised Legendre polynomial of degree k at p.
+function legendre({ degree: k, at: p }: GcmLegendrePoint): number {
+	const angle = Math.acos(p)
+	let factor = 1
+	let sum = 0
+	let term = 0
+	for (let j = k; j >= 0; j -= 2) {
+		term = factor * Math.cos(angle * j)
+		sum = sum + term
+		const z4 = (k - j + 1) * (k + j) * 0.5
+		factor = (factor * z4) / (z4 + (j - 1))
+	}
+	if (k % 2 === 0) sum = sum - 0.5 * term
+	let norm = Math.sqrt(2)
+	for (let j = 1; j <= k; j++) norm = norm * Math.sqrt(1 - 0.25 / (j * j))
+	return norm * sum
+}
 
 function gaussianLatitudes(count: number): GcmGaussianLatitudes {
 	const degrees = new Float64Array(count)
 	const sines = new Float64Array(count)
 	const weights = new Float64Array(count)
+	const z0 = INIGAU_PI / (2 * count + 1)
+	const z1 = 1 / (count * count * 8)
+	const z4 = 2 / (count * count)
 	for (let root = 0; root < count / 2; root++) {
-		let x = Math.cos((Math.PI * (root + 0.75)) / (count + 0.5))
-		let derivative = 0
-		for (let iteration = 0; iteration < 100; iteration++) {
-			let previous = 1
-			let current = x
-			for (let degree = 2; degree <= count; degree++) {
-				const next =
-					((2 * degree - 1) * x * current - (degree - 1) * previous) / degree
-				previous = current
-				current = next
-			}
-			derivative = (count * (x * current - previous)) / (x * x - 1)
-			const step = current / derivative
-			x -= step
-			if (Math.abs(step) < NEWTON_TOLERANCE) break
+		const guess = z0 * (2 * (root + 1) - 0.5)
+		let x = Math.cos(guess + z1 / Math.tan(guess))
+		for (let iteration = 0; iteration < INIGAU_ITERATIONS; iteration++) {
+			const value = legendre({ degree: count, at: x })
+			const z =
+				x * value -
+				Math.sqrt((count + count + 1) / (count + count - 1)) *
+					legendre({ degree: count - 1, at: x })
+			const step = value * ((x * x - 1) / (count * z))
+			x = x - step
+			if (Math.abs(step) < INIGAU_TOLERANCE) break
 		}
+		const z5 = legendre({ degree: count - 1, at: x }) / Math.sqrt(count - 0.5)
 		const latitude = (Math.asin(x) * 180) / Math.PI
-		const weight = 2 / ((1 - x * x) * derivative * derivative)
+		const weight = (z4 * (1 - x * x)) / (z5 * z5)
 		degrees[root] = latitude
 		degrees[count - 1 - root] = -latitude
 		sines[root] = x

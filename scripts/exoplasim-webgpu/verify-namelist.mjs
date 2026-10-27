@@ -1,7 +1,6 @@
-import fs from "node:fs/promises"
 import path from "node:path"
 import { createServer } from "vite"
-import { physicsTablesInputs, stepCalendar, stepperConstants } from "./model-inputs.mjs"
+import { physicsTablesInputs, readInputs, stepCalendar, stepperConstants } from "./model-inputs.mjs"
 import { readProbe } from "./probe.mjs"
 
 // SETUP's values from the page's namelist text against the Fortran's at the
@@ -26,9 +25,7 @@ try {
 	const { SETUP } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/setup/index.ts"))
 	const { SPECTRUM } = await server.ssrLoadModule(path.resolve("src/model/climate/gcm/physics/radiation/spectrum/index.ts"))
 	for (const truncation of [21, 42]) {
-		const directory = path.join(inputsRoot, `earth-t${truncation}`)
-		const files = (await fs.readdir(directory)).filter((name) => name.endsWith("_namelist"))
-		const namelists = Object.fromEntries(await Promise.all(files.map(async (name) => [name, await fs.readFile(path.join(directory, name), "utf8")])))
+		const namelists = await readInputs(path.join(inputsRoot, `earth-t${truncation}`))
 		const ported = SETUP.pumamod({ truncation, levels: 10, namelists })
 		const dump = await readProbe(path.join(probeRoot, `setup-earth-t${truncation}`, "probe-initpm-in"))
 		// The set-up dumps hold pumamod only; other modules' values come from a
@@ -61,7 +58,7 @@ try {
 				rows.push(`${name}: ${values.join(",")} vs ${Array.from(reference).join(",")} (${worst.toExponential(1)})`)
 			} else spectrumWorst = Math.max(spectrumWorst, worst)
 		}
-		const setup = SETUP.constants({ truncation, levels: 10, namelists, meanOrography: later.so[0] })
+		const setup = SETUP.constants({ truncation, levels: 10, namelists, meanOrography: SETUP.state({ truncation, levels: 10, namelists, clock: 0 }).so[0] })
 		const constantRows = []
 		compareLeaves({ ported: setup.stepper, reference: stepperConstants(later), at: "stepper", rows: constantRows })
 		compareLeaves({ ported: setup.calendar, reference: stepCalendar(later).calendar, at: "calendar", rows: constantRows })

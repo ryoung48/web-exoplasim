@@ -1,4 +1,5 @@
 import type {
+	GcmFourierAnalysis,
 	GcmFourierSize,
 	GcmFourierTables,
 } from "@/model/climate/gcm/fourier/types"
@@ -91,8 +92,30 @@ function dlambda({
 	})
 }
 
+// gp2fc in f64 for set-up: each row's coefficients m = 0..NTRU as (re, im)
+// pairs, rows of 2 (NTRU + 1).
+function analyse({
+	values,
+	longitudes,
+	truncation,
+}: GcmFourierAnalysis): Float64Array {
+	const { forward } = tables({ longitudes, truncation })
+	const coefficients = 2 * (truncation + 1)
+	const rows = values.length / longitudes
+	const result = new Float64Array(rows * coefficients)
+	for (let row = 0; row < rows; row++)
+		for (let c = 0; c < coefficients; c++) {
+			let sum = 0
+			for (let j = 0; j < longitudes; j++)
+				sum += values[row * longitudes + j] * forward[j * coefficients + c]
+			result[row * coefficients + c] = sum
+		}
+	return result
+}
+
 export const FOURIER = {
 	tables,
+	analyse,
 	forward,
 	inverse,
 	dlambda,

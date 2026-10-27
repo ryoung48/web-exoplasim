@@ -46,6 +46,8 @@ export interface GcmPumamod {
 	n_steps_per_year: number
 	n_days_per_year: number
 	n_start_year: number
+	n_start_month: number
+	n_start_step: number
 	n_days_per_month: number
 	m_days_per_year: number
 	nkits: number
@@ -66,6 +68,8 @@ export interface GcmPumamod {
 	dtns: number
 	dtrop: number
 	dttrp: number
+	dttl: number
+	fixedlon: number
 	tgr: number
 	ptop: number
 	ndel: number[]
@@ -77,4 +81,12 @@ export interface GcmPumamod {
 	t0: number[]
 	tfrc: number[]
 	seed: number[]
+}
+
+export interface GcmStartStepRequest {
+	mtspd: number
+	year: number
+	month: number
+	daysPerYear: number
+	daysPerMonth: number
 }

@@ -8,6 +8,7 @@ import type {
 	GcmDivergenceRequest,
 	GcmFilteredTable,
 	GcmFluxTendencyRequest,
+	GcmLegendreAnalysis,
 	GcmLegendreKernelTablesRequest,
 	GcmLegendreRequest,
 	GcmLegendreTables,
@@ -328,9 +329,41 @@ function mktend({
 	])
 }
 
+// fc2sp's single-process branch in f64 for set-up: (m, n) sums north plus
+// south rows when m + n is even, north minus south otherwise.
+function analyse({
+	fourier,
+	qc,
+	filter,
+	latitudes,
+	truncation,
+}: GcmLegendreAnalysis): Float64Array {
+	const modes = ((truncation + 1) * (truncation + 2)) / 2
+	const coefficients = 2 * (truncation + 1)
+	const sp = new Float64Array(2 * modes)
+	for (let l = 0; l < latitudes / 2; l++) {
+		const north = l * coefficients
+		const south = (latitudes - 1 - l) * coefficients
+		let w = 0
+		for (let m = 0; m <= truncation; m++)
+			for (let n = m; n <= truncation; n++) {
+				const sign = (m + n) % 2 === 0 ? 1 : -1
+				const weight = qc[l * modes + w]
+				for (let part = 0; part < 2; part++) {
+					const row =
+						fourier[north + 2 * m + part] + sign * fourier[south + 2 * m + part]
+					sp[2 * w + part] = sp[2 * w + part] + weight * row * filter[n]
+				}
+				w++
+			}
+	}
+	return sp
+}
+
 export const LEGENDRE = {
 	tables,
 	filters,
+	analyse,
 	kernelTables,
 	forward,
 	inverse,

@@ -4,6 +4,7 @@ import type {
 	GcmDynamicsTablesRequest,
 	GcmLatitudeFactorsRequest,
 	GcmMatrixInverse,
+	GcmRestorationRequest,
 	GcmSemiImplicitInit,
 	GcmSemiImplicitRequest,
 	GcmTimeScales,
@@ -251,8 +252,68 @@ function latitudeFactors({ grid }: GcmLatitudeFactorsRequest): Float64Array {
 	return rcsq
 }
 
-// DYNAMICS.TABLES values these routines provide; sop (orography) and srp
-// (restoration temperature) come from the surface and restoration set-up.
+// setzt: the restoration temperature sr(NESP, NLEV). A lapse rate of alr
+// below the tropopause at dtrop and none above, joined smoothly over dttrp,
+// plus the setup's meridional and tidally locked gradients.
+function setzt({
+	setup,
+	truncation,
+	gascon,
+	ga,
+	ct,
+	alr,
+	tgr,
+	dtrop,
+	dttl,
+	fixedlon,
+}: GcmRestorationRequest): Float64Array {
+	const { sigma, t0, dtns, dtep } = setup
+	const levels = sigma.length
+	const dttrp = setup.dttrp * ct
+	const profile = (height: number) =>
+		tgr -
+		dtrop * alr +
+		Math.sqrt((0.5 * alr * (height - dtrop)) ** 2 + dttrp ** 2) -
+		0.5 * alr * (height - dtrop)
+	const trs = new Float64Array(levels)
+	let sigmaPrevious = 1
+	let tPrevious = tgr
+	let zPrevious = 0
+	for (let l = levels - 1; l >= 0; l--) {
+		const logRatio = Math.log(sigmaPrevious / sigma[l])
+		const first = profile(zPrevious + ((gascon * tPrevious) / ga) * logRatio)
+		const t = profile(
+			zPrevious + ((gascon * (0.5 * (tPrevious + first))) / ga) * logRatio,
+		)
+		trs[l] = t
+		zPrevious = zPrevious + ((0.5 * (t + tPrevious) * gascon) / ga) * logRatio
+		tPrevious = t
+		sigmaPrevious = sigma[l]
+	}
+	const tropopause = ((tgr - dtrop * alr) / tgr) ** (ga / (alr * gascon))
+	const substellar = (1 / 3.463843223261725 / ct) * dttl
+	const subst1 = -substellar * Math.cos((fixedlon * PI) / 180)
+	const subst2 = substellar * Math.sin((fixedlon * PI) / 180)
+	const coefficients = (truncation + 1) * (truncation + 2)
+	const sas = 2 * (truncation + 1)
+	const sr = new Float64Array(coefficients * levels)
+	for (let l = 0; l < levels; l++) {
+		const fac = Math.max(
+			Math.sin((0.5 * PI * (sigma[l] - tropopause)) / (1 - tropopause)),
+			0,
+		)
+		const at = l * coefficients
+		sr[at] = Math.sqrt(2) * (trs[l] / ct - t0[l])
+		sr[at + 2] = (1 / Math.sqrt(6)) * dtns * fac
+		sr[at + 4] = (-2 / 3) * Math.sqrt(0.4) * dtep * fac
+		sr[at + sas] = subst1 * fac
+		sr[at + sas + 1] = subst2 * fac
+	}
+	return sr
+}
+
+// DYNAMICS.TABLES values these routines provide; sop (orography) comes
+// from the surface set-up and srp from setzt.
 function tables({
 	setup,
 	bm1,
@@ -286,5 +347,6 @@ export const DYNAMICS_SETUP = {
 	initpm,
 	makebm,
 	latitudeFactors,
+	setzt,
 	tables,
 }

@@ -32,6 +32,16 @@ export interface GcmPhysicsFilterRequest {
 	landhoskn0: number
 }
 
+// fc2sp on the CPU: Fourier rows of 2 (NTRU + 1) from FOURIER.analyse,
+// qc from LEGENDRE.tables and skgpsp by total wavenumber.
+export interface GcmLegendreAnalysis {
+	fourier: Float64Array
+	qc: Float64Array
+	filter: Float64Array
+	latitudes: number
+	truncation: number
+}
+
 export interface GcmPhysicsFilters {
 	gridToSpectral: Float64Array
 	spectralToGrid: Float64Array

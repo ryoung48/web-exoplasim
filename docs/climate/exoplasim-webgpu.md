@@ -589,7 +589,28 @@ The T21 48-step failures are fields with O(0.1–1) relative error in both runs 
   - `rainini`'s `gamma` at T42 and `clwfac`;
   - `radini`'s resolution tuning and `solarini`.
   `CALENDAR.orbit` ports `orb_params`: the fixed orbit, or Berger's series (tables generated from `pumamod`'s data by `fortran-tables.mjs`) for `radini`'s year.
-- prolog lowers `psurf` from the sea-level value to the mean surface pressure using the initial orography's mean spectral coefficient `so(1)`, so `SETUP.constants` takes it as `meanOrography`. Until the initial state is ported, the check takes it from the dump.
+- prolog lowers `psurf` from the sea-level value to the mean surface pressure using the initial orography's mean spectral coefficient `so(1)`, so `SETUP.constants` takes it as `meanOrography` (from `SETUP.state`'s `so[0]`).
 - Every constant, calendar value (including the orbit's four angles) and table input matches the main-loop dumps to within 10⁻¹⁴ at T21 and T42.
 
-`scripts/exoplasim-webgpu/verify-namelist.mjs` runs these checks in about 20 s. Still to port: `sop`/`srp`, and the initial state (the `.sra` surface files, the `*ini` fields, `initpm`/`setzt` and the noise kick).
+`scripts/exoplasim-webgpu/verify-namelist.mjs` runs these checks in about 20 s.
+
+#### Initial state
+
+`SETUP.state` builds prolog's fresh-start state from the page's namelists and `.sra` files, under `STEPPER`'s field names, plus the spectral orography `so` (`DYNAMICS.TABLES`' `sop`; `srp` is the state's `sr`):
+- `DYNAMICS_SETUP.setzt` gives the restoration temperature `sr`. `setup/state/` (`INITIAL_STATE`) ports `initfd`:
+  - `st` and `stm` take `sr`'s global mean (all of `sr` with a tidally locked `dttl`);
+  - `sz` and `szm` take the planetary vorticity;
+  - `sp` and `spm` take `noise`'s white noise of amplitude 10⁻⁴.
+- `noise` draws from gfortran's `random_number`, so `shared/random/gfortran/` (`GFORTRAN_RANDOM`) ports libgfortran's xoshiro256** and `random_seed(put=)`. `random_seed(put=)` reverses the eight seed words and XORs them with the scrambling keys. The namelist's `SEED` reproduces the reference noise bit for bit.
+- `setup/surface/` (`SURFACE_SETUP`) ports `surfini` for a fresh start:
+  - `get_surf_array` reads `N<NLAT>_surf_<code>.sra`, expanding 12-month files to 14 months;
+  - `landini` with `soilini` and `getalb`;
+  - `glacierini`/`oroini`: glacier geopotential, river routing, and the orography's grid→spectral transform with the `skgpsp` filter;
+  - `vegini`;
+  - `seaini` with `iceini` (`read_ice_surface`, `make_ice_thickness`, `iceget`) and `oceanini`;
+  - `radini`'s CO₂ field.
+- The transform is `FOURIER.analyse` (`gp2fc` as a DFT) followed by `LEGENDRE.analyse` (`fc2sp`'s symmetric branch), both in f64.
+- The start step comes from `cal2step`'s 360-day calendar (`n_start_step`). The 365-day calendar throws, like `CALENDAR.monthInterpolation`.
+- `GCM_GRID` now ports `inigau` itself (Newton steps on the trigonometric series of the normalised Legendre polynomial). The earlier Newton recurrence put the T42 Gaussian weights 3 × 10⁻¹² away from Fortran's, which showed in `so`.
+
+`scripts/exoplasim-webgpu/verify-initial-state.mjs` (about 20 s) compares all 78 fields with the first start-up step's `kits3-a0` dump at T21 and T42. All match to within 10⁻¹³ of each field's largest value. Everything except the T42 Gaussian weights (`darea`, `xgw`) matches to 10⁻¹⁴; those weights differ by 2 × 10⁻¹⁴ (`cos`/`acos` last bits).

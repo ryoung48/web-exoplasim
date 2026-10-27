@@ -165,6 +165,12 @@ function landmod({ request, pumamod, albedos }: GcmAlbedoSetupRequest) {
 			sicecap: 2.07e6,
 			snowcap: 0.6897e6,
 			dsoilz: [0.4, 0.8, 1.6, 3.2, 6.4],
+			rinifor: 0.5,
+			dz0land: 2,
+			drhsland: 0.25,
+			dzglac: -1,
+			nwatcini: 0,
+			dwatcini: 0,
 			dsnowalbmn: albedos.dsnowalbmn,
 			dsnowalbmx: albedos.dsnowalbmx,
 			dglacalbmn: albedos.dglacalbmn,
@@ -217,6 +223,7 @@ function icemod({ request, pumamod }: GcmModuleSetupRequest) {
 	const values = GCM_NAMELIST.read({
 		text: request.namelists.icemod_namelist,
 		defaults: {
+			nice: 1,
 			nseaice: 1,
 			xmind: 0.1,
 			xmaxd: 9,
@@ -272,6 +279,23 @@ function carbonmod({ request, pumamod }: GcmModuleSetupRequest) {
 	}
 }
 
+// oceanmod.f90's oceanmod_nl: the single slab layer is mldepth deep (m).
+function oceanmod({ request }: GcmModuleSetupRequest) {
+	return GCM_NAMELIST.read({
+		text: request.namelists.oceanmod_namelist,
+		defaults: { mldepth: 50 },
+	})
+}
+
+// surfmod.f90's surfmod_nl: ln(ps) from the orography when nspinit > 0,
+// and the orography truncated above total wavenumber noromax.
+function surfmod({ request }: GcmModuleSetupRequest) {
+	return GCM_NAMELIST.read({
+		text: request.namelists.surfmod_namelist,
+		defaults: { nspinit: 0, noromax: request.truncation },
+	})
+}
+
 function glaciermod({ request }: GcmModuleSetupRequest) {
 	return GCM_NAMELIST.read({
 		text: request.namelists.glacier_namelist,
@@ -288,5 +312,7 @@ export const MODULE_SETUP = {
 	icemod,
 	vegmod,
 	carbonmod,
+	oceanmod,
+	surfmod,
 	glaciermod,
 }

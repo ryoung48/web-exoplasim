@@ -1,3 +1,4 @@
+import fs from "node:fs/promises"
 import path from "node:path"
 import { readProbe } from "./probe.mjs"
 
@@ -33,8 +34,8 @@ export function dumped(dump, name) {
 }
 
 // DYNAMICS.TABLES from the TypeScript set-up port (checked by
-// verify-setup.mjs) for this delt, and from the dump where there is no port
-// yet (sop, srp).
+// verify-setup.mjs) for this delt; sop and srp come from the dump, as part
+// of the state being replayed (SETUP.state ports them, verify-initial-state).
 async function dynamicsTables({ modules, probeRoot, truncation, delt, dump }) {
 	const { DYNAMICS, DYNAMICS_SETUP, GRID } = modules
 	const input = await readProbe(path.join(probeRoot, `setup-earth-t${truncation}`, "probe-initpm-in"))
@@ -142,6 +143,13 @@ export function stepCalendar(dump) {
 			carbonInterval: scalar("carbonmod.interval"),
 		},
 	}
+}
+
+// The page's input files for one configuration, by file name: namelist
+// text and .sra surface files.
+export async function readInputs(directory) {
+	const names = (await fs.readdir(directory)).filter((name) => name.endsWith("_namelist") || name.endsWith(".sra"))
+	return Object.fromEntries(await Promise.all(names.map(async (name) => [name, await fs.readFile(path.join(directory, name), "utf8")])))
 }
 
 // Loads the modules model-inputs needs through Vite's SSR loader.

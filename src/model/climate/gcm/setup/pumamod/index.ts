@@ -1,6 +1,9 @@
 import type { GcmPhysicsFilterKind } from "@/model/climate/gcm/legendre/types"
 import { GCM_NAMELIST } from "@/model/climate/gcm/namelist"
-import type { GcmPumamod } from "@/model/climate/gcm/setup/pumamod/types"
+import type {
+	GcmPumamod,
+	GcmStartStepRequest,
+} from "@/model/climate/gcm/setup/pumamod/types"
 import type { GcmSetupRequest } from "@/model/climate/gcm/setup/types"
 
 // pumamod's parameters (plasimmod.f90 at 5f8dff4).
@@ -45,6 +48,7 @@ function pumamodDefaults(levels: number) {
 		ntspd: 0,
 		n_days_per_year: 360,
 		n_start_year: 1,
+		n_start_month: 1,
 		nkits: 3,
 		kick: 1,
 		ndheat: 1,
@@ -66,6 +70,8 @@ function pumamodDefaults(levels: number) {
 		dtns: 0,
 		dtrop: 12000,
 		dttrp: 2,
+		dttl: 0,
+		fixedlon: 0,
 		tgr: 288,
 		ptop: 7500,
 		frcmod: 1,
@@ -87,6 +93,28 @@ function filterKind(nfilter: number): GcmPhysicsFilterKind {
 	const kind = FILTER_KINDS.find((candidate) => candidate === nfilter)
 	if (kind === undefined) throw new Error(`nfilter ${nfilter} is not 0-4`)
 	return kind
+}
+
+// NLAT for each truncation the build supports (resmod).
+const LATITUDES: Record<number, number> = { 21: 32, 42: 64 }
+
+function gaussianLatitudes(truncation: number): number {
+	const latitudes = LATITUDES[truncation]
+	if (latitudes === undefined) throw new Error(`T${truncation} is not built`)
+	return latitudes
+}
+
+// cal2step's simplified calendar: steps from 1 Jan 0000 to the start date.
+function startStep({
+	mtspd,
+	year,
+	month,
+	daysPerYear,
+	daysPerMonth,
+}: GcmStartStepRequest): number {
+	if (daysPerYear === 365)
+		throw new Error("The 365-day calendar (cal2step) is not ported")
+	return mtspd * (year * daysPerYear + (month - 1) * daysPerMonth)
 }
 
 // planet_ini then readnl (plasim.f90), up to the start of initpm.
@@ -132,7 +160,7 @@ function pumamod({
 	const cv = planet.plarad * ww
 	let mpstep = nl.mpstep
 	if (mpstep <= 0 && nl.ntspd <= 0) {
-		const latitudes = { 21: 32, 42: 64 }[truncation] ?? 32
+		const latitudes = gaussianLatitudes(truncation)
 		mpstep =
 			latitudes <= 32
 				? 45
@@ -177,6 +205,14 @@ function pumamod({
 		n_steps_per_year: Math.round(planet.sidereal_year / (mpstep * 60)),
 		n_days_per_year: nl.n_days_per_year,
 		n_start_year: nl.n_start_year,
+		n_start_month: nl.n_start_month,
+		n_start_step: startStep({
+			mtspd,
+			year: nl.n_start_year,
+			month: nl.n_start_month,
+			daysPerYear: nl.n_days_per_year,
+			daysPerMonth: Math.trunc(mDaysPerYear / 12),
+		}),
 		n_days_per_month: Math.trunc(mDaysPerYear / 12),
 		m_days_per_year: mDaysPerYear,
 		nkits: nl.nkits,
@@ -197,6 +233,8 @@ function pumamod({
 		dtns: nl.dtns,
 		dtrop: nl.dtrop,
 		dttrp: nl.dttrp,
+		dttl: nl.dttl,
+		fixedlon: nl.fixedlon,
 		tgr: nl.tgr,
 		ptop: nl.ptop,
 		ndel: nl.ndel,
@@ -213,5 +251,6 @@ function pumamod({
 
 export const PUMAMOD = {
 	TWOPI,
+	latitudes: gaussianLatitudes,
 	read: pumamod,
 }

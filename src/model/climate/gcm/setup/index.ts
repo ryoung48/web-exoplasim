@@ -1,9 +1,16 @@
 import { CALENDAR } from "@/model/climate/gcm/calendar"
+import { DYNAMICS_SETUP } from "@/model/climate/gcm/dynamics/setup"
+import type { GcmDynamicsSetup } from "@/model/climate/gcm/dynamics/setup/types"
 import { MODULE_SETUP } from "@/model/climate/gcm/setup/modules"
 import { PUMAMOD } from "@/model/climate/gcm/setup/pumamod"
+import { INITIAL_STATE } from "@/model/climate/gcm/setup/state"
+import { SURFACE_SETUP } from "@/model/climate/gcm/setup/surface"
 import type {
+	GcmInitialState,
 	GcmSetup,
 	GcmSetupConstantsRequest,
+	GcmSetupRequest,
+	GcmSetupStateRequest,
 } from "@/model/climate/gcm/setup/types"
 
 // radmod's Stefan–Boltzmann constant, and icemod's and oceanmod's water,
@@ -327,7 +334,55 @@ function constants(request: GcmSetupConstantsRequest): GcmSetup {
 	}
 }
 
+// initpm's input from pumamod after readnl.
+function dynamics(request: GcmSetupRequest): GcmDynamicsSetup {
+	const pumamod = PUMAMOD.read(request)
+	return DYNAMICS_SETUP.initpm({
+		truncation: request.truncation,
+		levels: request.levels,
+		neqsig: pumamod.neqsig,
+		restim: pumamod.restim,
+		tfrc: pumamod.tfrc,
+		tdissd: pumamod.tdissd,
+		tdissz: pumamod.tdissz,
+		tdisst: pumamod.tdisst,
+		tdissq: pumamod.tdissq,
+		ndel: pumamod.ndel,
+		nhdiff: pumamod.nhdiff,
+		dayLengthS: pumamod.day_24hr,
+		stepsPerDay: pumamod.mtspd,
+		t0: pumamod.t0,
+		dtns: pumamod.dtns,
+		dtep: pumamod.dtep,
+		dttrp: pumamod.dttrp,
+		ct: pumamod.ct,
+		akap: pumamod.akap,
+	})
+}
+
+// prolog's fresh-start state: initfd's spectral fields and setzt's
+// restoration field, then surfini's surface and orography. With nspinit,
+// ln(ps) starts from the orography instead of the noise.
+function state(request: GcmSetupStateRequest): GcmInitialState {
+	const pumamod = PUMAMOD.read(request)
+	const spectral = INITIAL_STATE.spectral({
+		pumamod,
+		dynamics: dynamics(request),
+		truncation: request.truncation,
+		clock: request.clock,
+	})
+	const surface = SURFACE_SETUP.initial({ request, pumamod })
+	if (MODULE_SETUP.surfmod({ request, pumamod }).nspinit > 0) {
+		const scale = (pumamod.cv * pumamod.cv) / (pumamod.gascon * pumamod.tgr)
+		spectral.sp = surface.so.map((value) => -value * scale)
+		spectral.spm = spectral.sp.slice()
+	}
+	return { fields: { ...spectral, ...surface.fields }, so: surface.so }
+}
+
 export const SETUP = {
 	pumamod: PUMAMOD.read,
 	constants,
+	dynamics,
+	state,
 }

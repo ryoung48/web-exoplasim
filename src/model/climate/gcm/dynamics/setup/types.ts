@@ -79,6 +79,22 @@ export interface GcmSemiImplicitInit {
 	akap: number
 }
 
+// setzt's inputs besides initpm's: the planet's lapse rate (K/m), surface
+// temperature (K) and tropopause height (m), and the tidally locked
+// substellar–antistellar difference (K) at its longitude (degrees).
+export interface GcmRestorationRequest {
+	setup: GcmDynamicsSetup
+	truncation: number
+	gascon: number
+	ga: number
+	ct: number
+	alr: number
+	tgr: number
+	dtrop: number
+	dttl: number
+	fixedlon: number
+}
+
 export interface GcmMatrixInverse {
 	matrix: Float64Array
 	size: number

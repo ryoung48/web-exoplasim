@@ -4,6 +4,11 @@ export interface GcmGaussianLatitudes {
 	weights: Float64Array
 }
 
+export interface GcmLegendrePoint {
+	degree: number
+	at: number
+}
+
 export interface GcmGrid {
 	longitudes: number
 	latitudes: number

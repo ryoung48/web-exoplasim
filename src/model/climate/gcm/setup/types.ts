@@ -29,3 +29,16 @@ export interface GcmSetupRequest {
 export interface GcmSetupConstantsRequest extends GcmSetupRequest {
 	meanOrography: number
 }
+
+// The namelists plus system_clock's count, which seeds the initial noise
+// when the namelist's seed is zero.
+export interface GcmSetupStateRequest extends GcmSetupRequest {
+	clock: number
+}
+
+// The model state after prolog under STEPPER's field names, and the
+// spectral orography (DYNAMICS.TABLES' sop; srp is the state's sr).
+export interface GcmInitialState {
+	fields: Record<string, Float64Array>
+	so: Float64Array
+}
