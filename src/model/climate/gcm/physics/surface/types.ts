@@ -135,6 +135,8 @@ export interface GcmSurfaceConstants {
 	ice: GcmIceConstants
 	ocean: GcmOceanConstants
 	sea: GcmSeaConstants
+	// False during the nkits start-up steps, which skip icestep.
+	seaCoupled: boolean
 }
 
 export interface GcmSurfaceRequest {

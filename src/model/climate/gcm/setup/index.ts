@@ -1,16 +1,20 @@
 import { CALENDAR } from "@/model/climate/gcm/calendar"
 import { DYNAMICS_SETUP } from "@/model/climate/gcm/dynamics/setup"
 import type { GcmDynamicsSetup } from "@/model/climate/gcm/dynamics/setup/types"
+import { GCM_GRID } from "@/model/climate/gcm/grid"
 import { MODULE_SETUP } from "@/model/climate/gcm/setup/modules"
 import { PUMAMOD } from "@/model/climate/gcm/setup/pumamod"
 import { INITIAL_STATE } from "@/model/climate/gcm/setup/state"
 import { SURFACE_SETUP } from "@/model/climate/gcm/setup/surface"
 import type {
+	GcmDynamicsTablesSetup,
 	GcmInitialState,
 	GcmSetup,
 	GcmSetupConstantsRequest,
 	GcmSetupRequest,
 	GcmSetupStateRequest,
+	GcmTimestepRequest,
+	GcmTimesteps,
 } from "@/model/climate/gcm/setup/types"
 
 // radmod's Stefan–Boltzmann constant, and icemod's and oceanmod's water,
@@ -32,8 +36,18 @@ const CPS = 4180
 const CO2EARTH = 330
 const RAD_EARTHSQ = 6371220 * 6371220
 
+// master's timestep in seconds and as a fraction of a rotation, halved for
+// each start-up step still to run (kits; 0 in the main loop).
+function timesteps({ pumamod, kits }: GcmTimestepRequest): GcmTimesteps {
+	return {
+		deltsec: pumamod.day_24hr / pumamod.mtspd / 2 ** kits,
+		delt: PUMAMOD.TWOPI / pumamod.ntspd / 2 ** kits,
+	}
+}
+
 // prolog's set-up from the page's namelist text: pumamod, each physics
-// module's *ini, and master's main-loop timestep.
+// module's *ini, and master's timestep for the main loop or a start-up
+// step. Start-up steps skip the leapfrog filter and icestep.
 function constants(request: GcmSetupConstantsRequest): GcmSetup {
 	const namelist = PUMAMOD.read(request)
 	// prolog: psurf is the sea-level pressure until the orography lowers it.
@@ -69,10 +83,10 @@ function constants(request: GcmSetupConstantsRequest): GcmSetup {
 		als,
 		psurf,
 	} = pumamod
-	const deltsec = pumamod.day_24hr / pumamod.mtspd
+	const { deltsec, delt } = timesteps({ pumamod, kits: request.kits })
 	const deltsec2 = deltsec + deltsec
-	const delt = PUMAMOD.TWOPI / pumamod.ntspd
 	const delt2 = delt + delt
+	const coupled = request.kits === 0
 	const dtmix = pumamod.solar_day / pumamod.ntspd
 	return {
 		pumamod,
@@ -94,7 +108,7 @@ function constants(request: GcmSetupConstantsRequest): GcmSetup {
 				deltsec2,
 				pnu: pumamod.pnu,
 				pnu21: pumamod.pnu21,
-				filter: true,
+				filter: coupled,
 			},
 			fixer: { delt2, psurf },
 			surfaceFlux: {
@@ -277,6 +291,7 @@ function constants(request: GcmSetupConstantsRequest): GcmSetup {
 					DICEALBMN1: sea.dicealbmn[0],
 					DICEALBMN2: sea.dicealbmn[1],
 				},
+				seaCoupled: coupled,
 			},
 			carbon: {
 				NCARBON: carbon.ncarbon,
@@ -360,6 +375,33 @@ function dynamics(request: GcmSetupRequest): GcmDynamicsSetup {
 	})
 }
 
+// DYNAMICS.TABLES for a step: initpm's and initsi's, makebm's bm1 for its
+// timestep, and the state's orography and restoration fields.
+function dynamicsTables({
+	request,
+	kits,
+	state: initial,
+}: GcmDynamicsTablesSetup): Record<string, Float64Array> {
+	const setup = dynamics(request)
+	const { delt } = timesteps({ pumamod: PUMAMOD.read(request), kits })
+	const grid = GCM_GRID.forLatitudes(PUMAMOD.latitudes(request.truncation))
+	const tables = DYNAMICS_SETUP.tables({
+		setup,
+		bm1: DYNAMICS_SETUP.makebm({ setup, truncation: request.truncation, delt }),
+		rcsq: DYNAMICS_SETUP.latitudeFactors({ grid }),
+	})
+	return {
+		...Object.fromEntries(
+			Object.entries(tables).map(([name, values]) => [
+				name,
+				Float64Array.from(values),
+			]),
+		),
+		sop: initial.so,
+		srp: initial.fields.sr,
+	}
+}
+
 // prolog's fresh-start state: initfd's spectral fields and setzt's
 // restoration field, then surfini's surface and orography. With nspinit,
 // ln(ps) starts from the orography instead of the noise.
@@ -384,5 +426,6 @@ export const SETUP = {
 	pumamod: PUMAMOD.read,
 	constants,
 	dynamics,
+	dynamicsTables,
 	state,
 }

@@ -25,27 +25,39 @@ fn at(field: u32, l: u32, h: u32) -> u32 {
 
 // The end of icestep and seastep: ice_finish (with oceanstep), then the sea
 // surface's state from the ice model, saturation humidity, Charnock
-// roughness and the albedo of water and ice.
+// roughness and the albedo of water and ice. During the nkits start-up
+// steps icestep does not run: seastep only sums the heat flux and snowfall
+// for the first main step and counts the steps.
+override ICE_COUPLED: bool;
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) id: vec3u) {
 	let h = id.x;
 	if (h >= THREADS) {
 		return;
 	}
-	ice_finish(h);
+	if (ICE_COUPLED) {
+		ice_finish(h);
+	} else {
+		state[SEA_NACCUA + h] = state[SEA_NACCUA + h] + 1.0;
+	}
 	if (!(state[DLS + h] < 0.5)) {
 		return;
 	}
 	let dts = state[XTS + h];
 	let dicec = state[XICEC + h];
-	state[SEA_DSST + h] = state[XSST + h];
-	state[SEA_DTS + h] = dts;
-	state[DMLD + h] = state[XMLD + h];
-	state[DICEC + h] = dicec;
-	state[DICED + h] = state[XICED + h];
-	state[DSNOW + h] = state[XSNOW + h];
-	state[DSMELT + h] = state[XSMELT + h];
-	state[DSNDCH + h] = state[XSNDCH + h];
+	if (ICE_COUPLED) {
+		state[SEA_DSST + h] = state[XSST + h];
+		state[SEA_DTS + h] = dts;
+		state[DMLD + h] = state[XMLD + h];
+		state[DICEC + h] = dicec;
+		state[DICED + h] = state[XICED + h];
+		state[DSNOW + h] = state[XSNOW + h];
+		state[DSMELT + h] = state[XSMELT + h];
+		state[DSNDCH + h] = state[XSNDCH + h];
+	} else {
+		state[SEA_CHEATA + h] = state[DSHFL + h] + state[at(DSWFL, NLEV, h)] + state[at(DLWFL, NLEV, h)] + state[DLHFL + h] + state[SEA_CHEATA + h];
+		state[SEA_CPRSA + h] = state[DPRS + h] + state[SEA_CPRSA + h];
+	}
 	let dp = state[DP + h];
 	state[at(DT, NLEV, h)] = dts;
 	var dqs = precise_divide(RDBRV * RA1 * precise_exp(precise_divide(RA2 * (dts - TMELT), dts - RA4)), dp);

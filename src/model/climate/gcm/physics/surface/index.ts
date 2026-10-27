@@ -53,18 +53,36 @@ function step({ now, next }: GcmSurfaceStepRequest): Float64Array {
 
 // surfmod's surfstep with naqua = 0 and sea points present: landstep
 // (soil, river routing, surface with vegstep and glacier albedo),
-// glacierstep, then seastep with icestep and oceanstep every step.
+// glacierstep, then seastep with icestep and oceanstep every main-loop
+// step; the nkits start-up steps skip icestep (seaCoupled false).
 // Kernels with Fortran's atan, exp, log or pow get GPU_MATH's versions.
-function kernels({
+async function kernels({
 	context,
 	constants,
 }: GcmSurfaceRequest): Promise<GcmKernel[]> {
 	const { latitudes, longitudes } = context.state.dimensions
 	const THREADS = latitudes * longitudes
-	const { soil, land, vegetation, ice, ocean, sea } = constants
+	const { soil, land, vegetation, ice, ocean, sea, seaCoupled } = constants
 	// simba recomputes these every step from its namelist values.
 	const { CVEG_D, ...growth } = vegetation
 	const { THICEC, ...iceGrowth } = ice
+	const coupling = seaCoupled
+		? [
+				KERNEL.pipeline({
+					context,
+					label: "sea ice",
+					code: SEA_ICE.CODE,
+					constants: { THREADS, ...iceGrowth },
+				}),
+				REDUCTION.sum({
+					context,
+					label: "getiflx sums",
+					first: "ice_part1",
+					second: "ice_part2",
+					target: "ice_sums",
+				}),
+			]
+		: []
 	return Promise.all([
 		KERNEL.pipeline({
 			context,
@@ -96,19 +114,7 @@ function kernels({
 				NGLACIER: constants.nglacier ? 1 : 0,
 			},
 		}),
-		KERNEL.pipeline({
-			context,
-			label: "sea ice",
-			code: SEA_ICE.CODE,
-			constants: { THREADS, ...iceGrowth },
-		}),
-		REDUCTION.sum({
-			context,
-			label: "getiflx sums",
-			first: "ice_part1",
-			second: "ice_part2",
-			target: "ice_sums",
-		}),
+		...coupling,
 		KERNEL.pipeline({
 			context,
 			label: "sea",
@@ -128,6 +134,7 @@ function kernels({
 				CPS: ocean.CPS,
 				DOCEANALB1: land.DOCEANALB1,
 				DOCEANALB2: land.DOCEANALB2,
+				ICE_COUPLED: seaCoupled ? 1 : 0,
 			},
 		}),
 	])

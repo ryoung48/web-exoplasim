@@ -18,15 +18,18 @@ export const ALIASES = {
 	...Object.fromEntries(["dcveg", "dcsoil", "dlai", "dvsoil", "dagg", "dgrow", "dsc", "dmr"].map((name) => [name, `vegmod.${name}`])),
 	...Object.fromEntries(["xts", "xsst", "xmld", "xls", "xiced", "xicec", "xsnow", "xqmelt", "xicecc", "xcflux", "xcfluxf", "xoheat", "xoflux", "xgw", "xclsst2", "xclicec2", "xcliced2", "xclssto", "xclsst", "xclicec", "xcliced"].map((name) => [name, `icemod.${name}`])),
 	...Object.fromEntries(["ysst", "ymld", "yls", "yfldo", "yclsst2", "yclsst"].map((name) => [name, `oceanmod.${name}`])),
-	...Object.fromEntries(["dts", "dqs", "dsst"].map((name) => [`sea_${name}`, `seamod.${name}`])),
+	...Object.fromEntries(["dts", "dqs", "dsst", "cheata", "cprsa", "naccua"].map((name) => [`sea_${name}`, `seamod.${name}`])),
 	...Object.fromEntries(["localprecip", "localavgprecip", "localweathering", "localavgweather", "localavgtemps"].map((name) => [name, `carbonmod.${name}`])),
 }
 // Fields Fortran stores as (bands, NHOR); the GPU keeps each band contiguous.
 const BANDS = { dsalb: 2 }
+// Fortran scalars the GPU keeps per point.
+const PER_POINT = new Set(["sea_naccua"])
 
 // A state field's values from a dump, in the GPU's layout.
 export function dumped(dump, name) {
 	const values = dump[ALIASES[name] ?? name]
+	if (values && PER_POINT.has(name)) return new Array(dump.dls.length).fill(values[0])
 	const bands = BANDS[name]
 	if (!values || !bands) return values
 	const points = values.length / bands
@@ -110,6 +113,7 @@ export function stepperConstants(dump) {
 				...upper({ module: "vegmod", names: ["vws_crit", "q10", "zlaimax", "zlaimin", "valb_min", "valb_max", "vsalb_min", "vwmax_max", "vwmax_min", "vz0_min", "cveg_a", "cveg_c", "cveg_d", "cveg_f", "cveg_k", "cveg_l", "ct_crit", "co2_ref", "co2_comp", "co2_sens", "ncveg"] }),
 			},
 			nglacier: scalar("glaciermod.nglacier") > 0,
+			seaCoupled: scalar("nkits") === 0,
 			ice: { ...upper({ module: "icemod", names: ["xdt", "xmind", "xmaxd", "cicemin", "thicec"] }), TFREEZE: scalar("icemod.TFREEZE"), TMELT: scalar("icemod.TMELT"), CRHOI: scalar("icemod.CRHOI"), CRHOS: scalar("icemod.CRHOS"), CRHOSN: scalar("icemod.CRHOSN"), CPI: scalar("icemod.CPI"), CKAPI: scalar("icemod.CKAPI"), CKAPSN: scalar("icemod.CKAPSN"), CLFI: scalar("icemod.CLFI"), CLFSN: scalar("icemod.CLFSN") },
 			ocean: { DTMIX: scalar("oceanmod.dtmix"), CPS: scalar("oceanmod.CPS") },
 			sea: {

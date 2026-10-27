@@ -614,3 +614,39 @@ The T21 48-step failures are fields with O(0.1–1) relative error in both runs 
 - `GCM_GRID` now ports `inigau` itself (Newton steps on the trigonometric series of the normalised Legendre polynomial). The earlier Newton recurrence put the T42 Gaussian weights 3 × 10⁻¹² away from Fortran's, which showed in `so`.
 
 `scripts/exoplasim-webgpu/verify-initial-state.mjs` (about 20 s) compares all 78 fields with the first start-up step's `kits3-a0` dump at T21 and T42. All match to within 10⁻¹³ of each field's largest value. Everything except the T42 Gaussian weights (`darea`, `xgw`) matches to 10⁻¹⁴; those weights differ by 2 × 10⁻¹⁴ (`cos`/`acos` last bits).
+
+#### Start-up steps and the fresh-start trajectory
+
+master runs `nkits` = 3 start-up steps before the main loop, each with the timestep halved once per remaining step (`delt`, `deltsec`) and its own `makebm`. `nstep` stays at the start step through all of them. Two other things differ:
+- `spectrala` and `spectrald` skip the leapfrog filter (`dynamics.filter`).
+- `seastep` sums the fluxes but skips `icestep`, so ice and the slab ocean stand still. The first main step's `icestep` then takes the four steps' mean.
+
+The GPU covers this as follows:
+- `SETUP.constants({ kits })` gives each start-up step's constants. `SETUP.dynamicsTables({ kits, state })` gives its `DYNAMICS.TABLES`, with `bm1` for that timestep and `sop`/`srp` from `SETUP.state`.
+- `SURFACE`'s `seaCoupled: false` drops the ice kernel and `getiflx`'s sums. The sea kernel (`ICE_COUPLED`) then adds the heat flux and snowfall to `sea_cheata`/`sea_cprsa` and counts steps in `sea_naccua`; those are the only fluxes the ice kernel reads.
+- The ice kernel divides by the count plus one and resets the sums. In the main loop that divisor is 1 and the sums are 0, so main-loop results are unchanged: V4 reproduces its recorded ratios exactly.
+
+`scripts/exoplasim-webgpu/verify-startup.mjs` runs a whole fresh start on the GPU from `SETUP` alone: the page's namelists and `.sra` files, with no dump. It runs the three start-up steps and then 32 main steps (about 1 minute for both resolutions). The reference comes from `stats/exoplasim-reference/probe-startup.sh`, where the f32 build replays only the f64 state after prolog (`kits3-a0`). V4's gate applies after each start-up step and after 2 and 32 main steps. Results (2026-10-27):
+
+| Point | T21 | T42 |
+|---|---|---|
+| After each start-up step (`kits3/2/1-a4`) | pass | pass |
+| 2 main steps | pass | pass |
+| 32 main steps | pass | fail: `dcveg` 159, `dcsoil` 105, `dwatc` 8.4, `dsoilt` 4.9, `stm` 2.5, `sqm` 2.2, `localavgweather` 2.2 |
+
+Dense T42 dumps (every 2 steps, `probe-startup-dense.sh`; traced with `stats/startup-trace.mjs`) show the T42 failure building up:
+- **Steps 4–10:** `dcveg`/`dcsoil` at 2.1–2.4×. About 75% of the error is one vegetation column (h5166), and without it they pass at 1.4–1.9×.
+- **Steps 12–16:** `dprl`/`dprc` at 2.5–3.1×, half of it one column, 1.7–2.7× without it.
+- **Steps 8 and 18:** `sqm` at 3.8× and 3.2×, with no dominant column; `sq` passes at those steps.
+- **Up to step 16:** the atmosphere tracks f64 better than the f32 build (`st` 0.24×).
+- **Step 20:** the GPU forms a cloud at level 9 of column h5352 (cover 0.25) where both Fortran builds have none, and its lowest-level cover is 0.25 against 0.47. Two steps earlier that column was within a few times f32's error. Surface shortwave there jumps by 250 W/m²; other columns follow, and from step 22 the atmosphere's error grows to 1.2–2.7× f32's.
+
+This is the same pattern as V4's accepted failures: a marginal threshold tips the other way on the GPU, then grows.
+
+The `sqm` failures at steps 8 and 18 look grid-wide only because `sqm` is spectral; in grid space they are one column:
+- **Where:** at step 7, 99% of the GPU's lowest-level `dq` error is at h7010. There the GPU has 5.5 × 10⁻⁵ against f64's 3.1 × 10⁻⁹. One grid-point spike spreads over every spectral coefficient, and `sqm` (the filtered step-7 humidity) carries it into step 8. Step 17 shows the same column again.
+- **Cause:** `miscmod`'s `fixer`. `fix0d` repairs a column from its own moisture only when its positive humidity covers the negative (`zpos ≥ zneg`), scaling the column by `(zpos − zneg)/zpos`. Otherwise the latitude or global fix scales it by almost exactly 1. The result jumps across `zpos = zneg`.
+- **The margin:** after the step-6 transform, Fortran's column had `zpos/zneg − 1` = +5.6 × 10⁻⁵, so its lowest level fell to 3.1 × 10⁻⁹. The GPU's had −1.4 × 10⁻⁴, so the level kept its moisture. The level-8 humidity behind the difference (−2.42218 vs −2.42178 × 10⁻⁵) differs by 4 × 10⁻⁹, about 1/40 of the f32 build's own RMS error at that level.
+- **Not a GPU error:** replaying every routine of step 6 from the f64 state (`stats/exoplasim-reference/probe-fresh.sh`, then `verify-dynamics.mjs` with `CASES`) shows the GPU fixer treating this column exactly as Fortran does. All routines pass the RMS gate; the fixer's `gqdt` and surface flux's `dtaux` fail only the points-off count, at f32 noise level.
+
+So `sqm` is another threshold case: a discontinuity in Fortran's algorithm, crossed by f32-level differences. `stats/kernel-walk.mjs` (one kernel at a time through a chosen step) and `stats/column-dumps.mjs` (one column at every probe point) did this trace.

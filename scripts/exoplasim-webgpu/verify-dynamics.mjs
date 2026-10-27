@@ -9,8 +9,9 @@ const probeRoot = path.resolve(process.argv[2] ?? "stats/exoplasim-reference/pro
 const output = path.resolve("stats/exoplasim-webgpu/kernels")
 await fs.mkdir(output, { recursive: true })
 // Main-loop steps, then the three nkits start-up steps (delt halved per
-// remaining step, bm1 rebuilt by makebm, no leapfrog filter).
-const CASES = [
+// remaining step, bm1 rebuilt by makebm, no leapfrog filter). CASES (JSON)
+// replaces them, e.g. for another probe root's state dumps.
+const CASES = process.env.CASES ? JSON.parse(process.env.CASES) : [
 	{ truncation: 21, steps: [100, 2000], dumps: "state", f32: "replay-f32", f64: "replay-f64", physics: true },
 	{ truncation: 42, steps: [100, 500], dumps: "state", f32: "replay-f32", f64: "replay-f64", physics: true },
 	{ truncation: 21, steps: ["kits3", "kits2", "kits1"], dumps: "kits", f32: "kits-replay-f32", f64: "kits-replay-f64", physics: false },

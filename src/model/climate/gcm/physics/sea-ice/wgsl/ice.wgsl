@@ -26,9 +26,9 @@ fn climatology(field: u32, h: u32, offset: u32) -> f32 {
 	return (1.0 - weight) * a + weight * b;
 }
 
-// seastep's coupling (ncpl_atmos_ice = 1, so each step's fluxes pass
-// straight through; of the forcing, the slab ocean reads only the heat
-// flux) and icestep up to getiflx's global sums: iceget,
+// seastep's coupling (ncpl_atmos_ice = 1: this step's fluxes plus any the
+// start-up steps summed, over their count; of the forcing, the slab ocean
+// reads only the heat flux) and icestep up to getiflx's global sums: iceget,
 // snowfall, skintemp, mkcflux, subsnow, mkice, mkicec (nice = 1, nfluko =
 // 0), the xmaxd thickness cap. Fortran runs icestep on every point, land
 // included, with zero fluxes there; so does this.
@@ -42,9 +42,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 	var xheat = 0.0;
 	var xprs = 0.0;
 	if (sea) {
-		xheat = state[DSHFL + h] + state[at(DSWFL, NLEV, h)] + state[at(DLWFL, NLEV, h)] + state[DLHFL + h];
-		xprs = state[DPRS + h];
+		let naccua = state[SEA_NACCUA + h] + 1.0;
+		xheat = (state[DSHFL + h] + state[at(DSWFL, NLEV, h)] + state[at(DLWFL, NLEV, h)] + state[DLHFL + h] + state[SEA_CHEATA + h]) / naccua;
+		xprs = (state[DPRS + h] + state[SEA_CPRSA + h]) / naccua;
 	}
+	state[SEA_CHEATA + h] = 0.0;
+	state[SEA_CPRSA + h] = 0.0;
+	state[SEA_NACCUA + h] = 0.0;
 	let zrhoilfdt = CRHOI * CLFI / XDT;
 
 	// iceget

@@ -25,9 +25,27 @@ export interface GcmSetupRequest {
 }
 
 // The namelists plus so(1), the initial orography's mean spectral
-// coefficient, which prolog uses to lower psurf to the mean surface pressure.
+// coefficient, which prolog uses to lower psurf to the mean surface
+// pressure, and the start-up steps still to run (0 in the main loop).
 export interface GcmSetupConstantsRequest extends GcmSetupRequest {
 	meanOrography: number
+	kits: number
+}
+
+export interface GcmTimestepRequest {
+	pumamod: GcmPumamod
+	kits: number
+}
+
+export interface GcmTimesteps {
+	deltsec: number
+	delt: number
+}
+
+export interface GcmDynamicsTablesSetup {
+	request: GcmSetupRequest
+	kits: number
+	state: GcmInitialState
 }
 
 // The namelists plus system_clock's count, which seeds the initial noise

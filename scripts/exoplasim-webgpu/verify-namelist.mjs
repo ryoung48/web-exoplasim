@@ -58,7 +58,7 @@ try {
 				rows.push(`${name}: ${values.join(",")} vs ${Array.from(reference).join(",")} (${worst.toExponential(1)})`)
 			} else spectrumWorst = Math.max(spectrumWorst, worst)
 		}
-		const setup = SETUP.constants({ truncation, levels: 10, namelists, meanOrography: SETUP.state({ truncation, levels: 10, namelists, clock: 0 }).so[0] })
+		const setup = SETUP.constants({ truncation, levels: 10, namelists, meanOrography: SETUP.state({ truncation, levels: 10, namelists, clock: 0 }).so[0], kits: 0 })
 		const constantRows = []
 		compareLeaves({ ported: setup.stepper, reference: stepperConstants(later), at: "stepper", rows: constantRows })
 		compareLeaves({ ported: setup.calendar, reference: stepCalendar(later).calendar, at: "calendar", rows: constantRows })
