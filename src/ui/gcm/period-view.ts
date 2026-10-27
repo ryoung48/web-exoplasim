@@ -1,7 +1,7 @@
 import { GCM_AVERAGES } from "@/model/climate/gcm/averages"
 import type { GcmDate } from "@/model/climate/gcm/types"
 import type {
-	GcmKoppenEntry,
+	GcmClimateEntry,
 	GcmPeriodRequest,
 	GcmPeriodView,
 } from "@/ui/gcm/types"
@@ -55,7 +55,7 @@ function select({
 	}
 }
 
-function koppenEntries(classes: Uint8Array): GcmKoppenEntry[] {
+function climateEntries(classes: Uint8Array): GcmClimateEntry[] {
 	const counts = new Map<number, number>()
 	for (const classId of classes) {
 		if (classId !== OCEAN_CLASS)
@@ -69,5 +69,5 @@ function koppenEntries(classes: Uint8Array): GcmKoppenEntry[] {
 export const GCM_PERIOD_VIEW = {
 	monthName,
 	select,
-	koppenEntries,
+	climateEntries,
 }

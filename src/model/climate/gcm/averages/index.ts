@@ -1,4 +1,3 @@
-import { KOPPEN } from "@/model/climate/classification/koppen"
 import type {
 	GcmAverager,
 	GcmAveragerSample,
@@ -12,9 +11,7 @@ import { GCM_GRID } from "@/model/climate/gcm/grid"
 import type { GcmSnapshot } from "@/model/climate/gcm/types"
 
 const MONTHS_PER_YEAR = 12
-// PlaSim's calendar has twelve 30-day months, so monthly means weigh equally.
-const DAYS_PER_MONTH = 30
-const LAND_FRACTION_THRESHOLD = 0.5
+// PlaSim divides its calendar into twelve equally weighted sampling months.
 
 function create(): GcmAverager {
 	return { current: null, months: [], years: [] }
@@ -46,6 +43,13 @@ function close(accumulator: GcmMonthAccumulator): GcmMonthlyMean {
 	for (let index = 0; index < values.length; index++) {
 		values[index] = accumulator.sum[index] / accumulator.samples
 	}
+	const snapshot = { ...accumulator.last, values }
+	GCM_FIELDS.field({ snapshot, field: "airTemperatureMin" }).set(
+		accumulator.minimum,
+	)
+	GCM_FIELDS.field({ snapshot, field: "airTemperatureMax" }).set(
+		accumulator.maximum,
+	)
 	return {
 		year: accumulator.year,
 		month: accumulator.month,
@@ -66,6 +70,12 @@ function close(accumulator: GcmMonthAccumulator): GcmMonthlyMean {
 
 function open(snapshot: GcmSnapshot): GcmMonthAccumulator {
 	return {
+		minimum: new Float32Array(
+			GCM_FIELDS.field({ snapshot, field: "airTemperatureMin" }),
+		),
+		maximum: new Float32Array(
+			GCM_FIELDS.field({ snapshot, field: "airTemperatureMax" }),
+		),
 		year: snapshot.date.year,
 		month: snapshot.date.month,
 		sum: new Float64Array(snapshot.values),
@@ -82,6 +92,12 @@ function add({ averager, snapshot }: GcmAveragerSample): boolean {
 		current.month === snapshot.date.month &&
 		current.year === snapshot.date.year
 	) {
+		const minimum = GCM_FIELDS.field({ snapshot, field: "airTemperatureMin" })
+		const maximum = GCM_FIELDS.field({ snapshot, field: "airTemperatureMax" })
+		for (let point = 0; point < minimum.length; point++) {
+			current.minimum[point] = Math.min(current.minimum[point], minimum[point])
+			current.maximum[point] = Math.max(current.maximum[point], maximum[point])
+		}
 		for (let index = 0; index < current.sum.length; index++) {
 			current.sum[index] += snapshot.values[index]
 		}
@@ -107,51 +123,28 @@ function annual(averager: GcmAverager): GcmSnapshot | null {
 			values[index] += month.snapshot.values[index] / MONTHS_PER_YEAR
 		}
 	}
-	return {
+	const snapshot: GcmSnapshot = {
 		layers: last.snapshot.layers,
 		step: last.snapshot.step,
 		date: last.snapshot.date,
 		values,
 	}
-}
-
-// Classifies the last 12 completed months with the repository's Köppen
-// rules, from 2 m air temperature and precipitation totals.
-function koppen(averager: GcmAverager): Uint8Array | null {
-	if (averager.months.length < MONTHS_PER_YEAR) return null
-	const ordered = averager.months.toSorted((a, b) => a.month - b.month)
-	const reference = ordered[0].snapshot
-	const points = GCM_FIELDS.grid(reference).points
-	const landFraction = GCM_FIELDS.field({
-		snapshot: reference,
-		field: "landFraction",
+	const range = GCM_FIELDS.field({
+		snapshot,
+		field: "dailyTemperatureRangeSum",
 	})
-	const isLand = Uint8Array.from(landFraction, (fraction) =>
-		fraction >= LAND_FRACTION_THRESHOLD ? 1 : 0,
-	)
-	const temperatureMonthly = new Float32Array(MONTHS_PER_YEAR * points)
-	const rainfallMonthly = new Float32Array(MONTHS_PER_YEAR * points)
-	ordered.forEach(({ snapshot }, month) => {
-		temperatureMonthly.set(
-			GCM_FIELDS.values({ snapshot, mode: "airTemperature" }),
-			month * points,
-		)
-		const rain = GCM_FIELDS.values({ snapshot, mode: "precipitation" })
-		rainfallMonthly.set(
-			rain.map((millimetersPerDay) => millimetersPerDay * DAYS_PER_MONTH),
-			month * points,
-		)
-	})
-	const classes = new Uint8Array(points)
-	KOPPEN.koppenCells({
-		start: 0,
-		end: points,
-		isLand,
-		temperatureMonthly,
-		rainfallMonthly,
-		classes,
-	})
-	return classes
+	range.fill(0)
+	for (const month of averager.months) {
+		const daily = GCM_FIELDS.values({
+			snapshot: month.snapshot,
+			mode: "diurnalTemperatureRange",
+		})
+		for (let point = 0; point < range.length; point++)
+			range[point] += daily[point] / MONTHS_PER_YEAR
+	}
+	GCM_FIELDS.field({ snapshot, field: "dailyTemperatureRangeDays" }).fill(1)
+	GCM_FIELDS.field({ snapshot, field: "diurnalTemperatureRange" }).set(range)
+	return snapshot
 }
 
 export const GCM_AVERAGES = {
@@ -159,5 +152,4 @@ export const GCM_AVERAGES = {
 	create,
 	add,
 	annual,
-	koppen,
 }

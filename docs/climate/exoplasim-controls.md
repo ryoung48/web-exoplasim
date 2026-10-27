@@ -68,7 +68,7 @@ Albedo and soil overrides reuse the same settings component, `src/ui/gcm/GcmOver
 
 ## Map fields
 
-The snapshot hook publishes 35 non-layer fields plus five fields per atmospheric layer: 85 fields at 10 layers or 60 at 5. These include the original 18; evaporation, runoff, forest cover and leaf area index; snowfall, snowmelt, sea-ice thickness and glacier cover; sea-level pressure; four surface energy components; convective and large-scale precipitation; net TOA shortwave and longwave; then temperature, eastward wind, northward wind, relative humidity and cloud cover at each actual model layer. The snapshot order is defined by `scripts/exoplasim-wasm/gcm_publish.f90` and `src/model/climate/gcm/fields/index.ts`. Workers reject a mismatched field count, rather than silently interpreting an older model's arrays.
+The snapshot hook publishes 40 non-layer fields plus five fields per atmospheric layer: 90 fields at 10 layers or 65 at 5. These include the original 18; evaporation, runoff, forest cover and leaf area index; snowfall, snowmelt, sea-ice thickness and glacier cover; sea-level pressure; four surface energy components; convective and large-scale precipitation; net TOA shortwave and longwave; then temperature, eastward wind, northward wind, relative humidity and cloud cover at each actual model layer. The snapshot order is defined by `scripts/exoplasim-wasm/gcm_publish.f90` and `src/model/climate/gcm/fields/index.ts`. Workers reject a mismatched field count, rather than silently interpreting an older model's arrays.
 
 | Map | Definition and units | Color range |
 | --- | --- | --- |
@@ -87,6 +87,7 @@ The snapshot hook publishes 35 non-layer fields plus five fields per atmospheric
 | Runoff | `drunoff`, converted to mm per 24-hour day | 0–15 |
 | Forest cover | Surface forest fraction `dforest`, % | 0–100 |
 | Leaf area | SimBA leaf area index `dlai`, dimensionless | 0–10 |
+| DTR | Daily maximum minus minimum 2 m air temperature, °C difference | 0–30 |
 | Atmospheric temperature | Air temperature on the selected model layer, °C | −90 to +40 |
 | Atmospheric wind | Magnitude of the selected layer's vector wind, m/s, with arrows | 0–60 |
 | Atmospheric humidity | Relative humidity on the selected model layer, % | 0–100 |
@@ -105,6 +106,8 @@ These are fixed display ranges chosen for legible terrestrial-climate maps. Humi
 
 Relative humidity reuses `pumamod`'s thermodynamic constants and the saturation relation used by `rainmod.f90`'s `mkclouds`, evaluated at the snapshot's temperature and pressure. It is computed at publication time. This is lowest-layer humidity, not a reconstructed 2 m humidity diagnostic. The previous “surface wind” label now says “lowest layer” for the same reason. The precipitation map remains the sum of convective and large-scale precipitation, and is labeled precipitation rather than rain.
 
+Temperature also includes DTR. The hook tracks actual 2 m air temperature at every timestep and forms a range over each complete native rotation day (`ntspd` timesteps), independently of the 360-day display calendar. With the default rotation this is approximately a 24-hour day; changing rotation changes this diagnostic window. Publication carries the latest daily range plus the sum and count of days completed since the previous publication. Now uses their mean when any days completed and otherwise holds the last completed value. Monthly values divide accumulated daily ranges by their completed-day count; annual values average the twelve monthly DTR means. Daily completions are assigned to the month of their publication, following the existing snapshot-based monthly accumulation. This avoids treating seasonal changes as a daily range. Before the first complete day the diagnostic is zero. Native daily buffers restart on load, so a partial first day is excluded; saved completed-month values remain available. Downscaling interpolates the range without a lapse offset, since a common offset cancels in maximum minus minimum. The sequential 0–30 °C palette emphasizes terrestrial ranges while hover preserves larger values. Imperial readouts multiply differences by 9/5 without adding 32.
+
 Temperature, Wind, Moisture and Clouds each include an Atmosphere view with a layer selector. Layer 1 is highest; layer 5 or 10 is lowest according to the selected count. These are terrain-following sigma layers, not constant altitudes or fixed pressure surfaces. Their physical pressure depends on local surface pressure. The jet map retains the existing layer nearest sigma 0.25.
 
 Forest cover is the surface fraction used by the model: coupled vegetation updates it; diagnostic vegetation leaves the surface fraction prescribed while computing leaf area and other vegetation diagnostics. Vegetation disabled produces zero diagnostic leaf area. These maps are vegetation diagnostics, not biome classifications.
@@ -117,9 +120,14 @@ The pinned version's output catalogue names 10 m wind components (165/166), but 
 
 All new maps support live, monthly and annual views, hover, and interpolated display grids. Monthly humidity is the mean of published relative humidities, rather than humidity recomputed from averaged temperature. Wind averages use averaged components, so their speed is the magnitude of the mean vector.
 
+
+## Climate classifications
+
+Climate groups Köppen and Pasta child modes. Both classify the last 12 completed months and support model-grid/downscaled maps, legends and hover names. See [Pasta climate maps and logic audit](pasta.md) for input equations, exact palette provenance, verification, and remaining differences from the article.
+
 ## Save format and verification
 
-Checkpoint format 10 stores the expanded snapshots and the new settings, along with terrain, unfinished monthly accumulation, completed monthly means and the Fortran restart. Older formats, including format 9's flat atmosphere settings, are rejected because their configuration or field layout differs. Loading remains paused until Resume.
+Checkpoint format 12 stores the expanded snapshots, interval/monthly temperature extrema and the new settings, along with terrain, unfinished monthly accumulation, completed monthly means and the Fortran restart. Older formats, including format 9's flat atmosphere settings, are rejected because their configuration or field layout differs. Loading remains paused until Resume.
 
 Rebuild all variants without `--link-only` after changing the hook:
 

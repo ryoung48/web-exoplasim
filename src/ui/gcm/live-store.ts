@@ -1,13 +1,19 @@
 import { useSyncExternalStore } from "react"
 import { GCM_AVERAGES } from "@/model/climate/gcm/averages"
-import type { GcmAverager } from "@/model/climate/gcm/averages/types"
-import type { GcmAverageState, GcmLiveData, GcmLiveStore } from "@/ui/gcm/types"
+import { GCM_CLASSIFICATION } from "@/model/climate/gcm/classification"
+import type {
+	GcmAverageState,
+	GcmAveragesRequest,
+	GcmLiveData,
+	GcmLiveStore,
+} from "@/ui/gcm/types"
 
 const NO_AVERAGES: GcmAverageState = {
 	months: [],
 	years: [],
 	annual: null,
 	koppen: null,
+	pasta: null,
 }
 // Background tabs throttle animation frames; this caps how far the view
 // can fall behind there.
@@ -51,12 +57,23 @@ function useLive(store: GcmLiveStore): GcmLiveData {
 	return useSyncExternalStore(store.subscribe, store.get)
 }
 
-function averages(averager: GcmAverager): GcmAverageState {
+function averages({ averager, config }: GcmAveragesRequest): GcmAverageState {
 	return {
 		months: averager.months,
 		years: averager.years,
 		annual: GCM_AVERAGES.annual(averager),
-		koppen: GCM_AVERAGES.koppen(averager),
+		pasta: GCM_CLASSIFICATION.classes({
+			config,
+			months: averager.months,
+			downscale: null,
+			scheme: "pasta",
+		}),
+		koppen: GCM_CLASSIFICATION.classes({
+			config,
+			months: averager.months,
+			downscale: null,
+			scheme: "koppen",
+		}),
 	}
 }
 

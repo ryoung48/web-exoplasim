@@ -3,9 +3,13 @@ import type {
 	GcmAtmosphereMode,
 	GcmGas,
 } from "@/model/climate/gcm/atmosphere/types"
-import type { GcmMonthlyMean } from "@/model/climate/gcm/averages/types"
+import type {
+	GcmAverager,
+	GcmMonthlyMean,
+} from "@/model/climate/gcm/averages/types"
 import type { GcmYearlyBalance } from "@/model/climate/gcm/balance/types"
 import type { GcmCheckpointDiagnostics } from "@/model/climate/gcm/checkpoint/types"
+import type { GcmClimateScheme } from "@/model/climate/gcm/classification/types"
 import type { GcmMapMode } from "@/model/climate/gcm/fields/types"
 import type { GcmGrid } from "@/model/climate/gcm/grid/types"
 import type {
@@ -46,7 +50,7 @@ export type GcmColorScale = (value: number) => RgbColor
 
 export type GcmPeriod = "now" | "month" | "year"
 
-export type GcmViewMode = GcmMapMode | "koppen" | "elevation"
+export type GcmViewMode = GcmMapMode | GcmClimateScheme | "elevation"
 
 export interface GcmModeChild {
 	value: GcmViewMode
@@ -66,7 +70,12 @@ export type GcmMapLayer =
 			terrain: GcmTerrain
 			maxElevationM: number
 	  }
-	| { kind: "classes"; snapshot: GcmSnapshot; classes: Uint8Array }
+	| {
+			kind: "classes"
+			snapshot: GcmSnapshot
+			classes: Uint8Array
+			scheme: GcmClimateScheme
+	  }
 	| {
 			kind: "downscaled-field"
 			snapshot: GcmSnapshot
@@ -77,6 +86,7 @@ export type GcmMapLayer =
 	  }
 	| {
 			kind: "downscaled-classes"
+			scheme: GcmClimateScheme
 			width: number
 			height: number
 			classes: Uint8Array
@@ -112,6 +122,7 @@ export interface GcmFieldPaint {
 }
 
 export interface GcmClassPaint {
+	scheme: GcmClimateScheme
 	snapshot: GcmSnapshot
 	classes: Uint8Array
 }
@@ -121,6 +132,12 @@ export interface GcmAverageState {
 	years: GcmYearlyBalance[]
 	annual: GcmSnapshot | null
 	koppen: Uint8Array | null
+	pasta: Uint8Array | null
+}
+
+export interface GcmAveragesRequest {
+	averager: GcmAverager
+	config: GcmConfig
 }
 
 export interface GcmLiveData {
@@ -147,7 +164,7 @@ export interface GcmPeriodView {
 	emptyMessage: string
 }
 
-export interface GcmKoppenEntry {
+export interface GcmClimateEntry {
 	classId: number
 	cells: number
 }
@@ -314,4 +331,9 @@ export interface GcmGasChange {
 export interface GcmAtmosphereModeOption {
 	value: GcmAtmosphereMode
 	label: string
+}
+
+export interface GcmClimateLegendProps {
+	readClasses: () => Uint8Array | null
+	scheme: GcmClimateScheme
 }

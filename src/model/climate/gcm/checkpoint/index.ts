@@ -10,7 +10,7 @@ import { GCM_TERRAIN } from "@/model/climate/gcm/terrain"
 // File layout: magic, uint32 header length, JSON header, uint32 array bytes,
 // terrain and diagnostic arrays, then the unchanged plasim_status restart file.
 const MAGIC = "EXOPLASIM-CHECKPOINT\n"
-const FORMAT = 10
+const FORMAT = 12
 const HEADER_LENGTH_BYTES = 4
 
 function encode({
@@ -133,7 +133,9 @@ function decode(buffer: ArrayBuffer): GcmCheckpoint {
 				snapshot.values.length !== expectedValues,
 		) ||
 		(diagnostics.averager.current &&
-			diagnostics.averager.current.sum.length !== expectedValues)
+			(diagnostics.averager.current.sum.length !== expectedValues ||
+				diagnostics.averager.current.minimum.length !== points ||
+				diagnostics.averager.current.maximum.length !== points))
 	)
 		throw new Error(
 			"Checkpoint diagnostics do not match the saved model resolution and atmospheric layers",

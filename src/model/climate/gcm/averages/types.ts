@@ -8,6 +8,8 @@ export interface GcmMonthlyMean {
 }
 
 export interface GcmMonthAccumulator {
+	minimum: Float32Array
+	maximum: Float32Array
 	year: number
 	month: number
 	sum: Float64Array

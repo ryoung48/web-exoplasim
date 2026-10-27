@@ -1,4 +1,3 @@
-import type { GcmMonthlyMean } from "@/model/climate/gcm/averages/types"
 import type { GcmGrid } from "@/model/climate/gcm/grid/types"
 import type { GcmTerrain } from "@/model/climate/gcm/terrain/types"
 
@@ -23,11 +22,6 @@ export interface GcmDownscaleRequest {
 export interface GcmDownscaleField {
 	downscale: GcmDownscaleGrid
 	values: Float32Array
-}
-
-export interface GcmDownscaleKoppen {
-	downscale: GcmDownscaleGrid
-	months: ReadonlyArray<GcmMonthlyMean>
 }
 
 export interface GcmLapseRequest {

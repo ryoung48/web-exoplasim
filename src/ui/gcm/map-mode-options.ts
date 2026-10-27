@@ -12,6 +12,7 @@ export const GCM_MODE_GROUPS: ReadonlyArray<GcmModeGroup> = [
 		children: [
 			{ value: "surfaceTemperature", label: "Surface" },
 			{ value: "airTemperature", label: "2 m air" },
+			{ value: "diurnalTemperatureRange", label: "DTR" },
 			{ value: "layerTemperature10", label: "Atmosphere" },
 		],
 	},
@@ -103,5 +104,12 @@ export const GCM_MODE_GROUPS: ReadonlyArray<GcmModeGroup> = [
 			{ value: "leafAreaIndex", label: "Leaf area" },
 		],
 	},
-	{ label: "Köppen", defaultView: "koppen", children: [] },
+	{
+		label: "Climate",
+		defaultView: "koppen",
+		children: [
+			{ value: "koppen", label: "Köppen" },
+			{ value: "pasta", label: "Pasta" },
+		],
+	},
 ]

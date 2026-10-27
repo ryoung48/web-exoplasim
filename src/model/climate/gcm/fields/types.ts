@@ -14,6 +14,11 @@ export interface GcmAtmosphereSelection {
 }
 
 export type GcmFieldId =
+	| "diurnalTemperatureRange"
+	| "dailyTemperatureRangeSum"
+	| "dailyTemperatureRangeDays"
+	| "airTemperatureMin"
+	| "airTemperatureMax"
 	| "convectivePrecipitation"
 	| "largeScalePrecipitation"
 	| "toaShortwave"
@@ -52,6 +57,7 @@ export type GcmFieldId =
 	| "surfaceNetHeat"
 
 export type GcmMapMode =
+	| "diurnalTemperatureRange"
 	| "convectivePrecipitation"
 	| "largeScalePrecipitation"
 	| "toaShortwave"
@@ -88,6 +94,7 @@ export type GcmMapMode =
 	| "outgoingLongwave"
 
 export type GcmDisplayUnit =
+	| "celsiusDelta"
 	| "celsius"
 	| "metersPerSecond"
 	| "percent"

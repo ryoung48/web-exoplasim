@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react"
+import { GCM_CLASSIFICATION } from "@/model/climate/gcm/classification"
 import { GCM_DOWNSCALE } from "@/model/climate/gcm/downscale"
 import { GCM_FIELDS } from "@/model/climate/gcm/fields"
 import type { GcmLevel, GcmMapMode } from "@/model/climate/gcm/fields/types"
@@ -16,9 +17,9 @@ import { Tooltip } from "@/ui/components/primitives/Tooltip"
 import { uiTokens } from "@/ui/components/tokens"
 import { GCM_BALANCE_VIEW } from "@/ui/gcm/balance-view"
 import { GCM_DISPLAY } from "@/ui/gcm/field-display"
+import { GcmClimateLegend } from "@/ui/gcm/GcmClimateLegend"
 import { GcmConfigPanel } from "@/ui/gcm/GcmConfigPanel"
 import { GcmHoverReadout } from "@/ui/gcm/GcmHoverReadout"
-import { GcmKoppenLegend } from "@/ui/gcm/GcmKoppenLegend"
 import { GcmMap } from "@/ui/gcm/GcmMap"
 import type { GcmHoverPoint } from "@/ui/gcm/hover/types"
 import { GCM_LIVE } from "@/ui/gcm/live-store"
@@ -92,8 +93,11 @@ export function GcmView() {
 			group.children.some((child) => child.value === groupView),
 	)
 	const terrainView = view === "elevation"
+	const climateView = view === "koppen" || view === "pasta"
+	const scheme = view === "pasta" ? "pasta" : "koppen"
+	const climateDefinition = GCM_CLASSIFICATION.definition(scheme)
 	const mode: GcmMapMode =
-		view === "koppen" || terrainView ? "surfaceTemperature" : view
+		climateView || terrainView ? "surfaceTemperature" : view
 	const definition = GCM_FIELDS.definition(mode)
 	const terrainSummary = useMemo(
 		() => (gcm.displayTerrain ? GCM_TERRAIN.summary(gcm.displayTerrain) : null),
@@ -107,9 +111,9 @@ export function GcmView() {
 		status === "checkpointing"
 	const checkpointFile = useRef<HTMLInputElement>(null)
 	const { averages, snapshot: latest } = GCM_LIVE.useLive(gcm.live)
-	const koppen = averages.koppen
+	const climate = averages[scheme]
 	const selection = GCM_PERIOD_VIEW.select({
-		period: view === "koppen" ? "year" : period,
+		period: climateView ? "year" : period,
 		monthIndex,
 		snapshot: latest,
 		averages,
@@ -117,15 +121,17 @@ export function GcmView() {
 	const { snapshot } = selection
 	const { downscale } = gcm
 	const downscaled = detail === "downscaled" && downscale
-	const downscaledKoppen = useMemo(
+	const downscaledClimate = useMemo(
 		() =>
-			downscaled && view === "koppen"
-				? GCM_DOWNSCALE.koppen({
+			downscaled && climateView
+				? GCM_CLASSIFICATION.classes({
+						config: gcm.config,
+						scheme,
 						downscale: downscaled,
 						months: averages.months,
 					})
 				: null,
-		[downscaled, view, averages.months],
+		[downscaled, climateView, scheme, averages.months, gcm.config],
 	)
 	const layer = useMemo<GcmMapLayer | null>(() => {
 		if (terrainView)
@@ -137,16 +143,19 @@ export function GcmView() {
 					}
 				: null
 		if (!snapshot) return null
-		if (view === "koppen") {
-			if (downscaled && downscaledKoppen) {
+		if (climateView) {
+			if (downscaled && downscaledClimate) {
 				return {
 					kind: "downscaled-classes",
+					scheme,
 					width: downscaled.width,
 					height: downscaled.height,
-					classes: downscaledKoppen,
+					classes: downscaledClimate,
 				}
 			}
-			return koppen ? { kind: "classes", snapshot, classes: koppen } : null
+			return climate
+				? { kind: "classes", snapshot, classes: climate, scheme }
+				: null
 		}
 		if (!downscaled) return { kind: "field", snapshot, mode }
 		const values = GCM_FIELDS.values({ snapshot, mode })
@@ -162,18 +171,23 @@ export function GcmView() {
 		}
 	}, [
 		snapshot,
-		view,
+		climateView,
+		scheme,
 		mode,
 		terrainView,
 		gcm.displayTerrain,
-		koppen,
+		climate,
 		downscaled,
-		downscaledKoppen,
+		downscaledClimate,
 		terrainSummary?.maxM,
 	])
 	// React's development profiler traverses arrays in changed props on both
 	// entry and exit. Keep raster data behind a reader at component boundaries.
 	const readLayer = useCallback(() => layer, [layer])
+	const readClasses = useCallback(
+		() => downscaledClimate ?? climate,
+		[downscaledClimate, climate],
+	)
 	const balance = useMemo(() => GCM_BALANCE_VIEW.rows(averages), [averages])
 	const means = useMemo(
 		() =>
@@ -208,8 +222,8 @@ export function GcmView() {
 					</div>
 					<div className="relative text-right">
 						<div className={cx(uiTokens.type.value, uiTokens.text.primary)}>
-							{view === "koppen" && koppen
-								? `Köppen from the ${selection.label}`
+							{climateView && climate
+								? `${climateDefinition.label} from the ${selection.label}`
 								: terrainView
 									? "Terrain elevation"
 									: selection.label}
@@ -226,11 +240,11 @@ export function GcmView() {
 						<Button
 							key={group.defaultView}
 							selected={group === modeGroup}
-							disabled={group.defaultView === "koppen" && !koppen}
+							disabled={group.defaultView === "koppen" && !averages.koppen}
 							title={
 								group.defaultView === "koppen"
-									? koppen
-										? "Köppen classes from the last 12 model months"
+									? averages.koppen
+										? "Climate classes from the last 12 model months"
 										: "Available after 12 model months"
 									: group.label
 							}
@@ -244,10 +258,10 @@ export function GcmView() {
 					{!terrainView && (
 						<SegmentedControl
 							options={PERIOD_OPTIONS}
-							value={view === "koppen" ? "year" : period}
+							value={climateView ? "year" : period}
 							onChange={(next) => {
 								setPeriod(next)
-								if (view === "koppen") setView("surfaceTemperature")
+								if (climateView) setView("surfaceTemperature")
 							}}
 						/>
 					)}
@@ -284,7 +298,7 @@ export function GcmView() {
 							/>
 						</div>
 					)}
-					{!terrainView && period === "month" && view !== "koppen" && (
+					{!terrainView && period === "month" && !climateView && (
 						<div className="flex flex-wrap gap-1">
 							{averages.months.map((month, index) => (
 								<Button
@@ -359,8 +373,8 @@ export function GcmView() {
 							formatValue={(value) => `${Math.round(value).toLocaleString()} m`}
 						/>
 					) : null
-				) : view === "koppen" && koppen ? (
-					<GcmKoppenLegend classes={downscaledKoppen ?? koppen} />
+				) : climateView && climate ? (
+					<GcmClimateLegend readClasses={readClasses} scheme={scheme} />
 				) : (
 					<ContinuousLegend
 						min={definition.min}
@@ -502,7 +516,7 @@ export function GcmView() {
 				<section>
 					<PanelHeader
 						title={
-							period === "now" || view === "koppen"
+							period === "now" || climateView
 								? "Global means"
 								: `Global means · ${period === "month" ? "monthly" : "annual"}`
 						}

@@ -11,7 +11,7 @@ fixture = """
 module pumamod
 implicit none
 integer, parameter :: NHOR=3,NUGP=3,NLEV=10,NLEP=11,NROOT=0
-integer :: mypid=0,nstep=48,nshutdown=0,nveg=0
+integer :: mypid=0,nstep=48,nshutdown=0,nveg=0,ntspd=4
 integer :: ndatim(5)=[1,1,2,0,0]
 real :: dt(NHOR,NLEP)=280.,du(NHOR,NLEP)=0.,dv(NHOR,NLEP)=0.
 real :: dq(NHOR,NLEP)=0.,dcc(NHOR,NLEP)=0.,sigma(NLEV)
@@ -46,6 +46,7 @@ use iso_c_binding
 integer(c_int),value :: step
 gcm_should_publish=0
 if (step>=0) gcm_should_publish=1
+if (step>=50 .and. step<=55) gcm_should_publish=0
 end function
 integer(c_int) function gcm_should_stop() bind(c)
 use iso_c_binding
@@ -57,11 +58,21 @@ integer(c_int),value :: count,points,bytes,step
 integer(c_int) :: date(5)
 real(c_double) :: fields(points,count)
 integer :: point
-if (step/=48 .or. any(date<0)) stop 2
+if (step<48 .or. any(date<0)) stop 2
+if (step==48) then
 open(97,file='fields.txt',status='replace')
+else if (step==49) then
+open(97,file='reset.txt',status='replace')
+else if (step==56) then
+open(97,file='daily.txt',status='replace')
+else if (step==57) then
+open(97,file='held.txt',status='replace')
+else
+return
+endif
 write(97,*) count,points,bytes
 do point=1,points
-write(97,'(85(es25.16,1x))') fields(point,:)
+write(97,'(*(es25.16,1x))') fields(point,:)
 enddo
 close(97)
 end subroutine
@@ -86,6 +97,41 @@ dprc=[1.,2.,3.]/86400000.
 dprl=[4.,5.,6.]/86400000.
 dswfl(:,1)=[900.,800.,700.]
 dlwfl(:,1)=[-200.,-250.,-300.]
+nstep=-1
+dtsa=260.
+call gcm_publish_step
+nstep=-2
+dtsa=310.
+call gcm_publish_step
+nstep=48
+dtsa=284.
+call gcm_publish_step
+nstep=49
+dtsa=290.
+call gcm_publish_step
+nstep=50
+dtsa=280.
+call gcm_publish_step
+nstep=51
+dtsa=300.
+call gcm_publish_step
+nstep=52
+dtsa=285.
+call gcm_publish_step
+nstep=53
+dtsa=100.
+call gcm_publish_step
+nstep=54
+dtsa=110.
+call gcm_publish_step
+nstep=55
+dtsa=105.
+call gcm_publish_step
+nstep=56
+dtsa=107.
+call gcm_publish_step
+nstep=57
+dtsa=500.
 call gcm_publish_step
 end program
 """
@@ -97,10 +143,18 @@ for layers in [10, 5]:
         subprocess.run(["gfortran", "-fdefault-real-8", "-fdefault-double-8", "fixture.f90", str(hook), "-o", "weather"], cwd=work, check=True)
         subprocess.run([str(work / "weather")], cwd=work, check=True)
         lines = (work / "fields.txt").read_text().splitlines()
-        assert list(map(int, lines[0].split())) == [35 + 5 * layers, 3, 8]
+        assert list(map(int, lines[0].split())) == [40 + 5 * layers, 3, 8]
         fields = [list(map(float, line.split())) for line in lines[1:]]
+        reset = [list(map(float, line.split())) for line in (work / "reset.txt").read_text().splitlines()[1:]]
+        assert all(row[35:37] == [260, 310] for row in fields)
+        assert all(row[35:37] == [290, 290] for row in reset)
+        daily = [list(map(float, line.split())) for line in (work / "daily.txt").read_text().splitlines()[1:]]
+        held = [list(map(float, line.split())) for line in (work / "held.txt").read_text().splitlines()[1:]]
+        assert all(row[37:40] == [10, 30, 2] for row in daily)
+        assert all(row[37:40] == [10, 0, 0] for row in held)
+        assert all(row[37:40] == [0, 0, 0] for row in fields)
 
-    assert all(len(row) == 35 + 5 * layers and all(math.isfinite(value) for value in row) for row in fields)
+    assert all(len(row) == 40 + 5 * layers and all(math.isfinite(value) for value in row) for row in fields)
     pressure_errors = []
     for point, (temperature, pressure, elevation) in enumerate([
         (280, 100000, 0),
@@ -115,7 +169,7 @@ for layers in [10, 5]:
         assert error < 1, (point, error)
         pressure_errors.append(error)
         for level in range(layers):
-            assert math.isclose(fields[point][39 + 5 * level], 0.07 * (level + 1), abs_tol=1e-14)
+            assert math.isclose(fields[point][44 + 5 * level], 0.07 * (level + 1), abs_tol=1e-14)
 
     for point, expected in enumerate([(100, -50, -10, -100), (200, -70, 20, -150), (300, -90, -30, 10)]):
         assert fields[point][27:31] == list(expected)
@@ -132,7 +186,7 @@ for layers in [10, 5]:
 
     assert fields[0][26] == 100000
     assert fields[1][26] > 85000 and fields[2][26] < 101000
-    report = {"fields": 35 + 5 * layers, "layers": layers, "points": 3, "pressureErrorPaAgainstExactLapseIntegral": pressure_errors, "zeroOrographyPressureUnchanged": True, "cloudLayers": layers, "surfaceEnergyComponents": 4, "energySignsAndSum": True, "precipitationAndToaComponents": True}
+    report = {"fields": 40 + 5 * layers, "layers": layers, "points": 3, "pressureErrorPaAgainstExactLapseIntegral": pressure_errors, "zeroOrographyPressureUnchanged": True, "cloudLayers": layers, "surfaceEnergyComponents": 4, "dailyRangesAcrossUnpublishedSteps": True, "partialDayExcluded": True, "energySignsAndSum": True, "precipitationAndToaComponents": True}
     output = root / f"stats/exoplasim-model-options/weather-formulas-layers-{layers}.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2) + "\n")

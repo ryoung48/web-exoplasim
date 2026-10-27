@@ -16,6 +16,7 @@ import {
 	formatPrecipitation,
 	formatSpeed,
 	formatTemperature,
+	formatTemperatureDelta,
 	formatWithUnit,
 } from "@/ui/genesis/shared/ui-format"
 
@@ -30,6 +31,7 @@ function stops(palette: readonly RgbColor[]): GcmColorScale {
 }
 
 const NORMALIZED_SCALES: Partial<Record<GcmMapMode, GcmColorScale>> = {
+	diurnalTemperatureRange: stops(COLOR_PALETTES.ylOrRdStops),
 	relativeHumidity: stops(COLOR_PALETTES.bupuStops),
 	evaporation: stops(COLOR_PALETTES.spectralStops),
 	runoff: stops(COLOR_PALETTES.bupuStops),
@@ -114,6 +116,8 @@ function terrainColor({
 
 function format({ mode, value, unitSystem }: GcmFormattedValue): string {
 	switch (GCM_FIELDS.definition(mode).unit) {
+		case "celsiusDelta":
+			return formatTemperatureDelta(value, unitSystem)
 		case "dimensionless":
 			return formatWithUnit(value, "", 1)
 		case "celsius":

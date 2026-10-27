@@ -74,6 +74,7 @@ export function useGcmRun() {
 	const [downscale, setDownscale] = useState<GcmDownscaleGrid | null>(null)
 	const [live] = useState(GCM_LIVE.create)
 	const averager = useRef(GCM_AVERAGES.create())
+	const activeConfig = useRef(config)
 	const [earthCoastlines, setEarthCoastlines] =
 		useState<CoastlineLineData | null>(null)
 	const elevation = useRef<Promise<GcmTerrain> | null>(null)
@@ -130,7 +131,10 @@ export function useGcmRun() {
 				snapshot: next,
 				...(monthClosed
 					? {
-							averages: GCM_LIVE.averages(averager.current),
+							averages: GCM_LIVE.averages({
+								averager: averager.current,
+								config: activeConfig.current,
+							}),
 						}
 					: {}),
 			})
@@ -140,6 +144,7 @@ export function useGcmRun() {
 
 	const launch = useCallback(
 		async (request: GcmLaunchRequest) => {
+			activeConfig.current = request.config
 			const currentGeneration = ++generation.current
 			run.current?.stop()
 			run.current = null
@@ -151,7 +156,10 @@ export function useGcmRun() {
 					request.diagnostics
 						? {
 								snapshot: request.diagnostics.snapshot,
-								averages: GCM_LIVE.averages(averager.current),
+								averages: GCM_LIVE.averages({
+									averager: averager.current,
+									config: request.config,
+								}),
 							}
 						: GCM_LIVE.EMPTY,
 				)

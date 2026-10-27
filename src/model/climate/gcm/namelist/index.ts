@@ -89,7 +89,10 @@ function edits(config: GcmConfig): GcmNamelistEdits {
 	if (config.rotationPeriodDays !== 1) {
 		planet.ROTSPD = String(1 / config.rotationPeriodDays)
 		plasim.N_DAYS_PER_YEAR = String(
-			Math.max(Math.floor(360 / config.rotationPeriodDays / 12 + 0.5), 1) * 12,
+			Math.max(
+				Math.floor(config.yearDays / config.rotationPeriodDays / 12 + 0.5),
+				1,
+			) * 12,
 		)
 	}
 	for (const filter of config.physicsFilter) {

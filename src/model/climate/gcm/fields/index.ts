@@ -53,6 +53,11 @@ const ORDER: ReadonlyArray<GcmFieldId> = [
 	"largeScalePrecipitation",
 	"toaShortwave",
 	"toaLongwave",
+	"airTemperatureMin",
+	"airTemperatureMax",
+	"diurnalTemperatureRange",
+	"dailyTemperatureRangeSum",
+	"dailyTemperatureRangeDays",
 	...LEVELS.flatMap((level): GcmFieldId[] => [
 		`layerTemperature${level}`,
 		`layerWindU${level}`,
@@ -67,6 +72,13 @@ const MILLIMETERS_PER_DAY_PER_METER_PER_SECOND = 86400 * 1000
 
 // Fixed display ranges keep colors stable while the model spins up.
 const MODES: ReadonlyArray<GcmModeDefinition> = [
+	{
+		mode: "diurnalTemperatureRange",
+		label: "Daily temperature range · 2 m air",
+		unit: "celsiusDelta",
+		min: 0,
+		max: 30,
+	},
 	{
 		mode: "convectivePrecipitation",
 		label: "Convective precipitation",
@@ -390,6 +402,13 @@ function values(request: GcmModeRequest): Float32Array {
 		})
 	}
 	switch (mode) {
+		case "diurnalTemperatureRange": {
+			const sum = read("dailyTemperatureRangeSum")
+			const days = read("dailyTemperatureRangeDays")
+			return read(mode).map((value, point) =>
+				days[point] > 0 ? sum[point] / days[point] : value,
+			)
+		}
 		case "surfaceTemperature":
 		case "airTemperature":
 			return mapScaled({ values: read(mode), scale: 1, offset: -KELVIN_OFFSET })

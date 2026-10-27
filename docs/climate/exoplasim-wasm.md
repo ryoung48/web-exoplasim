@@ -1,5 +1,7 @@
 # ExoPlaSim WebAssembly experiment
 
+For local GPU hardware checks and native Fortran acceleration options, see [CUDA feasibility research](exoplasim-cuda.md).
+
 For the current browser controls, atmospheric-layer maps, snapshot layout and checkpoint format, see [Browser model controls and diagnostics](exoplasim-controls.md). The measurements below retain their historical configurations.
 
 This isolated experiment builds the actual ExoPlaSim Fortran model for Chrome, either serial or split across Web Workers that share memory (see [Shared-memory ranks](#shared-memory-ranks)). It does not connect ExoPlaSim to the application's climate engine. Build products, logs, input data, and run reports live in the ignored `stats/exoplasim-wasm/` directory.
@@ -402,3 +404,75 @@ T42/10-layer 2/4/8-rank 48-step checks and paused reloads also passed with the e
 T42/5-layer 2/4/8-rank 48-step checks and paused reloads also passed with the explicit former 1,000-ppm test mixture; startup/run/checkpoint intervals were 6.48/4.55/4.29 s.
 
 The complete broader report is `stats/exoplasim-model-options/report-atmosphere-21-42-10-5.json`; map, synthetic annual history and full UI save/load checks passed. All runs were sequential. These timings include startup and checkpoint overhead, and some overlapped TypeScript verification, so they are not a throughput comparison. An earlier broader run was interrupted by a formatting-triggered development reload and was rerun after formatting finished. `pnpm lint` and `pnpm typecheck` passed.
+
+## Climate maps and timestep temperature extrema (2026-10-26)
+
+Climate now groups Köppen and Pasta maps, sharing monthly input preparation, downscaling, legends and hover names. The Pasta implementation and input approximations are described in [Climate classifications](exoplasim-controls.md#climate-classifications).
+
+The snapshot hook tracks actual 2 m temperature minima/maxima every timestep and publishes interval extrema, which monthly accumulation reduces with min/max rather than averaging. Two new fields raise the snapshot layout to 87 fields at 10 layers and 62 at 5. Raw Float32 snapshot payload increases by 16,384 bytes at T21 and 65,536 bytes at T42 per publication (2.35% at 10 layers; 3.33% at 5). Checkpoint format 11 stores the new layout and unfinished extrema accumulators; older checkpoints are rejected.
+
+All twelve variants were fully recompiled after the hook change. T42 finalization encountered a Windows mapped-file error, so those variants were built on Linux storage and copied into `public/gcm/`; the manifest download sizes were refreshed. The data packages and physical model equations are unchanged.
+
+Native `verify-weather.py` passed at both layer counts, including extrema from unpublished timesteps and reset after publication. `verify-climate.mjs` passed 26 representative climates at every calendar rotation, 2,000 seasonal fixtures, monthly extrema preservation, both downscaling paths, a 259,200-cell display raster, hover names, and Climate/Köppen/Pasta controls. Reports: `stats/pasta/classification.json`, `stats/pasta/controls.png`, and `stats/exoplasim-model-options/weather-formulas-layers-{5,10}.json`.
+
+Sequential `verify-model-options.mjs 21` and `verify-model-options.mjs 42` smoke runs passed 48 steps at 30-minute timesteps for 2/4/8 ranks and both layer counts, including finite fields, temperature extrema bracketing the published air temperature, component sums, checkpoint round trips and paused restart. The script uses its existing explicit atmosphere and imported test continent; detailed settings and outputs are in `stats/exoplasim-model-options/report-atmosphere-21-10-5.json` and `stats/exoplasim-model-options/report-atmosphere-42-10-5.json`.
+
+| Resolution / layers | 2 ranks | 4 ranks | 8 ranks |
+| --- | --- | --- | --- |
+| T21 / 10 | 3.39 s | 2.83 s | 3.24 s |
+| T21 / 5 | 1.99 s | 2.09 s | 2.69 s |
+| T42 / 10 | 7.21 s | 5.16 s | 5.15 s |
+| T42 / 5 | 4.22 s | 3.31 s | 3.50 s |
+
+These are functional startup/run/checkpoint intervals, not throughput comparisons; some overlapped asset compilation. No new long-run climate or equilibrium benchmark was performed. The non-app `run-browser.mjs` benchmark does not execute this snapshot hook. `pnpm lint`, `pnpm typecheck`, and the production application build passed.
+
+### Pasta palette and article audit follow-up
+
+The follow-up palette audit replaced the generated colors with the exact 104 named RGB values in the supplied chaos-machine Pasta module. The classifier audit corrected full-period GInt interruption, peritropical/marginal precedence, exact threshold boundaries, ocean light counting, and the downscaled snow/sea-ice proxy. The remaining differences and selected fallback recipes are explicitly recorded in [Pasta climate maps: logic audit](pasta.md#logic-audit); this is not a claim of full parity with the author's default ExoPlaSim input processing.
+
+`verify-climate.mjs` with the supplied reference source passed all 104 RGB comparisons, 40 representative cases at every calendar rotation, 2,000 seasonal fixtures, and the 259,200-cell display raster. The report remains `stats/pasta/classification.json`. Lint, typecheck and the production build passed. This follow-up changes TypeScript classification and palettes only; the Fortran hook, snapshot layout and model binaries are unchanged, so the twelve native-model smoke runs above were not repeated.
+
+### Python recipe and year-length follow-up
+
+Classification now uses nominal `yearDays / 12` Earth days per month for growth, rainfall and evaporation totals. The rotation-dependent namelist mapping uses the configured year length. Native calendar/timestep quantization remains documented in [Pasta climate maps](pasta.md).
+
+The browser recipe now uses ASCE-style PET, native land evaporation, a converged soil-water fallback for downscaled land over source ocean, and pressure-dependent Antoine boiling. Lowest-layer humidity/wind, mean-temperature saturation and zero soil heat flux are the selected input approximations. The supplied palette and actual timestep temperature extrema remain unchanged.
+
+The upstream fixture generator executed the actual Python functions from source SHA-256 `b22c8da54ac79f3280440246f33177e99313f82dae909e5a22177854ae8c6aa9`. All 64 PET comparisons passed, including 15/30/60/90-day durations. A separate seasonal storage fixture verifies that this port avoids the source's mutable-view convergence bug. Climate checks passed 104 palette entries, 46 climates with calendar rotations, 2,000 seasonal fixtures, year-length scaling, native evaporation selection, pressure boiling and the 259,200-cell display raster. Reports: `stats/pasta/upstream-formulas.json` and `stats/pasta/classification.json`.
+
+Sequential T21 smoke checks passed all six layer/rank variants, including checkpoint and paused restart, using `verify-model-options.mjs 21`. Startup/run/checkpoint intervals for 2/4/8 ranks were 2.15/1.77/2.34 s at 10 layers and 1.77/1.46/2.20 s at 5 layers. These are functional smoke measurements, not equilibrium or throughput benchmarks. No Fortran, shared-memory or snapshot-hook code changed in this follow-up, so the model binaries were not rebuilt.
+
+Final verification: pnpm lint, pnpm typecheck, pnpm build and git diff --check passed. The production build retains its existing advisory about a JavaScript chunk above 500 kB.
+
+### Climate legend React profiling fix
+
+The climate legend passed its full class raster through component props. React 19's development performance diagnostics expanded both old and new typed arrays when switching Köppen/Pasta. The legend now reads classes through a stable callback, matching the map's existing data-reader boundary; raster data stays in the external store or memoized classification output.
+
+An isolated Chrome development-build comparison with 259,200 cells and React Profiler measured the legend transition at 238.66 ms before and 7.87 ms after. Diagnostic properties fell from 518,405 to 5. These are single functional samples of the legend transition, not whole-app latency guarantees or model-throughput measurements. Reports: `stats/pasta/legend-before.json` and `stats/pasta/legend-after.json`.
+
+`verify-climate.mjs` now checks a full-size legend transition, verifies both class labels, and rejects large React diagnostic payloads. The integrated check measured 8.04 ms and 5 diagnostic properties. All existing climate/palette checks, `pnpm lint`, `pnpm typecheck`, and `git diff --check` passed.
+
+### Daily temperature range map
+
+Temperature now includes DTR, derived from timestep 2 m air temperatures over native rotation days (`ntspd` timesteps). Independent daily minima/maxima exclude partial days after startup/restart. Each publication carries the latest daily range, a sum of daily ranges completed since the last publication and their count. This preserves correct daily weighting even when a publication spans multiple days, and holds the last range between day completions. Monthly DTR is the ratio of accumulated sums/counts; annual DTR is the mean of twelve monthly DTR values, rather than the seasonal maximum-minus-minimum range. Daily completions follow the existing publication-based month assignment. Downscaling interpolates without applying a lapse offset. The 0–30 °C sequential display scale clips colors only, and Fahrenheit differences use 9/5 without the absolute-temperature offset.
+
+The three new fields expand the layout to 90 fields at 10 layers and 65 at 5. Float32 publication payload increases by 24,576 bytes at T21 or 98,304 bytes at T42, respectively 3.45%/4.84% relative to the previous 87/62-field layouts. Checkpoint format 12 stores the new layout; older formats require a new run. Native in-progress daily buffers are reinitialized after load; incomplete first days are excluded instead of treated as full days. Completed-month diagnostics remain in the checkpoint.
+
+Native `verify-weather.py` checks passed at both layer counts. A two-day fixture uses different mean-temperature baselines and daily ranges of 20/10 °C, publishes both together as sum 30/count 2, then verifies last-range holding and zero sum/count on the following publication. It also verifies unpublished timesteps and exclusion of an initial partial day. Synthetic browser checks passed daily-count weighting, monthly/annual averages, Celsius/Fahrenheit differences, both climate classifications, all 104 requested Pasta colors, and the DTR controls. The existing legend profiling boundary remains at five diagnostic properties.
+
+All twelve Wasm variants were rebuilt without `--link-only`, using Linux storage before copying the generated assets into `public/gcm/`. Data-package SHA-256 values were unchanged and all manifest download sizes were checked against the resulting files. Sequential `verify-model-options.mjs 21` and `verify-model-options.mjs 42` runs exercised 48 native steps per layer/rank combination, checked finite nonnegative DTR fields, integer completed-day counts and at least one captured full day, then verified checkpoints and paused restarts.
+
+| Resolution / layers | 2 ranks | 4 ranks | 8 ranks |
+| --- | --- | --- | --- |
+| T21 / 10 | 2.16 s | 2.06 s | 1.97 s |
+| T21 / 5 | 1.40 s | 1.44 s | 1.76 s |
+| T42 / 10 | 8.68 s | 6.12 s | 4.98 s |
+| T42 / 5 | 5.02 s | 4.10 s | 3.47 s |
+
+These startup/run/checkpoint intervals are short functional samples, not equilibrium or throughput measurements; T21 samples overlapped compilation. Reports: `stats/exoplasim-model-options/report-atmosphere-21-10-5.json`, `stats/exoplasim-model-options/report-atmosphere-42-10-5.json`, and `stats/pasta/classification.json`. The non-app `run-browser.mjs` benchmark does not exercise this snapshot hook, so it was not used to estimate DTR overhead.
+
+Final UI/save-load checks passed for both test runs. The integrated DTR/climate report passed with a 259,200-cell raster and five legend diagnostic properties (8.59 ms isolated switch). pnpm lint, pnpm typecheck, pnpm build and git diff --check passed. The production build retains its existing chunk-size advisory.
+
+## Local CUDA feasibility probe
+
+On 2026-10-27, the existing Ubuntu 22.04 WSL2 environment exposed the machine's RTX 2070 SUPER (compute capability 7.5, 8,192 MiB VRAM, Windows driver 610.88). A one-thread CUDA Driver API/PTX probe computed `1 + 2**-40`: FP64 returned `1.0000000000009095`, exactly matching the host double result, while FP32 returned `1.0`. Allocation, kernel launch, synchronization and device-to-host copy passed without installing a toolkit. Artifacts: `stats/cuda-research/probe.py` and `stats/cuda-research/probe.json`. This is an arithmetic/access check, not a model validation or performance measurement. Toolchain and porting findings are in [CUDA feasibility research](exoplasim-cuda.md).

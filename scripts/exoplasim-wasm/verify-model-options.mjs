@@ -190,6 +190,7 @@ try {
 				const averager = GCM_AVERAGES.create()
 				let latest = null
 				let firstStep = null
+				let completedRangeDays = 0
 				let run = null
 				let saved = null
 				const started = performance.now()
@@ -202,6 +203,15 @@ try {
 								try {
 									check({ condition: snapshot.values.length === resolution.latitudes ** 2 * 2 * GCM_FIELDS.fieldCount(layers), message: "Snapshot size mismatch" })
 									check({ condition: snapshot.values.every(Number.isFinite), message: "Nonfinite model diagnostic" })
+ const minimum = GCM_FIELDS.field({ snapshot, field: "airTemperatureMin" })
+ const maximum = GCM_FIELDS.field({ snapshot, field: "airTemperatureMax" })
+ const air = GCM_FIELDS.field({ snapshot, field: "airTemperature" })
+ check({ condition: air.every((value, index) => minimum[index] <= value && value <= maximum[index]), message: "Actual air-temperature extrema do not bracket the published temperature" })
+ const rangeDays = GCM_FIELDS.field({ snapshot, field: "dailyTemperatureRangeDays" })
+ const rangeSum = GCM_FIELDS.field({ snapshot, field: "dailyTemperatureRangeSum" })
+ const dailyRange = GCM_FIELDS.values({ snapshot, mode: "diurnalTemperatureRange" })
+ check({ condition: rangeDays.every(value => Number.isInteger(value) && value >= 0 && value === rangeDays[0]) && rangeSum.every(value => value >= 0) && dailyRange.every(value => value >= 0), message: "Invalid daily temperature range diagnostics" })
+ completedRangeDays += rangeDays[0]
 									latest = snapshot
 									firstStep ??= snapshot.step - 4
 									GCM_AVERAGES.add({ averager, snapshot })
@@ -214,6 +224,7 @@ try {
 					})
 					const elapsedMs = performance.now() - started
 					const restored = GCM_CHECKPOINT.decode(saved)
+					check({ condition: completedRangeDays >= 1, message: "No completed daily ranges were captured" })
 					check({ condition: restored.meta.config.landAlbedo === config.landAlbedo && restored.meta.config.oceanAlbedo === config.oceanAlbedo && restored.meta.config.snowIceAlbedo === config.snowIceAlbedo, message: "Albedo settings lost in checkpoint" })
                     check({ condition: restored.meta.config.soilWaterCapacityM === config.soilWaterCapacityM && restored.meta.config.soilHeatCapacity === config.soilHeatCapacity && restored.meta.config.soilDepthScale === config.soilDepthScale, message: "Soil settings lost in checkpoint" })
                     for (const [total, left, right] of [["precipitation", "convectivePrecipitation", "largeScalePrecipitation"], ["toaNetRadiation", "toaShortwave", "toaLongwave"]]) {
@@ -356,7 +367,7 @@ try {
     await page.screenshot({ path: path.join(output, "ice.png"), animations: "disabled" })
 	await page.getByRole("button", { name: "Clouds", exact: true }).click()
     await page.getByRole("button", { name: "Atmosphere", exact: true }).click()
-    await page.getByRole("button", { name: layerCounts[layerCounts.length - 1] === 5 ? "5 · bottom" : "5", exact: true }).click()
+    await page.getByRole("main").getByRole("button", { name: layerCounts[layerCounts.length - 1] === 5 ? "5 · bottom" : "5", exact: true }).click()
     await page.screenshot({ path: path.join(output, "cloud-layers.png"), animations: "disabled" })
     await page.getByRole("button", { name: "Pressure", exact: true }).click()
     await page.getByRole("button", { name: "Sea level", exact: true }).click()

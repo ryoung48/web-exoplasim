@@ -1,13 +1,10 @@
-import { KOPPEN } from "@/model/climate/classification/koppen"
 import { GCM_BOUNDARY } from "@/model/climate/gcm/boundary"
 import type {
 	GcmDownscaleField,
 	GcmDownscaleGrid,
-	GcmDownscaleKoppen,
 	GcmDownscaleRequest,
 	GcmLapseRequest,
 } from "@/model/climate/gcm/downscale/types"
-import { GCM_FIELDS } from "@/model/climate/gcm/fields"
 import { GCM_TERRAIN_REGRID } from "@/model/climate/gcm/terrain/regrid"
 
 // Interpolation plus local lapse-rate correction after koppenpasta
@@ -20,8 +17,6 @@ const STANDARD_GRAVITY = 9.80665
 const STANDARD_LAPSE_K_PER_M = 0.0065
 const DRY_ADIABATIC_LAPSE_K_PER_M = 0.0098
 const MINIMUM_ELEVATION_SPAN_M = 100
-const MONTHS_PER_YEAR = 12
-const DAYS_PER_MONTH = 30
 const LAND_FRACTION_THRESHOLD = 0.5
 const CORNERS = 4
 
@@ -175,43 +170,8 @@ function temperature({ downscale, values }: GcmDownscaleField): Float32Array {
 	)
 }
 
-function koppen({ downscale, months }: GcmDownscaleKoppen): Uint8Array | null {
-	if (months.length < MONTHS_PER_YEAR) return null
-	const ordered = months.toSorted((a, b) => a.month - b.month)
-	const points = downscale.width * downscale.height
-	const temperatureMonthly = new Float32Array(MONTHS_PER_YEAR * points)
-	const rainfallMonthly = new Float32Array(MONTHS_PER_YEAR * points)
-	ordered.forEach(({ snapshot }, month) => {
-		temperatureMonthly.set(
-			temperature({
-				downscale,
-				values: GCM_FIELDS.values({ snapshot, mode: "airTemperature" }),
-			}),
-			month * points,
-		)
-		rainfallMonthly.set(
-			interpolate({
-				downscale,
-				values: GCM_FIELDS.values({ snapshot, mode: "precipitation" }),
-			}).map((millimetersPerDay) => millimetersPerDay * DAYS_PER_MONTH),
-			month * points,
-		)
-	})
-	const classes = new Uint8Array(points)
-	KOPPEN.koppenCells({
-		start: 0,
-		end: points,
-		isLand: downscale.land,
-		temperatureMonthly,
-		rainfallMonthly,
-		classes,
-	})
-	return classes
-}
-
 export const GCM_DOWNSCALE = {
 	create,
 	interpolate,
 	temperature,
-	koppen,
 }

@@ -1,4 +1,4 @@
-import { KOPPEN } from "@/model/climate/classification/koppen"
+import { GCM_CLASSIFICATION } from "@/model/climate/gcm/classification"
 import { GCM_FIELDS } from "@/model/climate/gcm/fields"
 import { GCM_DISPLAY } from "@/ui/gcm/field-display"
 import { GCM_FIELD_SAMPLE } from "@/ui/gcm/field-sample"
@@ -16,7 +16,10 @@ function rows({ point, layer, unitSystem }: GcmHoverRequest): GcmHoverRow[] {
 						label: GCM_FIELDS.definition(layer.mode).label,
 						value: GCM_DISPLAY.format({ mode: layer.mode, value, unitSystem }),
 					}
-				: { label: "Köppen", value: KOPPEN.koppenClimateName(value) }
+				: {
+						label: GCM_CLASSIFICATION.definition(layer.scheme).label,
+						value: GCM_CLASSIFICATION.definition(layer.scheme).name(value),
+					}
 	return [
 		{
 			label: "Lat",

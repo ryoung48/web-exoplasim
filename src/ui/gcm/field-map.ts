@@ -1,4 +1,4 @@
-import { KOPPEN } from "@/model/climate/classification/koppen"
+import { GCM_CLASSIFICATION } from "@/model/climate/gcm/classification"
 import { GCM_FIELDS } from "@/model/climate/gcm/fields"
 import { uiPalette } from "@/ui/components/tokens"
 import { GCM_DISPLAY } from "@/ui/gcm/field-display"
@@ -60,7 +60,8 @@ function paintField({ snapshot, mode }: GcmFieldPaint) {
 	context.putImageData(image, 0, 0)
 }
 
-function paintClasses({ snapshot, classes }: GcmClassPaint) {
+function paintClasses({ snapshot, classes, scheme }: GcmClassPaint) {
+	const definition = GCM_CLASSIFICATION.definition(scheme)
 	const grid = GCM_FIELDS.grid(snapshot)
 	const { longitudes } = grid
 	if (raster.width !== longitudes) raster.width = longitudes
@@ -80,7 +81,7 @@ function paintClasses({ snapshot, classes }: GcmClassPaint) {
 				classes[
 					row * longitudes + GCM_FIELD_SAMPLE.modelColumn({ grid, column: x })
 				]
-			const [r, g, b] = KOPPEN.koppenClimateColor(classId)
+			const [r, g, b] = definition.color(classId)
 			const offset = (y * longitudes + x) * 4
 			image.data[offset] = r * 255
 			image.data[offset + 1] = g * 255
@@ -258,10 +259,11 @@ export const GCM_FIELD_MAP = {
 				})
 			} else {
 				const { classes } = layer
+				const definition = GCM_CLASSIFICATION.definition(layer.scheme)
 				paintRaster({
 					width: layer.width,
 					height: layer.height,
-					color: (index) => KOPPEN.koppenClimateColor(classes[index]),
+					color: (index) => definition.color(classes[index]),
 				})
 			}
 			cachedLayer = layer
