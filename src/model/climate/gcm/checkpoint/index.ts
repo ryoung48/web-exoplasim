@@ -5,9 +5,12 @@ import type {
 } from "@/model/climate/gcm/checkpoint/types"
 
 // File layout: magic, uint32 header length, JSON header, uint32 array bytes,
-// diagnostic arrays, then the unchanged plasim_status restart file.
+// diagnostic arrays, then the WebGPU model's state (RESTART). Format 3
+// replaced format 2's plasim_status restart file with that state.
 const MAGIC = "EXOPLASIM-CHECKPOINT\n"
-const FORMAT = 2
+const FORMAT = 3
+// The WebGPU state is f32.
+const PRECISION_BYTES = 4
 const HEADER_LENGTH_BYTES = 4
 
 function encode({ meta, restart, diagnostics }: GcmCheckpoint): ArrayBuffer {
@@ -75,7 +78,7 @@ function decode(buffer: ArrayBuffer): GcmCheckpoint {
 	const meta = (parsed.meta ?? parsed) as GcmCheckpointMeta
 	if (meta.format !== FORMAT) {
 		throw new Error(
-			`Unsupported checkpoint format ${meta.format}. Format ${FORMAT} with saved climate averages is required.`,
+			`Unsupported checkpoint format ${meta.format}. Checkpoints from the Wasm model (format 2 and earlier) cannot be loaded by the WebGPU model; format ${FORMAT} is required.`,
 		)
 	}
 	const arrayBytes = new DataView(buffer).getUint32(headerEnd, true)
@@ -115,6 +118,7 @@ function fileName(meta: GcmCheckpointMeta): string {
 
 export const GCM_CHECKPOINT = {
 	FORMAT,
+	PRECISION_BYTES,
 	encode,
 	decode,
 	fileName,

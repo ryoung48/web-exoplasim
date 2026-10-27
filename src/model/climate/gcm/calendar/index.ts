@@ -1,6 +1,7 @@
 import { BERGER } from "@/model/climate/gcm/calendar/berger"
 import type {
 	GcmBergerSeries,
+	GcmDateRequest,
 	GcmMonthInterpolation,
 	GcmMonthRequest,
 	GcmOrbitParameters,
@@ -8,6 +9,7 @@ import type {
 	GcmSolarPosition,
 	GcmSolarRequest,
 } from "@/model/climate/gcm/calendar/types"
+import type { GcmDate } from "@/model/climate/gcm/types"
 
 // orb_decl's calendar day of the vernal equinox.
 const VERNAL_EQUINOX_DAY = 80.5
@@ -71,6 +73,31 @@ const SECONDS_PER_MINUTE = 60
 
 // calmod's momint with step2cal30 (nperpetual = 0; n_days_per_year = 365
 // would take the Gregorian step2cal, which no page configuration uses).
+// step2cal30: ndatim's year, month, day, hour and minute for a step.
+function date({
+	step,
+	stepsPerDay,
+	daysPerYear,
+	stepMinutes,
+}: GcmDateRequest): GcmDate {
+	if (daysPerYear === 365)
+		throw new Error("The 365-day calendar (step2cal) is not ported")
+	const mtspd = Math.trunc((daysPerYear * stepsPerDay) / CALENDAR_DAYS_PER_YEAR)
+	const tcalday = mtspd * Math.round(stepMinutes) * SECONDS_PER_MINUTE
+	const days = Math.trunc(step / mtspd)
+	const dayOfYear = days % CALENDAR_DAYS_PER_YEAR
+	const minutes = Math.trunc(
+		((step % mtspd) * tcalday) / (mtspd * SECONDS_PER_MINUTE),
+	)
+	return {
+		year: Math.trunc(days / CALENDAR_DAYS_PER_YEAR) + 1,
+		month: Math.trunc(dayOfYear / CALENDAR_DAYS_PER_MONTH) + 1,
+		day: (dayOfYear % CALENDAR_DAYS_PER_MONTH) + 1,
+		hour: Math.trunc(minutes / 60),
+		minute: minutes % 60,
+	}
+}
+
 function monthInterpolation({
 	step,
 	stepsPerDay,
@@ -79,19 +106,14 @@ function monthInterpolation({
 	stepMinutes,
 	solarDay,
 }: GcmMonthRequest): GcmMonthInterpolation {
-	if (daysPerYear === 365)
-		throw new Error("The 365-day calendar (step2cal) is not ported")
-	const mtspd = Math.trunc((daysPerYear * stepsPerDay) / CALENDAR_DAYS_PER_YEAR)
-	const tcalday = mtspd * Math.round(stepMinutes) * SECONDS_PER_MINUTE
-	const dayOfYear = Math.trunc(step / mtspd) % CALENDAR_DAYS_PER_YEAR
-	const month = Math.trunc(dayOfYear / CALENDAR_DAYS_PER_MONTH) + 1
-	const day = (dayOfYear % CALENDAR_DAYS_PER_MONTH) + 1
-	const minutes = Math.trunc(
-		((step % mtspd) * tcalday) / (mtspd * SECONDS_PER_MINUTE),
-	)
-	const hour = Math.trunc(minutes / 60)
+	const { month, day, hour, minute } = date({
+		step,
+		stepsPerDay,
+		daysPerYear,
+		stepMinutes,
+	})
 	const fractionalDay =
-		day + ((hour * 60 + (minutes % 60)) * SECONDS_PER_MINUTE) / solarDay
+		day + ((hour * 60 + minute) * SECONDS_PER_MINUTE) / solarDay
 	const median = 0.5 * (daysPerMonth + 1)
 	return {
 		month,
@@ -222,5 +244,6 @@ export const CALENDAR = {
 	CLIMATOLOGY_MONTHS,
 	orbit,
 	solar,
+	date,
 	monthInterpolation,
 }

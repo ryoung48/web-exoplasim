@@ -20,7 +20,10 @@ import { PRECIPITATION } from "@/model/climate/gcm/physics/precipitation"
 import { RADIATION } from "@/model/climate/gcm/physics/radiation"
 import { SURFACE } from "@/model/climate/gcm/physics/surface"
 import { SURFACE_FLUX } from "@/model/climate/gcm/physics/surface-flux"
+import { SNAPSHOT } from "@/model/climate/gcm/snapshot"
 import type {
+	GcmBatchRequest,
+	GcmBatchSizing,
 	GcmStepperContextRequest,
 	GcmStepperEncode,
 	GcmStepperRequest,
@@ -39,6 +42,7 @@ function fields(levels: number): GcmFieldSpec[] {
 		...PRECIPITATION.fields(levels),
 		...SURFACE.fields(),
 		...CARBON.fields(),
+		...SNAPSHOT.fields(),
 	]
 }
 
@@ -155,6 +159,80 @@ function encode({ pass, context, kernels }: GcmStepperEncode): void {
 	for (const kernel of kernels) KERNEL.dispatch({ pass, context, kernel })
 }
 
+// DP5.2: a batch is a whole number of publish intervals sized to about
+// BATCH_BUDGET_MS of GPU time, with at most IN_FLIGHT batches queued, so
+// Pause leaves at most 50 ms of queued work. MAX_INTERVALS bounds a
+// staging buffer (18 fields × 8192 points × 4 B × 16 = 9.4 MB at T42).
+const BATCH_BUDGET_MS = 25
+const IN_FLIGHT = 2
+const MAX_INTERVALS = 16
+
+function intervals({ previous, milliseconds }: GcmBatchSizing): number {
+	if (!(milliseconds > 0)) return previous
+	const next = Math.floor((BATCH_BUDGET_MS * previous) / milliseconds)
+	return Math.min(MAX_INTERVALS, Math.max(1, next))
+}
+
+// One batch as one command buffer: each step copies its CPU values from
+// `params` into the state and runs master's step. Like gcm_publish_step, a
+// step whose nstep is a multiple of publishEvery then packs the snapshot,
+// copied to the next slot of `staging`.
+function batch({
+	context,
+	kernels,
+	pack,
+	params,
+	steps,
+	firstStep,
+	publishEvery,
+	staging,
+}: GcmBatchRequest): GPUCommandBuffer {
+	const { device, state, stateBuffer } = context
+	const names = Object.keys(steps[0] ?? {})
+	const floats = names.reduce((sum, name) => sum + state.slots[name].floats, 0)
+	const values = new Float32Array(floats * steps.length)
+	steps.forEach((step, k) => {
+		let at = k * floats
+		for (const name of names) {
+			values.set(step[name], at)
+			at += state.slots[name].floats
+		}
+	})
+	device.queue.writeBuffer(params, 0, values)
+	const snapshot = state.slots.snapshot
+	const encoder = device.createCommandEncoder()
+	let published = 0
+	steps.forEach((_, k) => {
+		let at = k * floats
+		for (const name of names) {
+			const slot = state.slots[name]
+			encoder.copyBufferToBuffer(
+				params,
+				at * 4,
+				stateBuffer,
+				slot.offset * 4,
+				slot.floats * 4,
+			)
+			at += slot.floats
+		}
+		const pass = encoder.beginComputePass()
+		encode({ pass, context, kernels })
+		const publishes = (firstStep + k) % publishEvery === 0
+		if (publishes) KERNEL.dispatch({ pass, context, kernel: pack })
+		pass.end()
+		if (!publishes) return
+		encoder.copyBufferToBuffer(
+			stateBuffer,
+			snapshot.offset * 4,
+			staging,
+			published * snapshot.floats * 4,
+			snapshot.floats * 4,
+		)
+		published++
+	})
+	return encoder.finish()
+}
+
 // The CPU's per-step parameters: solang's orbit, momint's month weights
 // (nstep for the ice climatology, nstep + 1 for the rest) and carbonmod's
 // weathering counter.
@@ -203,4 +281,8 @@ export const STEPPER = {
 	kernels,
 	encode,
 	values,
+	IN_FLIGHT,
+	MAX_INTERVALS,
+	intervals,
+	batch,
 }

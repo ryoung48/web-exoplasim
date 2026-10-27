@@ -90,3 +90,21 @@ export interface GcmStepValues {
 	fields: Record<string, Float64Array>
 	carbonStep: number
 }
+
+export interface GcmBatchSizing {
+	previous: number
+	milliseconds: number
+}
+
+// Steps' CPU values in order (STEPPER.values' fields); `params` holds them
+// on the GPU and `staging` receives one snapshot per publish interval.
+export interface GcmBatchRequest {
+	context: GcmKernelContext
+	kernels: GcmKernel[]
+	pack: GcmKernel
+	params: GPUBuffer
+	steps: Array<Record<string, Float64Array>>
+	firstStep: number
+	publishEvery: number
+	staging: GPUBuffer
+}

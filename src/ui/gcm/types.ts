@@ -173,7 +173,7 @@ export interface GcmStepSample {
 export interface GcmRunState {
 	status: GcmRunStatus | "idle"
 	message: string
-	ranks: number
+	device: string
 	truncation: number
 	stepsPerSecond: number
 }

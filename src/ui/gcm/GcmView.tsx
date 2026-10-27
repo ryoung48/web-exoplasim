@@ -379,7 +379,7 @@ export function GcmView() {
 							label="Status"
 							value={gcm.state.message.split("\n")[0]}
 						/>
-						<LabeledValueRow label="Workers" value={gcm.state.ranks || "—"} />
+						<LabeledValueRow label="GPU" value={gcm.state.device || "—"} />
 						<LabeledValueRow
 							label="Speed"
 							value={

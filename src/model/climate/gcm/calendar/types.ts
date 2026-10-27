@@ -41,6 +41,14 @@ export interface GcmSolarRequest {
 	orbit: GcmOrbit
 }
 
+// step2cal30's inputs (stepMinutes as calini receives it, see below).
+export interface GcmDateRequest {
+	step: number
+	stepsPerDay: number
+	daysPerYear: number
+	stepMinutes: number
+}
+
 export interface GcmMonthRequest {
 	step: number
 	stepsPerDay: number

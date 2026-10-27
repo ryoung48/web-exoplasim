@@ -681,3 +681,30 @@ The references are 15 years long (V2's runs), so V5 compares years 6–15 rather
 - **Verdict:** each GPU run fails one of the seven global quantities, a different one each time, by under 20%. At 95% per quantity, at least one chance failure among seven happens about 30% of the time. By V2's rule as written, V5 does not pass at T21 with 15-year references. T42 has no climate reference yet (V2 deferred it).
 
 Decision (2026-10-27): the T21 V5 result is accepted as noise; 30-year references were not run.
+
+### The page on WebGPU (DP5, 2026-10-27)
+
+`/gcm` now runs the WebGPU model. The Wasm files stay in `public/gcm` until P5 removes them, but the page no longer loads them. The pieces:
+- **Inputs:** `scripts/exoplasim-webgpu/package-inputs.mjs` writes `public/gcm/t21/inputs.json` (1.24 MB) and `t42/inputs.json` (4.93 MB), and the manifest. They hold ExoPlaSim's base namelists and the Earth climatologies `SURFACE_SETUP.CLIMATOLOGY_CODES` names (codes 169, 173, 174, 210, 212, 229, 232 and 1730 are present), copied from `build.py`'s WSL input directories. `pnpm build:gcm-wasm` rewrites the manifest for the Wasm build, so run `package-inputs.mjs` again after it.
+- **Files:** `GCM_RUNNER` assembles the files `SETUP` reads the way `export-page-inputs.mjs` does: base namelists, the climatologies when the panel keeps Earth's surface, the page's orography and land mask, then the panel's namelist edits.
+- **Worker:** `gcm.worker.ts` owns the `GPUDevice`. It runs `SETUP.state`/`SETUP.schedule` and the start-up steps (or loads a restart), then pumps batches. It reports device loss and uncaptured GPU errors, and stops with a message when a snapshot has a non-finite value.
+- **Snapshots:** `SNAPSHOT`'s pack kernel writes `gcm_publish.f90`'s 18 fields into a `snapshot` state slot after every step whose `nstep` is a multiple of `publishEvery`. Dates come from `CALENDAR.date`, the `step2cal30` port that `monthInterpolation` now shares.
+- **Batches:** `STEPPER.batch` encodes a batch as one command buffer. The batch's per-step CPU values go into a parameter buffer in one `writeBuffer`, and each step copies its slice into the state slots before its compute pass. After each publishing step, the snapshot slot is copied into a staging buffer (ring of 3).
+- **Batch size:** the plan's 25 ms GPU budget, at most 2 batches in flight, and at most 16 intervals per batch (9.4 MB staging at T42).
+- **Backpressure:** each batch's snapshots go to the page as one message, and the page acknowledges it after handling. The worker submits only while the page has handled every posted batch. Without that the worker ran ahead (30 model days/s shown, pause lagging by seconds). With per-snapshot messages the page handled one snapshot per message turn (7.5 days/s).
+- **Checkpoints (format 3):** Save reads the whole state at a batch boundary and keeps running (or stays paused). `checkpoint/restart/` (`RESTART`) stores every field as f32 with a name and size index, the next step and carbonmod's counter. Load checks the index against the current fields and skips the start-up steps. Formats 2 and earlier (Wasm `plasim_status`) are rejected with a message. A T21 checkpoint is 11 MB.
+
+`scripts/exoplasim-webgpu/verify-page.mjs` checks this in headless Chrome (T21, Earth defaults, NVIDIA Turing, Chrome 156). It runs against the dev server, or against `pnpm build`'s output with `PREVIEW=1`.
+
+| Check | Dev server | Production build |
+|---|---|---|
+| Snapshot steps rise by exactly 4 | pass | pass |
+| Speed (model days/s; the Wasm page was about 2) | 14.9 | 20.5–21.3 |
+| Main-thread long tasks during the run | 165, median 123 ms | 0–1 |
+| Pause: click handled → last snapshot (10 presses) | 19–124 ms | 14–106 ms and 24–145 ms (two runs) |
+| Save → Clear → Load, 48 steps on, against no save | identical | identical |
+| Format-2 checkpoint | rejected | rejected |
+
+- **Where the dev server's main thread goes:** a CPU profile (`stats/page-profile.mjs`) puts 33% in React 19's development prop diffing, about 38% more in `jsxDEV` and the scheduler, and about 15% in drawing coastlines. The runner's message handling is 0.1%.
+- **Pause:** most presses meet the 100 ms target. Some reach 106–145 ms when a page frame or the worker's batch encoding sits between the click and the last batch. A 20 ms budget gave the same spread, so the plan's 25 ms is kept.
+- **Pause latency is not yet V6-compliant.** Bounding it needs the remaining time between the click and the worker's last post, measured on the worker side.

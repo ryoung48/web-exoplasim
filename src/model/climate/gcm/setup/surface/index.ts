@@ -44,6 +44,32 @@ const ICE_MONTH_FACTOR = [
 	0.912, 0.942,
 ]
 
+// surface_ini's codes for the fields surfini reads (surfmod.f90).
+const CODE = {
+	LAND_MASK: 172,
+	OROGRAPHY: 129,
+	ROUGHNESS: 173,
+	OROGRAPHIC_ROUGHNESS: 1730,
+	GLACIER: 232,
+	FOREST: 212,
+	FIELD_CAPACITY: 229,
+	SOIL_TEMPERATURE: 209,
+	ALBEDO: 174,
+	ALBEDO_VISIBLE: 175,
+	ALBEDO_INFRARED: 176,
+	ABOVE_GROUND_GROWTH: 1605,
+	STOMATAL_CONDUCTANCE: 1606,
+	MAXIMUM_ROUGHNESS: 1607,
+	BIOMASS_GROWTH: 1604,
+	SURFACE_TEMPERATURE: 169,
+	ICE_COVER: 210,
+	ICE_THICKNESS: 211,
+}
+// Every code except the page's own orography and land mask.
+const CLIMATOLOGY_CODES = Object.values(CODE).filter(
+	(code) => code !== CODE.OROGRAPHY && code !== CODE.LAND_MASK,
+)
+
 // get_surf_array: N<NLAT>_surf_<code>.sra, each record an 8-integer header
 // and NUGP values. Climatologies of 12 months gain December before and
 // January after; a single field fills all 14.
@@ -265,13 +291,13 @@ function initial(module: GcmModuleSetupRequest): GcmSurfaceState {
 	)
 
 	// landini
-	const dls = field({ code: 172, fallback: 1 }).map((value) =>
+	const dls = field({ code: CODE.LAND_MASK, fallback: 1 }).map((value) =>
 		value > 0.5 ? 1 : 0,
 	)
-	const orography = field({ code: 129, fallback: 0 })
-	const dz0clim = field({ code: 173, fallback: land.dz0land })
-	const dz0climo = field({ code: 1730, fallback: 0 })
-	const dglac = field({ code: 232, fallback: 0 })
+	const orography = field({ code: CODE.OROGRAPHY, fallback: 0 })
+	const dz0clim = field({ code: CODE.ROUGHNESS, fallback: land.dz0land })
+	const dz0climo = field({ code: CODE.OROGRAPHIC_ROUGHNESS, fallback: 0 })
+	const dglac = field({ code: CODE.GLACIER, fallback: 0 })
 	if (land.dzglac > 0)
 		dglac.forEach((_, h) => {
 			if (orography[h] > land.dzglac * pumamod.ga) dglac[h] = 1
@@ -279,14 +305,20 @@ function initial(module: GcmModuleSetupRequest): GcmSurfaceState {
 	dglac.forEach((value, h) => {
 		dglac[h] = value > 0.5 ? 1 : 0
 	})
-	const dforest = field({ code: 212, fallback: land.rinifor })
-	const dwmax = field({ code: 229, fallback: land.wsmax }).map((value) =>
-		Math.max(value, 0),
+	const dforest = field({ code: CODE.FOREST, fallback: land.rinifor })
+	const dwmax = field({ code: CODE.FIELD_CAPACITY, fallback: land.wsmax }).map(
+		(value) => Math.max(value, 0),
 	)
-	const dtclsoil = field({ code: 209, fallback: tmelt })
-	const dalbcl = climatology({ code: 174, fallback: land.albland })
-	const dalbcl1 = climatology({ code: 175, fallback: land.dgroundalb[0] })
-	const dalbcl2 = climatology({ code: 176, fallback: land.dgroundalb[1] })
+	const dtclsoil = field({ code: CODE.SOIL_TEMPERATURE, fallback: tmelt })
+	const dalbcl = climatology({ code: CODE.ALBEDO, fallback: land.albland })
+	const dalbcl1 = climatology({
+		code: CODE.ALBEDO_VISIBLE,
+		fallback: land.dgroundalb[0],
+	})
+	const dalbcl2 = climatology({
+		code: CODE.ALBEDO_INFRARED,
+		fallback: land.dgroundalb[1],
+	})
 	const landDts = new Float64Array(points).fill(UNSET)
 	const landDtsm = new Float64Array(points).fill(UNSET)
 	const landDqs = new Float64Array(points).fill(UNSET)
@@ -434,21 +466,21 @@ function initial(module: GcmModuleSetupRequest): GcmSurfaceState {
 		})
 
 	// vegini
-	const dagg = field({ code: 1605, fallback: veg.rinidagg })
-	const dsc = field({ code: 1606, fallback: veg.rinidsc })
-	const dmr = field({ code: 1607, fallback: veg.rinidmr })
-	const dgrow = field({ code: 1604, fallback: veg.forgrow })
+	const dagg = field({ code: CODE.ABOVE_GROUND_GROWTH, fallback: veg.rinidagg })
+	const dsc = field({ code: CODE.STOMATAL_CONDUCTANCE, fallback: veg.rinidsc })
+	const dmr = field({ code: CODE.MAXIMUM_ROUGHNESS, fallback: veg.rinidmr })
+	const dgrow = field({ code: CODE.BIOMASS_GROWTH, fallback: veg.forgrow })
 	dforest.forEach((_, h) => {
 		if (dls[h] === 0) dforest[h] = 0
 	})
 
 	// iceini's read_ice_surface and iceget, and oceanini's oceanget.
-	const xls = field({ code: 172, fallback: 0 }).map((value) =>
+	const xls = field({ code: CODE.LAND_MASK, fallback: 0 }).map((value) =>
 		value > 0.5 ? 1 : 0,
 	)
-	const xclsst = climatology({ code: 169, fallback: -999 })
-	let xclicec = climatology({ code: 210, fallback: -999 })
-	let xcliced = climatology({ code: 211, fallback: -999 })
+	const xclsst = climatology({ code: CODE.SURFACE_TEMPERATURE, fallback: -999 })
+	let xclicec = climatology({ code: CODE.ICE_COVER, fallback: -999 })
+	let xcliced = climatology({ code: CODE.ICE_THICKNESS, fallback: -999 })
 	if (ice.nseaice === 0) {
 		xclicec.fill(0)
 		xcliced.fill(0)
@@ -483,12 +515,13 @@ function initial(module: GcmModuleSetupRequest): GcmSurfaceState {
 	}).map((value, h) => (xcliced2[h] <= 0 ? 0 : Math.max(value, 0)))
 	const xiced = xcliced2.slice()
 	const xicec = xclicec2.map((value) => (value >= ice.thicec ? 1 : 0))
-	const yls = field({ code: 172, fallback: 0 }).map((value) =>
+	const yls = field({ code: CODE.LAND_MASK, fallback: 0 }).map((value) =>
 		value > 0.5 ? 1 : 0,
 	)
-	const yclsst = climatology({ code: 169, fallback: 0 }).map((value) =>
-		Math.max(value, ice.tfreeze),
-	)
+	const yclsst = climatology({
+		code: CODE.SURFACE_TEMPERATURE,
+		fallback: 0,
+	}).map((value) => Math.max(value, ice.tfreeze))
 	const yclsst2 = monthly({ table: yclsst, step: step + 1, pumamod, points })
 	const ymld = new Float64Array(points).fill(ocean.mldepth)
 
@@ -602,5 +635,6 @@ function initial(module: GcmModuleSetupRequest): GcmSurfaceState {
 }
 
 export const SURFACE_SETUP = {
+	CLIMATOLOGY_CODES,
 	initial,
 }

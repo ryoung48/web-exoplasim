@@ -1,25 +1,15 @@
 import { GCM_BOUNDARY } from "@/model/climate/gcm/boundary"
 import { GCM_GRID } from "@/model/climate/gcm/grid"
 import { GCM_NAMELIST } from "@/model/climate/gcm/namelist"
+import type { GcmNamelistFile } from "@/model/climate/gcm/namelist/types"
 import type {
+	GcmInputs,
 	GcmManifest,
-	GcmRankChoice,
 	GcmRun,
 	GcmRunRequest,
-	GcmWorkerLoad,
+	GcmWorkerRequest,
 	GcmWorkerResponse,
 } from "@/model/climate/gcm/runner/types"
-
-const EXCHANGE_HEADER_BYTES = 64
-const EXCHANGE_REGION_BYTES = 8 * 1024 * 1024
-const CONTROL_BYTES = 16
-const PAUSED = 0
-const STOP = 1
-// Measured in docs/climate/exoplasim-wasm.md: spin budgets from 0 to 2e6
-// loads changed ten-day timings by less than run-to-run noise.
-const BARRIER_SPIN = 20000
-const RUN_YEARS = 1000
-const DIAGNOSTIC_INTERVAL_STEPS = 1_000_000
 
 function assetBase(): URL {
 	return new URL(`${import.meta.env.BASE_URL}gcm/`, self.location.origin)
@@ -29,145 +19,115 @@ async function manifest(): Promise<GcmManifest> {
 	const response = await fetch(new URL("manifest.json", assetBase()))
 	if (!response.ok) {
 		throw new Error(
-			"GCM build missing: run `pnpm build:gcm-wasm` to create public/gcm",
+			"GCM inputs missing: run `node scripts/exoplasim-webgpu/package-inputs.mjs` to create public/gcm",
 		)
 	}
 	return (await response.json()) as GcmManifest
 }
 
-function pickRanks({ available, hardwareThreads }: GcmRankChoice): number {
-	const physicalCores = Math.max(1, Math.floor(hardwareThreads / 2))
-	const fitting = available.filter((ranks) => ranks <= physicalCores)
-	return fitting.length > 0 ? Math.max(...fitting) : Math.min(...available)
+// The files SETUP reads, as scripts/exoplasim-wasm/export-page-inputs.mjs
+// assembles them: the base namelists, the Earth surface climatologies when
+// the panel keeps them, the page's orography and land mask, then the
+// panel's namelist edits.
+async function files(request: GcmRunRequest): Promise<Record<string, string>> {
+	const response = await fetch(new URL(request.resolution.inputs, assetBase()))
+	if (!response.ok)
+		throw new Error(`Missing ${request.resolution.inputs} in public/gcm`)
+	const inputs = (await response.json()) as GcmInputs
+	const result = Object.fromEntries(
+		Object.entries(inputs.files).filter(
+			([name]) =>
+				name.endsWith("_namelist") ||
+				(request.config.earthSurfaceClimatology && name.endsWith(".sra")),
+		),
+	)
+	Object.assign(
+		result,
+		GCM_BOUNDARY.files(
+			GCM_BOUNDARY.fromElevation({
+				grid: GCM_GRID.forLatitudes(request.resolution.latitudes),
+				elevation: request.elevation,
+			}),
+		),
+	)
+	for (const [file, values] of Object.entries(
+		GCM_NAMELIST.edits(request.config),
+	)) {
+		const name = file as GcmNamelistFile
+		result[name] = GCM_NAMELIST.apply({ text: result[name], values })
+	}
+	return result
 }
 
 function start(request: GcmRunRequest): GcmRun {
-	const base = new URL(`t${request.resolution.truncation}/`, assetBase())
-	const exchange = new SharedArrayBuffer(
-		EXCHANGE_HEADER_BYTES + 2 * EXCHANGE_REGION_BYTES,
-	)
-	const controlBuffer = new SharedArrayBuffer(CONTROL_BYTES)
-	const control = new Int32Array(controlBuffer)
-	// Set before any worker runs, so a run resumed from a paused checkpoint
-	// does not advance a step.
-	if (request.startPaused) Atomics.store(control, PAUSED, 1)
-	const files = GCM_BOUNDARY.files(
-		GCM_BOUNDARY.fromElevation({
-			grid: GCM_GRID.forLatitudes(request.resolution.latitudes),
-			elevation: request.elevation,
-		}),
-	)
-	const edits = GCM_NAMELIST.edits(request.config)
-	const namelistEdits = {
-		...edits,
-		plasim_namelist: {
-			...edits.plasim_namelist,
-			N_RUN_YEARS: String(RUN_YEARS),
-			N_RUN_MONTHS: "0",
-			N_RUN_DAYS: "0",
-			N_RUN_STEPS: "0",
-			NDIAG: String(DIAGNOSTIC_INTERVAL_STEPS),
-		},
-	}
-	const workers = Array.from(
-		{ length: request.ranks },
-		() =>
-			new Worker(new URL("./gcm.worker.ts", import.meta.url), {
-				type: "module",
-			}),
-	)
-	let loaded = 0
-	let exited = 0
+	const worker = new Worker(new URL("./gcm.worker.ts", import.meta.url), {
+		type: "module",
+	})
+	const send = (message: GcmWorkerRequest) => worker.postMessage(message)
 	let stopped = false
-	let checkpointRequested = false
-	let restart: ArrayBuffer | null = null
-
 	const stop = () => {
+		if (stopped) return
 		stopped = true
-		for (const worker of workers) worker.terminate()
+		send({ type: "stop" })
+		worker.terminate()
 	}
 	const fail = (message: string) => {
 		if (stopped) return
 		stop()
 		request.onStatus({ status: "failed", message })
 	}
-
-	request.onStatus({
-		status: "loading",
-		message: `Loading ExoPlaSim on ${request.ranks} workers`,
-	})
-	workers.forEach((worker, rank) => {
-		worker.onerror = (event) => fail(event.message || "GCM worker crashed")
-		worker.onmessage = (event: MessageEvent<GcmWorkerResponse>) => {
-			const response = event.data
-			if (response.type === "loaded") {
-				loaded++
-				if (loaded === workers.length) {
-					request.onStatus(
-						request.startPaused
-							? { status: "paused", message: "Paused" }
-							: { status: "running", message: "Running" },
-					)
-					for (const each of workers) each.postMessage({ type: "run" })
-				}
-			} else if (response.type === "snapshot") {
-				request.onSnapshot(response.snapshot)
-			} else if (response.type === "error") {
-				fail(`Rank ${rank}: ${response.message}\n${response.log.join("\n")}`)
-			} else if (response.code !== 0) {
-				fail(
-					`Rank ${rank} exited with code ${response.code}\n${response.log.join("\n")}`,
-				)
-			} else {
-				restart = response.restart ?? restart
-				if (++exited < workers.length) return
-				if (checkpointRequested && !restart) {
-					fail("The model ended without writing plasim_status")
-					return
-				}
-				stop()
-				if (restart && checkpointRequested) request.onCheckpoint(restart)
-				else request.onStatus({ status: "finished", message: "Run complete" })
-			}
+	request.onStatus({ status: "loading", message: "Loading the WebGPU model" })
+	worker.onerror = (event) => fail(event.message || "GCM worker crashed")
+	worker.onmessage = (event: MessageEvent<GcmWorkerResponse>) => {
+		const response = event.data
+		if (response.type === "loaded") {
+			request.onDevice(response.device)
+			request.onStatus(
+				request.startPaused
+					? { status: "paused", message: "Paused" }
+					: { status: "running", message: "Running" },
+			)
+		} else if (response.type === "snapshots") {
+			for (const snapshot of response.snapshots) request.onSnapshot(snapshot)
+			send({ type: "ack" })
+		} else if (response.type === "checkpoint") {
+			request.onCheckpoint(response.restart)
+		} else {
+			fail(response.message)
 		}
-		const load: GcmWorkerLoad = {
-			type: "load",
-			rank,
-			size: request.ranks,
-			exchange,
-			control: controlBuffer,
-			moduleUrl: new URL(`ranks-${request.ranks}/exoplasim.js`, base).href,
-			dataUrl: new URL("exoplasim.data", base).href,
-			files,
-			keepSurfaceFiles: request.config.earthSurfaceClimatology,
-			restart: rank === 0 ? request.restart : null,
-			namelistEdits,
-			publishEvery: request.publishEvery,
-			spin: BARRIER_SPIN,
-		}
-		worker.postMessage(load)
-	})
-
+	}
+	void files(request).then(
+		(inputs) => {
+			if (stopped) return
+			const restart = request.restart
+			worker.postMessage(
+				{
+					type: "start",
+					truncation: request.resolution.truncation,
+					files: inputs,
+					restart,
+					publishEvery: request.publishEvery,
+					startPaused: request.startPaused,
+				} satisfies GcmWorkerRequest,
+				restart ? [restart] : [],
+			)
+		},
+		(error: unknown) =>
+			fail(error instanceof Error ? error.message : String(error)),
+	)
 	return {
 		pause() {
-			Atomics.store(control, PAUSED, 1)
+			send({ type: "pause" })
 			request.onStatus({ status: "paused", message: "Paused" })
 		},
 		resume() {
-			Atomics.store(control, PAUSED, 0)
-			Atomics.notify(control, PAUSED)
+			send({ type: "resume" })
 			request.onStatus({ status: "running", message: "Running" })
 		},
-		// Ends the run cleanly at the next step so PlaSim's epilog writes its
-		// restart file, as ExoPlaSim's Python wrapper does between runs.
+		// The worker saves the state at the next batch boundary and keeps
+		// running (or stays paused).
 		checkpoint() {
-			checkpointRequested = true
-			Atomics.store(control, STOP, 1)
-			Atomics.notify(control, PAUSED)
-			request.onStatus({
-				status: "checkpointing",
-				message: "Saving checkpoint",
-			})
+			send({ type: "checkpoint" })
 		},
 		stop,
 	}
@@ -175,6 +135,5 @@ function start(request: GcmRunRequest): GcmRun {
 
 export const GCM_RUNNER = {
 	manifest,
-	pickRanks,
 	start,
 }

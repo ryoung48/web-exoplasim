@@ -38,7 +38,7 @@ const DOWNSCALE_FACTOR = 3
 const IDLE: GcmRunState = {
 	status: "idle",
 	message: "Ready",
-	ranks: 0,
+	device: "",
 	truncation: 0,
 	stepsPerSecond: 0,
 }
@@ -63,7 +63,6 @@ export function useGcmRun() {
 	const elevation = useRef<Promise<GcmElevationRaster> | null>(null)
 	const run = useRef<GcmRun | null>(null)
 	const generation = useRef(0)
-	const checkpointWhilePaused = useRef(false)
 	const rate = useRef<GcmStepSample | null>(null)
 
 	useEffect(() => {
@@ -146,16 +145,11 @@ export function useGcmRun() {
 				)
 				if (!resolution) {
 					throw new Error(
-						`T${request.config.truncation} is not built: run \`pnpm build:gcm-wasm\``,
+						`T${request.config.truncation} inputs are missing: run \`node scripts/exoplasim-webgpu/package-inputs.mjs\``,
 					)
 				}
-				const ranks = GCM_RUNNER.pickRanks({
-					available: resolution.ranks,
-					hardwareThreads: navigator.hardwareConcurrency,
-				})
 				setState((current) => ({
 					...current,
-					ranks,
 					truncation: resolution.truncation,
 				}))
 				setDownscale((current) =>
@@ -171,7 +165,6 @@ export function useGcmRun() {
 					config: request.config,
 					elevation: raster,
 					resolution,
-					ranks,
 					publishEvery: PUBLISH_EVERY_STEPS,
 					restart: request.restart,
 					startPaused: request.paused,
@@ -182,6 +175,10 @@ export function useGcmRun() {
 						if (currentGeneration === generation.current)
 							setState((current) => ({ ...current, status, message }))
 					},
+					onDevice: (device) => {
+						if (currentGeneration === generation.current)
+							setState((current) => ({ ...current, device }))
+					},
 					onCheckpoint: (restart) => {
 						if (currentGeneration !== generation.current) return
 						const saved = live.get()
@@ -190,7 +187,7 @@ export function useGcmRun() {
 							const meta = {
 								format: GCM_CHECKPOINT.FORMAT,
 								config: request.config,
-								precisionBytes: resolution.precisionBytes,
+								precisionBytes: GCM_CHECKPOINT.PRECISION_BYTES,
 								date: latest.date,
 								step: latest.step,
 							}
@@ -206,13 +203,6 @@ export function useGcmRun() {
 								}),
 							})
 						}
-						void launch({
-							config: request.config,
-							restart,
-							fresh: false,
-							paused: checkpointWhilePaused.current,
-							diagnostics: null,
-						})
 					},
 				})
 			} catch (error) {
@@ -235,14 +225,6 @@ export function useGcmRun() {
 					await file.arrayBuffer(),
 				)
 				if (currentGeneration !== generation.current) return
-				const resolution = resolutions.find(
-					(entry) => entry.truncation === meta.config.truncation,
-				)
-				if (resolution && resolution.precisionBytes !== meta.precisionBytes) {
-					throw new Error(
-						`Checkpoint uses ${meta.precisionBytes}-byte reals; this T${resolution.truncation} build uses ${resolution.precisionBytes}`,
-					)
-				}
 				setConfig(meta.config)
 				await launch({
 					config: meta.config,
@@ -260,7 +242,7 @@ export function useGcmRun() {
 				})
 			}
 		},
-		[launch, resolutions],
+		[launch],
 	)
 
 	return {
@@ -285,7 +267,6 @@ export function useGcmRun() {
 			run.current?.stop()
 			run.current = null
 			rate.current = null
-			checkpointWhilePaused.current = false
 			averager.current = GCM_AVERAGES.create()
 			live.update(GCM_LIVE.EMPTY)
 			setDownscale(null)
@@ -293,9 +274,6 @@ export function useGcmRun() {
 		},
 		pause: () => run.current?.pause(),
 		resume: () => run.current?.resume(),
-		save: () => {
-			checkpointWhilePaused.current = state.status === "paused"
-			run.current?.checkpoint()
-		},
+		save: () => run.current?.checkpoint(),
 	}
 }
