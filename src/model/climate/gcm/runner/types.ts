@@ -1,8 +1,16 @@
 import type {
+	GcmAverager,
+	GcmMonthlyMean,
+} from "@/model/climate/gcm/averages/types"
+import type { GcmYearlyBalance } from "@/model/climate/gcm/balance/types"
+import type {
 	GcmKernel,
 	GcmKernelContext,
 } from "@/model/climate/gcm/kernel/types"
-import type { GcmStepCalendar } from "@/model/climate/gcm/stepper/types"
+import type {
+	GcmBatchTiming,
+	GcmStepCalendar,
+} from "@/model/climate/gcm/stepper/types"
 import type {
 	GcmConfig,
 	GcmElevationRaster,
@@ -17,22 +25,39 @@ export interface GcmWorkerStart {
 	truncation: GcmTruncation
 	files: Record<string, string>
 	restart: ArrayBuffer | null
+	// The averages saved with the restart; null for a fresh start.
+	averager: GcmAverager | null
 	publishEvery: number
 	startPaused: boolean
+}
+
+// The means the page shows: the last 12 closed months and every year's
+// balance, sent when a month closes.
+export interface GcmAverageUpdate {
+	months: GcmMonthlyMean[]
+	years: GcmYearlyBalance[]
+}
+
+export interface GcmRunCheckpoint {
+	restart: ArrayBuffer
+	averager: GcmAverager
 }
 
 export type GcmWorkerRequest =
 	| GcmWorkerStart
 	| { type: "pause" }
 	| { type: "resume" }
-	| { type: "ack" }
 	| { type: "checkpoint" }
 	| { type: "stop" }
 
 export type GcmWorkerResponse =
 	| { type: "loaded"; device: string }
-	| { type: "snapshots"; snapshots: GcmSnapshot[] }
-	| { type: "checkpoint"; restart: ArrayBuffer }
+	| {
+			type: "progress"
+			latest: GcmSnapshot
+			averages: GcmAverageUpdate | null
+	  }
+	| { type: "checkpoint"; restart: ArrayBuffer; averager: GcmAverager }
 	| { type: "error"; message: string }
 
 export type GcmRunStatus =
@@ -54,11 +79,14 @@ export interface GcmRunRequest {
 	resolution: GcmResolution
 	publishEvery: number
 	restart: ArrayBuffer | null
+	// The averages saved with the restart; null for a fresh start.
+	averager: GcmAverager | null
 	startPaused: boolean
 	onSnapshot(snapshot: GcmSnapshot): void
+	onAverages(update: GcmAverageUpdate): void
 	onStatus(update: GcmStatusUpdate): void
 	onDevice(description: string): void
-	onCheckpoint(restart: ArrayBuffer): void
+	onCheckpoint(saved: GcmRunCheckpoint): void
 }
 
 export interface GcmRun {
@@ -95,6 +123,8 @@ export interface GcmWorkerModel {
 	staging: GPUBuffer[]
 	calendar: GcmStepCalendar
 	publishEvery: number
+	// GPU timestamps per batch, or null without timestamp-query.
+	timing: GcmBatchTiming | null
 }
 
 export interface GcmWorkerPost {

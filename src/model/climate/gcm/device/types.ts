@@ -6,4 +6,6 @@ export interface GcmDeviceRequest {
 export interface GcmDevice {
 	device: GPUDevice
 	adapter: GPUAdapterInfo
+	// Whether the device has the timestamp-query feature.
+	timestamps: boolean
 }

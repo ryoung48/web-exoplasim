@@ -728,3 +728,26 @@ The fix:
 - **In-flight limit:** letting the page fall two batches behind instead of one gave no speed (9.6 against 10.9 days/s at 15 ms), so the limit stays at one.
 - **Speed measurement:** speed is now measured over 10 s of steady running. The 20.5–21.3 days/s in the table above came from the page's early 2-second reading and overstated it.
 - **V6's pause criterion now passes:** 0 of 30 presses over 100 ms, worst 78 ms.
+
+#### Speed (2026-10-27)
+
+The headless climate run reached about 40 model days/s at T21; the page reached 15.6. Four changes closed the gap. Each row is a production build, measured by `verify-page.mjs` (`PREVIEW=1`) over 10 s of steady running:
+
+| Change | Speed (model days/s) | Pause max |
+|---|---|---|
+| Before (page averages every snapshot, acknowledges each batch) | 15.6 | 78 ms |
+| Averages in the worker, no acknowledgement | 8.3–9.1 | 105 ms |
+| Batches sized from GPU timestamps | 24.9 | 124 ms |
+| The snapshot map as the only completion signal | 26.3 | 75 ms |
+| Coastlines cached in an offscreen canvas | 44.2 | 45 ms (30 presses, median 29 ms) |
+
+1. **Averages in the worker.** The worker adds every snapshot to `GCM_AVERAGES` and sends the page one message per batch: the latest snapshot, plus the last 12 months and the yearly balances when a month closes. Checkpoints carry the worker's averager. The page no longer acknowledges messages.
+2. **GPU timestamps.** That alone made the page slower. A log of each batch showed all batches stuck at one interval (4 steps) and completing 61 times a second: in the worker, `onSubmittedWorkDone` and `mapAsync` resolve once per display frame. So every batch seemed to take about 16 ms, and pacing kept them minimal. `GCM_DEVICE` now enables `timestamp-query` when available. `STEPPER.batch` writes begin and end timestamps (first and last pass) to the start of the batch's staging buffer, and `STEPPER.pace` uses that GPU time. Batches grew to 24–28 steps (0.69 ms per step).
+3. **One callback per batch.** The worker waited for completion, then for the map, about two frames, while only 19 ms of other work was queued, so the GPU was busy only 55–58% of the time. Now `mapAsync` is requested right after submitting and is itself the completion signal. A pool of `IN_FLIGHT + 2` staging buffers lets the next batch go in while older ones are still read back. Checkpoints wait on the same ordered chain, so they follow the last posted snapshot.
+4. **Coastline cache.** Capping the page's redraws showed the drawing was the rest. Redrawing at 30, 20 and 10 per second gave 33.0, 36.5 and 41.2 days/s, against 26.3 every frame. The cost was `paintCoastlines` stroking every segment of three wrapped worlds each frame. `field-map.ts` now strokes them into an offscreen canvas only when the coastlines, canvas size or viewport change, and copies it otherwise. With that, every-frame redraws run at 44.2 days/s, so the redraw rate stays as it was.
+
+Tried and not kept:
+- **Three batches of 13 ms in flight instead of two of 20 ms:** 23.0 days/s, 95 ms pause.
+- **Letting the page fall two batches behind:** no speed gain.
+
+Not yet done: per-kernel GPU timing (DP6.4) and one compute pass per batch (DP6.2). At T21 the page now matches the headless run, so kernel work is the next lever.

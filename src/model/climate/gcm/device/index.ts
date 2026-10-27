@@ -17,7 +17,11 @@ async function request({
 			`Model state needs ${storageBytes} bytes in one buffer; this GPU allows ${adapter.limits.maxStorageBufferBindingSize}`,
 		)
 	}
+	// GPU timestamps let the runner size batches by GPU time; callbacks such
+	// as onSubmittedWorkDone resolve only once per display frame.
+	const timestamps = adapter.features.has("timestamp-query")
 	const device = await adapter.requestDevice({
+		requiredFeatures: timestamps ? ["timestamp-query"] : [],
 		requiredLimits: {
 			maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
 			maxBufferSize: adapter.limits.maxBufferSize,
@@ -27,7 +31,7 @@ async function request({
 	device.addEventListener("uncapturederror", (event) =>
 		onLost((event as GPUUncapturedErrorEvent).error.message),
 	)
-	return { device, adapter: adapter.info }
+	return { device, adapter: adapter.info, timestamps }
 }
 
 export const GCM_DEVICE = {

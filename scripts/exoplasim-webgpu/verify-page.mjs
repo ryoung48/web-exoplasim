@@ -12,6 +12,8 @@ await fs.mkdir(output, { recursive: true })
 const PUBLISH_EVERY = 4
 const PAUSES = Number(process.env.PAUSES ?? 10)
 const CONTINUE_STEPS = 48
+// How far both continuations run, so they share some posted steps.
+const HORIZON_STEPS = 1200
 
 // PREVIEW=1 serves `pnpm build`'s dist instead of the dev server, without
 // React's development profiling.
@@ -40,9 +42,9 @@ try {
 			constructor(...args) {
 				super(...args)
 				this.addEventListener("message", (event) => {
-					if (event.data?.type !== "snapshots") return
-					for (const { step, date, values } of event.data.snapshots)
-						window.__snapshots.push({ step, date, time: performance.now(), sum: values.reduce((a, b) => a + b, 0), first: Array.from(values.subarray(0, 8)) })
+					if (event.data?.type !== "progress") return
+					const { step, date, values } = event.data.latest
+					window.__snapshots.push({ step, date, time: performance.now(), sum: values.reduce((a, b) => a + b, 0), first: Array.from(values.subarray(0, 8)) })
 				})
 			}
 		}
@@ -62,10 +64,12 @@ try {
 
 	// Start and the step sequence.
 	await button("Start").click()
-	await waitFor({ test: async () => (await snapshots()).length >= 200, label: "200 snapshots" })
+	await waitFor({ test: async () => (await snapshots()).length >= 100, label: "100 batches" })
 	const first = await snapshots()
 	const gaps = first.slice(1).map((s, i) => s.step - first[i].step)
-	report.checks.sequence = { snapshots: first.length, firstStep: first[0].step, firstDate: first[0].date, strictlyByPublishEvery: gaps.every((gap) => gap === PUBLISH_EVERY) }
+	// The page receives each batch's latest snapshot: steps rise, each a
+	// published (multiple of publishEvery) step.
+	report.checks.sequence = { messages: first.length, firstStep: first[0].step, firstDate: first[0].date, increasingPublishedSteps: gaps.every((gap) => gap > 0) && first.every((s) => s.step % PUBLISH_EVERY === 0) }
 	report.device = await row("GPU")
 	// Steady-state speed: steps advanced over 10 s, at 45-minute steps.
 	const before = (await snapshots()).at(-1)
@@ -100,10 +104,15 @@ try {
 	const download = await downloading
 	const file = path.join(output, download.suggestedFilename())
 	await download.saveAs(file)
+	// Batch sizes follow timing, so the two continuations post different
+	// steps; they are compared at every step both posted, from saved + 48.
 	const target = saved + CONTINUE_STEPS
+	const horizon = saved + HORIZON_STEPS
 	await button("Resume").click()
-	await waitFor({ test: async () => (await snapshots()).some((s) => s.step === target), label: `step ${target}` })
-	const unsaved = (await snapshots()).find((s) => s.step === target)
+	await waitFor({ test: async () => (await snapshots()).some((s) => s.step >= horizon), label: `step ${horizon}` })
+	await button("Pause").click()
+	await page.waitForTimeout(300)
+	const unsaved = new Map((await snapshots()).filter((s) => s.step >= target).map((s) => [s.step, s]))
 
 	// Clear, Load and the same continuation.
 	await button("Clear").click()
@@ -114,9 +123,10 @@ try {
 	await waitFor({ test: async () => (await page.getByRole("button", { name: "Resume", exact: true }).count()) > 0, label: "paused after Load" })
 	await page.waitForTimeout(500)
 	await button("Resume").click()
-	await waitFor({ test: async () => (await snapshots()).some((s) => s.step === target), label: `reloaded step ${target}` })
-	const reloaded = (await snapshots()).find((s) => s.step === target)
-	report.checks.checkpoint = { file: path.basename(file), bytes: (await fs.stat(file)).size, savedAfterStep: saved, comparedStep: target, firstStepAfterLoad: (await snapshots())[0].step, identical: unsaved.sum === reloaded.sum && unsaved.first.every((v, i) => v === reloaded.first[i]), unsavedSum: unsaved.sum, reloadedSum: reloaded.sum }
+	await waitFor({ test: async () => (await snapshots()).some((s) => s.step >= horizon), label: `reloaded step ${horizon}` })
+	const reloaded = (await snapshots()).filter((s) => unsaved.has(s.step))
+	const same = (a, b) => a.sum === b.sum && a.first.every((v, i) => v === b.first[i])
+	report.checks.checkpoint = { file: path.basename(file), bytes: (await fs.stat(file)).size, savedAfterStep: saved, firstStepAfterLoad: (await snapshots())[0].step, comparedSteps: reloaded.map((s) => s.step), identical: reloaded.length > 0 && reloaded.every((s) => same(s, unsaved.get(s.step))) }
 
 	// A Wasm-era checkpoint is rejected.
 	await button("Clear").click()

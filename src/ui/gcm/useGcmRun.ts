@@ -6,7 +6,11 @@ import { GCM_DOWNSCALE } from "@/model/climate/gcm/downscale"
 import type { GcmDownscaleGrid } from "@/model/climate/gcm/downscale/types"
 import { GCM_GRID } from "@/model/climate/gcm/grid"
 import { GCM_RUNNER } from "@/model/climate/gcm/runner"
-import type { GcmResolution, GcmRun } from "@/model/climate/gcm/runner/types"
+import type {
+	GcmAverageUpdate,
+	GcmResolution,
+	GcmRun,
+} from "@/model/climate/gcm/runner/types"
 import type {
 	GcmConfig,
 	GcmElevationRaster,
@@ -93,18 +97,16 @@ export function useGcmRun() {
 				rate.current = { step: next.step, time: now }
 				setState((current) => ({ ...current, stepsPerSecond }))
 			}
-			const monthClosed = GCM_AVERAGES.add({
-				averager: averager.current,
-				snapshot: next,
-			})
-			live.update({
-				snapshot: next,
-				...(monthClosed
-					? {
-							averages: GCM_LIVE.averages(averager.current),
-						}
-					: {}),
-			})
+			live.update({ snapshot: next })
+		},
+		[live],
+	)
+
+	// The worker averages every snapshot; the page mirrors the closed months.
+	const onAverages = useCallback(
+		({ months, years }: GcmAverageUpdate) => {
+			averager.current = { current: null, months, years }
+			live.update({ averages: GCM_LIVE.averages(averager.current) })
 		},
 		[live],
 	)
@@ -167,9 +169,13 @@ export function useGcmRun() {
 					resolution,
 					publishEvery: PUBLISH_EVERY_STEPS,
 					restart: request.restart,
+					averager: request.diagnostics?.averager ?? null,
 					startPaused: request.paused,
 					onSnapshot: (snapshot) => {
 						if (currentGeneration === generation.current) onSnapshot(snapshot)
+					},
+					onAverages: (update) => {
+						if (currentGeneration === generation.current) onAverages(update)
 					},
 					onStatus: ({ status, message }) => {
 						if (currentGeneration === generation.current)
@@ -179,10 +185,9 @@ export function useGcmRun() {
 						if (currentGeneration === generation.current)
 							setState((current) => ({ ...current, device }))
 					},
-					onCheckpoint: (restart) => {
+					onCheckpoint: ({ restart, averager: saved }) => {
 						if (currentGeneration !== generation.current) return
-						const saved = live.get()
-						const latest = saved.snapshot
+						const latest = live.get().snapshot
 						if (latest) {
 							const meta = {
 								format: GCM_CHECKPOINT.FORMAT,
@@ -197,7 +202,7 @@ export function useGcmRun() {
 									meta,
 									restart,
 									diagnostics: {
-										averager: averager.current,
+										averager: saved,
 										snapshot: latest,
 									},
 								}),
@@ -214,7 +219,7 @@ export function useGcmRun() {
 				})
 			}
 		},
-		[live, onSnapshot],
+		[live, onSnapshot, onAverages],
 	)
 
 	const loadFromFile = useCallback(

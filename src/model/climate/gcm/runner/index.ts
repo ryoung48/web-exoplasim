@@ -87,11 +87,14 @@ function start(request: GcmRunRequest): GcmRun {
 					? { status: "paused", message: "Paused" }
 					: { status: "running", message: "Running" },
 			)
-		} else if (response.type === "snapshots") {
-			for (const snapshot of response.snapshots) request.onSnapshot(snapshot)
-			send({ type: "ack" })
+		} else if (response.type === "progress") {
+			if (response.averages) request.onAverages(response.averages)
+			request.onSnapshot(response.latest)
 		} else if (response.type === "checkpoint") {
-			request.onCheckpoint(response.restart)
+			request.onCheckpoint({
+				restart: response.restart,
+				averager: response.averager,
+			})
 		} else {
 			fail(response.message)
 		}
@@ -106,6 +109,7 @@ function start(request: GcmRunRequest): GcmRun {
 					truncation: request.resolution.truncation,
 					files: inputs,
 					restart,
+					averager: request.averager,
 					publishEvery: request.publishEvery,
 					startPaused: request.startPaused,
 				} satisfies GcmWorkerRequest,

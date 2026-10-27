@@ -115,4 +115,13 @@ export interface GcmBatchRequest {
 	firstStep: number
 	publishEvery: number
 	staging: GPUBuffer
+	// GPU timestamps for the batch, or null without timestamp-query.
+	timing: GcmBatchTiming | null
+}
+
+// A two-entry timestamp query set and its resolve buffer, reused by every
+// batch: the copy into `staging` is ordered after each batch's resolve.
+export interface GcmBatchTiming {
+	querySet: GPUQuerySet
+	resolve: GPUBuffer
 }

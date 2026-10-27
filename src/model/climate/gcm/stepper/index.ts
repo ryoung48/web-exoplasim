@@ -170,6 +170,8 @@ function encode({ pass, context, kernels }: GcmStepperEncode): void {
 const BATCH_BUDGET_MS = 20
 const IN_FLIGHT = 2
 const MAX_INTERVALS = 16
+// A batch's begin and end GPU timestamps (two u64 nanosecond values).
+const TIMING_BYTES = 16
 
 // The per-interval GPU time estimate follows a slower batch at once but a
 // faster one only by ESTIMATE_DECAY per batch, so one fast measurement
@@ -190,7 +192,9 @@ function pace({ pace: previous, milliseconds }: GcmBatchSizing): GcmBatchPace {
 // One batch as one command buffer: each step copies its CPU values from
 // `params` into the state and runs master's step. Like gcm_publish_step, a
 // step whose nstep is a multiple of publishEvery then packs the snapshot,
-// copied to the next slot of `staging`.
+// copied to the next slot of `staging`, after TIMING_BYTES. With `timing`,
+// the first pass writes a begin and the last an end GPU timestamp, copied
+// to the start of `staging`.
 function batch({
 	context,
 	kernels,
@@ -200,6 +204,7 @@ function batch({
 	firstStep,
 	publishEvery,
 	staging,
+	timing,
 }: GcmBatchRequest): GPUCommandBuffer {
 	const { device, state, stateBuffer } = context
 	const names = Object.keys(steps[0] ?? {})
@@ -229,7 +234,19 @@ function batch({
 			)
 			at += slot.floats
 		}
-		const pass = encoder.beginComputePass()
+		const first = k === 0
+		const last = k === steps.length - 1
+		const pass = encoder.beginComputePass(
+			timing && (first || last)
+				? {
+						timestampWrites: {
+							querySet: timing.querySet,
+							...(first ? { beginningOfPassWriteIndex: 0 } : {}),
+							...(last ? { endOfPassWriteIndex: 1 } : {}),
+						},
+					}
+				: {},
+		)
 		encode({ pass, context, kernels })
 		const publishes = (firstStep + k) % publishEvery === 0
 		if (publishes) KERNEL.dispatch({ pass, context, kernel: pack })
@@ -239,11 +256,15 @@ function batch({
 			stateBuffer,
 			snapshot.offset * 4,
 			staging,
-			published * snapshot.floats * 4,
+			TIMING_BYTES + published * snapshot.floats * 4,
 			snapshot.floats * 4,
 		)
 		published++
 	})
+	if (timing) {
+		encoder.resolveQuerySet(timing.querySet, 0, 2, timing.resolve, 0)
+		encoder.copyBufferToBuffer(timing.resolve, 0, staging, 0, TIMING_BYTES)
+	}
 	return encoder.finish()
 }
 
@@ -297,6 +318,7 @@ export const STEPPER = {
 	values,
 	IN_FLIGHT,
 	MAX_INTERVALS,
+	TIMING_BYTES,
 	pace,
 	batch,
 }

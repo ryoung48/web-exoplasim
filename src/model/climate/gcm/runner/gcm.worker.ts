@@ -1,3 +1,5 @@
+import { GCM_AVERAGES } from "@/model/climate/gcm/averages"
+import type { GcmAverager } from "@/model/climate/gcm/averages/types"
 import { CALENDAR } from "@/model/climate/gcm/calendar"
 import { RESTART } from "@/model/climate/gcm/checkpoint/restart"
 import { GCM_DEVICE } from "@/model/climate/gcm/device"
@@ -15,12 +17,10 @@ import { SNAPSHOT } from "@/model/climate/gcm/snapshot"
 import { STEPPER } from "@/model/climate/gcm/stepper"
 import type { GcmBatchPace } from "@/model/climate/gcm/stepper/types"
 
-// DP5.3: triple-buffered staging, so mapping one never blocks the next batch.
-const STAGING_BUFFERS = 3
-// Batches posted to the page but not yet handled before the worker stops
-// submitting. Allowing 2 did not raise speed (9.6 against 10.9 model
-// days/s at a 15 ms budget), so the page is never more than one behind.
-const UNACKNOWLEDGED = 1
+// Staging buffers: IN_FLIGHT batches whose maps are pending, plus two
+// mapped batches waiting to be read and posted, so a new batch never waits
+// for an older one's readback.
+const STAGING_BUFFERS = STEPPER.IN_FLIGHT + 2
 const LEVELS = 10
 
 let model: GcmWorkerModel | null = null
@@ -28,9 +28,11 @@ let step = 0
 let carbonStep = 0
 let pace: GcmBatchPace = { intervals: 1, estimate: 0 }
 let inFlight = 0
-// Batches of snapshots posted and not yet handled by the page.
-let unacknowledged = 0
-let ring = 0
+// Monthly and annual means over every snapshot, kept here so the page only
+// receives the latest snapshot and each closed month.
+let averager: GcmAverager = GCM_AVERAGES.create()
+// Staging buffers not holding a batch that is queued, running or unmapped.
+let free: GPUBuffer[] = []
 let lastDone = 0
 let paused = false
 let checkpointPending = false
@@ -48,7 +50,7 @@ function fail(message: string) {
 }
 
 async function start(request: GcmWorkerStart) {
-	const { device, adapter } = await GCM_DEVICE.request({
+	const { device, adapter, timestamps } = await GCM_DEVICE.request({
 		storageBytes: 0,
 		onLost: (message) => fail(`GPU device lost: ${message}`),
 	})
@@ -154,13 +156,25 @@ async function start(request: GcmWorkerStart) {
 		staging: Array.from({ length: STAGING_BUFFERS }, (_, i) =>
 			device.createBuffer({
 				label: `snapshot staging ${i}`,
-				size: STEPPER.MAX_INTERVALS * snapshotBytes,
+				size: STEPPER.TIMING_BYTES + STEPPER.MAX_INTERVALS * snapshotBytes,
 				usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
 			}),
 		),
 		calendar: schedule.calendar,
 		publishEvery: request.publishEvery,
+		timing: timestamps
+			? {
+					querySet: device.createQuerySet({ type: "timestamp", count: 2 }),
+					resolve: device.createBuffer({
+						label: "batch timestamps",
+						size: STEPPER.TIMING_BYTES,
+						usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
+					}),
+				}
+			: null,
 	}
+	free = [...model.staging]
+	averager = request.averager ?? GCM_AVERAGES.create()
 	paused = request.startPaused
 	post({
 		response: {
@@ -174,10 +188,10 @@ async function start(request: GcmWorkerStart) {
 	pump()
 }
 
-// Submits while the GPU has fewer than IN_FLIGHT batches and the page is
-// fewer than UNACKNOWLEDGED batches behind, so Pause only waits for queued
-// GPU work and a few small messages. Each batch is one message: the page
-// handles a message per turn between frames, not a snapshot per turn.
+// Submits while the GPU has fewer than IN_FLIGHT batches, so Pause only
+// waits for queued GPU work. The page gets one small message per batch (the
+// latest snapshot, and the means when a month closes), so it never holds
+// the model back.
 function pump() {
 	while (
 		model &&
@@ -185,9 +199,20 @@ function pump() {
 		!checkpointPending &&
 		!stopped &&
 		inFlight < STEPPER.IN_FLIGHT &&
-		unacknowledged < UNACKNOWLEDGED
+		free.length > 0
 	)
 		submit(model)
+}
+
+// A checkpoint waits for the GPU to finish and for every earlier batch's
+// snapshots to be posted, so the page's latest snapshot matches the state.
+function checkpointWhenIdle(current: GcmWorkerModel) {
+	if (!checkpointPending || inFlight > 0) return
+	chain = chain.then(async () => {
+		if (stopped || !checkpointPending) return
+		await checkpoint(current)
+		pump()
+	})
 }
 
 // One batch of `intervals` publish intervals, ending on a publishing step.
@@ -201,8 +226,7 @@ function submit(current: GcmWorkerModel) {
 		carbonStep = values.carbonStep
 		return values.fields
 	})
-	const staging = current.staging[ring]
-	ring = (ring + 1) % STAGING_BUFFERS
+	const staging = free.pop() as GPUBuffer
 	const batchPace = pace
 	const published = pace.intervals
 	device.queue.submit([
@@ -215,27 +239,47 @@ function submit(current: GcmWorkerModel) {
 			firstStep: step,
 			publishEvery,
 			staging,
+			timing: current.timing,
 		}),
 	])
 	step += count
 	inFlight++
 	const submitted = performance.now()
-	const done = device.queue.onSubmittedWorkDone()
+	const floats = context.state.slots.snapshot.floats
+	const bytes = STEPPER.TIMING_BYTES + published * floats * 4
+	// Mapping resolves once the GPU has written the batch, so it is also the
+	// completion signal: one callback, which arrives on a display frame,
+	// instead of onSubmittedWorkDone and then a map. The next batch goes in
+	// at once; reading this one back must not hold the GPU idle.
+	const ready = staging.mapAsync(GPUMapMode.READ, 0, bytes)
+	void ready.then(
+		() => {
+			if (stopped) return
+			inFlight--
+			checkpointWhenIdle(current)
+			pump()
+		},
+		(error: unknown) =>
+			fail(error instanceof Error ? error.message : String(error)),
+	)
 	chain = chain.then(async () => {
-		await done
+		await ready
 		if (stopped) return
 		const finished = performance.now()
+		const mapped = staging.getMappedRange(0, bytes)
+		const [begin, end] = new BigUint64Array(mapped, 0, 2)
+		const data = new Float32Array(mapped.slice(STEPPER.TIMING_BYTES))
+		staging.unmap()
+		free.push(staging)
+		// The GPU's own clock when available; completion callbacks arrive
+		// only once per display frame, which would understate every batch.
 		pace = STEPPER.pace({
 			pace: batchPace,
-			milliseconds: finished - Math.max(submitted, lastDone),
+			milliseconds: current.timing
+				? Number(end - begin) / 1e6
+				: finished - Math.max(submitted, lastDone),
 		})
 		lastDone = finished
-		const floats = context.state.slots.snapshot.floats
-		await staging.mapAsync(GPUMapMode.READ, 0, published * floats * 4)
-		const data = new Float32Array(
-			staging.getMappedRange(0, published * floats * 4).slice(0),
-		)
-		staging.unmap()
 		const snapshots = Array.from({ length: published }, (_, i) => {
 			const at = firstPublish + i * publishEvery
 			return {
@@ -256,13 +300,19 @@ function submit(current: GcmWorkerModel) {
 			fail(`The model became unstable at step ${unstable.step}`)
 			return
 		}
-		unacknowledged++
+		let closed = false
+		for (const snapshot of snapshots)
+			if (GCM_AVERAGES.add({ averager, snapshot })) closed = true
 		post({
-			response: { type: "snapshots", snapshots },
-			transfer: snapshots.map((snapshot) => snapshot.values.buffer),
+			response: {
+				type: "progress",
+				latest: snapshots[snapshots.length - 1],
+				averages: closed
+					? { months: averager.months, years: averager.years }
+					: null,
+			},
+			transfer: [],
 		})
-		inFlight--
-		if (checkpointPending && inFlight === 0) await checkpoint(current)
 		pump()
 	})
 }
@@ -282,7 +332,10 @@ async function checkpoint(current: GcmWorkerModel) {
 		carbonStep,
 	})
 	checkpointPending = false
-	post({ response: { type: "checkpoint", restart }, transfer: [restart] })
+	post({
+		response: { type: "checkpoint", restart, averager },
+		transfer: [restart],
+	})
 }
 
 self.onmessage = async (event: MessageEvent<GcmWorkerRequest>) => {
@@ -290,18 +343,12 @@ self.onmessage = async (event: MessageEvent<GcmWorkerRequest>) => {
 	try {
 		if (request.type === "start") await start(request)
 		else if (request.type === "pause") paused = true
-		else if (request.type === "ack") {
-			unacknowledged--
-			pump()
-		} else if (request.type === "resume") {
+		else if (request.type === "resume") {
 			paused = false
 			pump()
 		} else if (request.type === "checkpoint") {
 			checkpointPending = true
-			if (model && inFlight === 0) {
-				await checkpoint(model)
-				pump()
-			}
+			if (model) checkpointWhenIdle(model)
 		} else {
 			stopped = true
 			model?.device.destroy()
