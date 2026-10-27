@@ -42,6 +42,27 @@ export interface GcmTimesteps {
 	delt: number
 }
 
+export interface GcmScheduleRequest {
+	request: GcmSetupRequest
+	state: GcmInitialState
+}
+
+// One phase of master's run: the start-up step with `kits` still to run
+// (0 for the main loop), its kernel constants and makebm's bm1.
+export interface GcmSchedulePhase {
+	kits: number
+	stepper: GcmStepperConstants
+	bm1: Float64Array
+}
+
+export interface GcmSchedule {
+	tables: GcmStepperTablesRequest
+	startup: GcmSchedulePhase[]
+	main: GcmSchedulePhase
+	calendar: GcmStepCalendar
+	startStep: number
+}
+
 export interface GcmDynamicsTablesSetup {
 	request: GcmSetupRequest
 	kits: number

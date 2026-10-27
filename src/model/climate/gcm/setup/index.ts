@@ -9,6 +9,9 @@ import { SURFACE_SETUP } from "@/model/climate/gcm/setup/surface"
 import type {
 	GcmDynamicsTablesSetup,
 	GcmInitialState,
+	GcmSchedule,
+	GcmSchedulePhase,
+	GcmScheduleRequest,
 	GcmSetup,
 	GcmSetupConstantsRequest,
 	GcmSetupRequest,
@@ -422,10 +425,39 @@ function state(request: GcmSetupStateRequest): GcmInitialState {
 	return { fields: { ...spectral, ...surface.fields }, so: surface.so }
 }
 
+// master's run from a fresh start: initfd's nkits (at least 1) start-up
+// steps, each with its own constants and bm1, then the main loop, all at
+// the start step's calendar; and the tables the first step needs.
+function schedule({
+	request,
+	state: initial,
+}: GcmScheduleRequest): GcmSchedule {
+	const pumamod = PUMAMOD.read(request)
+	const startup = Math.max(pumamod.nkits, 1)
+	const meanOrography = initial.so[0]
+	const phase = (kits: number): GcmSchedulePhase => ({
+		kits,
+		stepper: constants({ ...request, meanOrography, kits }).stepper,
+		bm1: dynamicsTables({ request, kits, state: initial }).bm1,
+	})
+	const main = constants({ ...request, meanOrography, kits: 0 })
+	return {
+		tables: {
+			...main.tables,
+			dynamics: dynamicsTables({ request, kits: startup, state: initial }),
+		},
+		startup: Array.from({ length: startup }, (_, i) => phase(startup - i)),
+		main: phase(0),
+		calendar: main.calendar,
+		startStep: pumamod.n_start_step,
+	}
+}
+
 export const SETUP = {
 	pumamod: PUMAMOD.read,
 	constants,
 	dynamics,
 	dynamicsTables,
 	state,
+	schedule,
 }

@@ -650,3 +650,34 @@ The `sqm` failures at steps 8 and 18 look grid-wide only because `sqm` is spectr
 - **Not a GPU error:** replaying every routine of step 6 from the f64 state (`stats/exoplasim-reference/probe-fresh.sh`, then `verify-dynamics.mjs` with `CASES`) shows the GPU fixer treating this column exactly as Fortran does. All routines pass the RMS gate; the fixer's `gqdt` and surface flux's `dtaux` fail only the points-off count, at f32 noise level.
 
 So `sqm` is another threshold case: a discontinuity in Fortran's algorithm, crossed by f32-level differences. `stats/kernel-walk.mjs` (one kernel at a time through a chosen step) and `stats/column-dumps.mjs` (one column at every probe point) did this trace.
+
+### Climate (V5, T21, 2026-10-27)
+
+`SETUP.schedule` gives master's run from a fresh start: the tables, each start-up phase's constants and `bm1`, the main loop's, the calendar and the start step. `verify-startup.mjs` and the climate run both use it.
+
+`scripts/exoplasim-webgpu/run-climate.mjs <truncation> <years> [inputs] [output]` runs the GPU model headless in Chrome from the page's input files:
+- A harness-only kernel sums `gcm_reference.f90`'s nine fields after every main step: surface temperature, 2 m temperature, precipitation, total cloud cover, OLR, net TOA, surface pressure, surface heat balance and ice cover. It reads the model's state through the generated offset header, so the model has no extra fields.
+- The harness reads the sums back once per model day and accumulates them in f64. At each year end it writes the same `reference-means.txt` records (one per 360-day year of 11,520 steps).
+- `compare-climate.mjs` then applies V2's rule against the V2 references.
+
+**Speed:** T21 runs at 9.0–9.2 s per model year, about 0.8 ms per step with 98 dispatches each. Fifteen years take 140 s (hardware GPU, Chrome headless). All runs stayed finite.
+
+The references are 15 years long (V2's runs), so V5 compares years 6–15 rather than the plan's 30 years. Results against the f64 run `gate-t21-p8`:
+
+| Quantity | GPU seed 1 | GPU seed 2 | f32 build | f64 control (seed 2) | Threshold |
+|---|---|---|---|---|---|
+| Surface temperature (K) | 0.039 | 0.029 | 0.035 | 0.141 | 0.161 |
+| 2 m temperature (K) | 0.021 | 0.024 | 0.022 | 0.132 | 0.170 |
+| Precipitation (10⁻¹¹ m/s) | 1.6 | 2.9 | −3.8 | 5.6 | 27.9 |
+| Cloud cover | **0.00186** | 0.00043 | 0.00049 | −0.00062 | 0.00161 |
+| OLR (W/m²) | −0.108 | 0.145 | 0.132 | 0.275 | 0.361 |
+| Net TOA (W/m²) | −0.025 | 0.021 | −0.027 | −0.001 | 0.367 |
+| Surface pressure (Pa) | −0.28 | **0.83** | 0.40 | 0.60 | 0.70 |
+| Zonal bands passing | 7/8 (8/8 with control) | 8/8 | 7/8 | | 90% |
+
+- **Seed 1:** the north polar band (+1.0 K) passes by the control rule; the f32 build and the control differ there by 1.0 and 1.65 K. Cloud cover fails (1.15× the threshold, larger than the control's difference).
+- **Seed 2** (the control's inputs): cloud cover passes, but surface pressure fails (1.18×).
+- **Is it a bias?** Seed 1's yearly cloud cover differences from f64 over years 6–15 range from −2.1 to +4.3 × 10⁻³ with mixed signs; the f32 build's range from −5.1 to +6.3 × 10⁻³ (`stats/climate-years.mjs`). So there is no steady offset.
+- **Verdict:** each GPU run fails one of the seven global quantities, a different one each time, by under 20%. At 95% per quantity, at least one chance failure among seven happens about 30% of the time. By V2's rule as written, V5 does not pass at T21 with 15-year references. T42 has no climate reference yet (V2 deferred it).
+
+Decision (2026-10-27): the T21 V5 result is accepted as noise; 30-year references were not run.
