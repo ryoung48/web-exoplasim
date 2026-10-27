@@ -379,7 +379,10 @@ export function GcmView() {
 							label="Status"
 							value={gcm.state.message.split("\n")[0]}
 						/>
-						<LabeledValueRow label="GPU" value={gcm.state.device || "—"} />
+						<LabeledValueRow
+							label={gcm.engine === "gpu" ? "GPU" : "Workers"}
+							value={gcm.state.device || "—"}
+						/>
 						<LabeledValueRow
 							label="Speed"
 							value={
@@ -446,8 +449,11 @@ export function GcmView() {
 					<GcmConfigPanel
 						config={gcm.config}
 						resolutions={gcm.resolutions}
+						engine={gcm.engine}
+						gpuAvailable={gcm.gpuAvailable}
 						disabled={active}
 						onChange={gcm.setConfig}
+						onEngineChange={gcm.setEngine}
 					/>
 				</section>
 			</aside>

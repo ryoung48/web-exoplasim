@@ -3,14 +3,16 @@ import type {
 	GcmCheckpointArray,
 	GcmCheckpointMeta,
 } from "@/model/climate/gcm/checkpoint/types"
+import type { GcmEngine } from "@/model/climate/gcm/runner/types"
 
 // File layout: magic, uint32 header length, JSON header, uint32 array bytes,
-// diagnostic arrays, then the WebGPU model's state (RESTART). Format 3
-// replaced format 2's plasim_status restart file with that state.
+// diagnostic arrays, then the engine's restart data. The format names the
+// engine: 2 is the Wasm model's plasim_status, 3 the WebGPU model's state
+// (RESTART), so a checkpoint loads into the engine that saved it.
 const MAGIC = "EXOPLASIM-CHECKPOINT\n"
-const FORMAT = 3
-// The WebGPU state is f32.
-const PRECISION_BYTES = 4
+const FORMATS: Record<GcmEngine, number> = { cpu: 2, gpu: 3 }
+// The WebGPU state is f32; the Wasm build's reals are its manifest's.
+const GPU_PRECISION_BYTES = 4
 const HEADER_LENGTH_BYTES = 4
 
 function encode({ meta, restart, diagnostics }: GcmCheckpoint): ArrayBuffer {
@@ -76,9 +78,9 @@ function decode(buffer: ArrayBuffer): GcmCheckpoint {
 	)
 	const parsed = JSON.parse(header)
 	const meta = (parsed.meta ?? parsed) as GcmCheckpointMeta
-	if (meta.format !== FORMAT) {
+	if (!Object.values(FORMATS).includes(meta.format)) {
 		throw new Error(
-			`Unsupported checkpoint format ${meta.format}. Checkpoints from the Wasm model (format 2 and earlier) cannot be loaded by the WebGPU model; format ${FORMAT} is required.`,
+			`Unsupported checkpoint format ${meta.format}. Format ${FORMATS.cpu} (CPU) or ${FORMATS.gpu} (GPU) with saved climate averages is required.`,
 		)
 	}
 	const arrayBytes = new DataView(buffer).getUint32(headerEnd, true)
@@ -111,14 +113,19 @@ function decode(buffer: ArrayBuffer): GcmCheckpoint {
 	return { meta, diagnostics, restart: buffer.slice(restartStart) }
 }
 
+function engine(meta: GcmCheckpointMeta): GcmEngine {
+	return meta.format === FORMATS.gpu ? "gpu" : "cpu"
+}
+
 function fileName(meta: GcmCheckpointMeta): string {
 	const { year, month } = meta.date
 	return `exoplasim-t${meta.config.truncation}-year${String(year).padStart(4, "0")}-month${String(month).padStart(2, "0")}.ckpt`
 }
 
 export const GCM_CHECKPOINT = {
-	FORMAT,
-	PRECISION_BYTES,
+	FORMATS,
+	GPU_PRECISION_BYTES,
+	engine,
 	encode,
 	decode,
 	fileName,

@@ -684,8 +684,8 @@ Decision (2026-10-27): the T21 V5 result is accepted as noise; 30-year reference
 
 ### The page on WebGPU (DP5, 2026-10-27)
 
-`/gcm` now runs the WebGPU model. The Wasm files stay in `public/gcm` until P5 removes them, but the page no longer loads them. The pieces:
-- **Inputs:** `scripts/exoplasim-webgpu/package-inputs.mjs` writes `public/gcm/t21/inputs.json` (1.24 MB) and `t42/inputs.json` (4.93 MB), and the manifest. They hold ExoPlaSim's base namelists and the Earth climatologies `SURFACE_SETUP.CLIMATOLOGY_CODES` names (codes 169, 173, 174, 210, 212, 229, 232 and 1730 are present), copied from `build.py`'s WSL input directories. `pnpm build:gcm-wasm` rewrites the manifest for the Wasm build, so run `package-inputs.mjs` again after it.
+`/gcm` runs the WebGPU model by default; the Wasm model stays as the CPU engine (see Engine toggle below). The pieces:
+- **Inputs:** `scripts/exoplasim-webgpu/package-inputs.mjs` writes `public/gcm/t21/inputs.json` (1.24 MB) and `t42/inputs.json` (4.93 MB), listed in `public/gcm/webgpu.json`. They hold ExoPlaSim's base namelists and the Earth climatologies `SURFACE_SETUP.CLIMATOLOGY_CODES` names (codes 169, 173, 174, 210, 212, 229, 232 and 1730 are present), copied from `build.py`'s WSL input directories. The Wasm build keeps its own `public/gcm/manifest.json`, so the two builds never overwrite each other.
 - **Files:** `GCM_RUNNER` assembles the files `SETUP` reads the way `export-page-inputs.mjs` does: base namelists, the climatologies when the panel keeps Earth's surface, the page's orography and land mask, then the panel's namelist edits.
 - **Worker:** `gcm.worker.ts` owns the `GPUDevice`. It runs `SETUP.state`/`SETUP.schedule` and the start-up steps (or loads a restart), then pumps batches. It reports device loss and uncaptured GPU errors, and stops with a message when a snapshot has a non-finite value.
 - **Snapshots:** `SNAPSHOT`'s pack kernel writes `gcm_publish.f90`'s 18 fields into a `snapshot` state slot after every step whose `nstep` is a multiple of `publishEvery`. Dates come from `CALENDAR.date`, the `step2cal30` port that `monthInterpolation` now shares.
@@ -749,5 +749,28 @@ The headless climate run reached about 40 model days/s at T21; the page reached 
 Tried and not kept:
 - **Three batches of 13 ms in flight instead of two of 20 ms:** 23.0 days/s, 95 ms pause.
 - **Letting the page fall two batches behind:** no speed gain.
+
+### Engine toggle (DP7, 2026-10-27)
+
+The Wasm engine is kept, not removed (user decision). The panel's Numerics group has an Engine control:
+- **GPU** (the WebGPU model) is the default. It is disabled, with a tooltip, when `GCM_RUNNER.gpuAvailable` finds no WebGPU adapter, and the panel then selects CPU.
+- **CPU** runs the Wasm model on shared-memory workers.
+- **Resolutions** show the selected engine's download size and are disabled where that engine is not built.
+
+How it fits together:
+- **One interface:** `runner/` is that interface (`GcmRun`, `GcmRunRequest` with `engine`) over `runner/webgpu/` and `runner/wasm/`.
+- **Manifests:** `GCM_RUNNER.resolutions` merges the Wasm manifest with `webgpu.json`.
+- **Same events from both engines:** the latest snapshot, the means when a month closes, and checkpoints with their averages. The Wasm runner averages on the page. PlaSim writes `plasim_status` only when a run ends, so each Save ends the current Wasm session, saves it, and continues in a new session from it, paused if the run was.
+- **Checkpoints:** the format names the engine (2 = CPU `plasim_status`, 3 = GPU state). Load switches the panel to that engine and refuses a GPU checkpoint without WebGPU. Format 1 and earlier are rejected.
+
+`verify-page.mjs` with `ENGINE=gpu` and `ENGINE=cpu` (production build):
+
+| | GPU | CPU (Wasm, 4 workers) |
+|---|---|---|
+| Speed, T21 | 43.9 model days/s | 2.4 model days/s |
+| Pause | max 41 ms | immediate: the workers block at the next step, so no snapshot follows the click |
+| Save → Clear → Load, continuing | identical | identical over 293 published steps |
+| Snapshot steps increase | yes | yes |
+| Format-1 checkpoint rejected | yes | yes |
 
 Not yet done: per-kernel GPU timing (DP6.4) and one compute pass per batch (DP6.2). At T21 the page now matches the headless run, so kernel work is the next lever.

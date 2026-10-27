@@ -10,7 +10,7 @@ import type {
 	GcmWorkerPost,
 	GcmWorkerRequest,
 	GcmWorkerStart,
-} from "@/model/climate/gcm/runner/types"
+} from "@/model/climate/gcm/runner/webgpu/types"
 import { SETUP } from "@/model/climate/gcm/setup"
 import { PUMAMOD } from "@/model/climate/gcm/setup/pumamod"
 import { SNAPSHOT } from "@/model/climate/gcm/snapshot"

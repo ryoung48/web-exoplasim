@@ -4,7 +4,8 @@ import { createServer } from "vite"
 
 // The page's model inputs: ExoPlaSim's namelists and the Earth surface
 // climatologies SETUP reads (SURFACE_SETUP.CLIMATOLOGY_CODES), one JSON per
-// resolution under public/gcm, plus the manifest. The sources are the
+// resolution under public/gcm, plus public/gcm/webgpu.json listing them
+// (the Wasm build keeps public/gcm/manifest.json). The sources are the
 // input directories scripts/exoplasim-wasm/build.py assembles in WSL.
 // Usage: node package-inputs.mjs [inputs-t21] [inputs-t42]
 const WSL = "//wsl.localhost/Ubuntu/var/tmp/chaos-exoplasim-wasm"
@@ -27,7 +28,7 @@ try {
 		resolutions.push({ truncation, latitudes, inputs, downloadBytes: Buffer.byteLength(text) })
 		console.log(`T${truncation}: ${names.length} files, ${(Buffer.byteLength(text) / 1e6).toFixed(2)} MB`)
 	}
-	await fs.writeFile(path.resolve("public/gcm/manifest.json"), `${JSON.stringify({ engine: "webgpu", resolutions }, null, 2)}\n`)
+	await fs.writeFile(path.resolve("public/gcm/webgpu.json"), `${JSON.stringify({ resolutions }, null, 2)}\n`)
 } finally {
 	await server.close()
 }

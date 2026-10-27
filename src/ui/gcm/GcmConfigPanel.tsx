@@ -1,5 +1,5 @@
 import { GCM_NAMELIST } from "@/model/climate/gcm/namelist"
-import type { GcmResolution } from "@/model/climate/gcm/runner/types"
+import type { GcmEngine, GcmResolution } from "@/model/climate/gcm/runner/types"
 import type {
 	GcmConfig,
 	GcmTruncation,
@@ -19,8 +19,12 @@ import { formatWithUnit } from "@/ui/genesis/shared/ui-format"
 interface GcmConfigPanelProps {
 	config: GcmConfig
 	resolutions: ReadonlyArray<GcmResolution>
+	engine: GcmEngine
+	// null while the browser is being checked for WebGPU.
+	gpuAvailable: boolean | null
 	disabled: boolean
 	onChange: (config: GcmConfig) => void
+	onEngineChange: (engine: GcmEngine) => void
 }
 
 const BYTES_PER_MEGABYTE = 1_000_000
@@ -154,8 +158,11 @@ function isSmoothing(filter: string): filter is GcmSmoothingFilter {
 export function GcmConfigPanel({
 	config,
 	resolutions,
+	engine,
+	gpuAvailable,
 	disabled,
 	onChange,
+	onEngineChange,
 }: GcmConfigPanelProps) {
 	const update = (patch: Partial<GcmConfig>) => {
 		if (!disabled) onChange({ ...config, ...patch })
@@ -192,15 +199,50 @@ export function GcmConfigPanel({
 			</p>
 			<fieldset disabled={disabled} className={groupClass}>
 				<legend className={groupLabel}>Numerics</legend>
+				<div className="space-y-1">
+					<span className={label}>Engine</span>
+					<SegmentedControl
+						fullWidth
+						options={[
+							{
+								value: "gpu",
+								label: "GPU",
+								disabled: gpuAvailable === false,
+								title:
+									gpuAvailable === false
+										? "This browser has no WebGPU"
+										: "The WebGPU port of ExoPlaSim, on the graphics card",
+							},
+							{
+								value: "cpu",
+								label: "CPU",
+								title: "ExoPlaSim compiled to WebAssembly, on CPU workers",
+							},
+						]}
+						value={engine}
+						onChange={(value) => {
+							if (!disabled) onEngineChange(value)
+						}}
+					/>
+				</div>
 				{resolutions.length > 0 && (
 					<div className="space-y-1">
 						<span className={label}>Resolution</span>
 						<SegmentedControl
 							fullWidth
-							options={resolutions.map((resolution) => ({
-								value: String(resolution.truncation),
-								label: `T${resolution.truncation} · ${formatWithUnit(resolution.downloadBytes / BYTES_PER_MEGABYTE, "MB", 1)}`,
-							}))}
+							options={resolutions.map((resolution) => {
+								const assets = resolution[engine]
+								return {
+									value: String(resolution.truncation),
+									label: assets
+										? `T${resolution.truncation} · ${formatWithUnit(assets.downloadBytes / BYTES_PER_MEGABYTE, "MB", 1)}`
+										: `T${resolution.truncation}`,
+									disabled: !assets,
+									title: assets
+										? undefined
+										: `Not built for the ${engine.toUpperCase()} engine`,
+								}
+							})}
 							value={String(config.truncation)}
 							onChange={(value) =>
 								update({ truncation: Number(value) as GcmTruncation })

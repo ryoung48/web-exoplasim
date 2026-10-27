@@ -6,10 +6,13 @@ import { createServer, preview } from "vite"
 // V6 in the page: /gcm at T21 with Earth defaults. Records every snapshot
 // the worker posts (by wrapping Worker), then checks the step sequence,
 // Pause latency, Save → Load continuing identically to an unsaved run, and
-// that a format-2 (Wasm) checkpoint is rejected.
-const output = path.resolve(process.env.PREVIEW ? "stats/exoplasim-webgpu/page-build" : "stats/exoplasim-webgpu/page")
+// that an unsupported checkpoint format is rejected. ENGINE picks gpu (the
+// default) or cpu.
+const output = path.resolve(`stats/exoplasim-webgpu/${process.env.PREVIEW ? "page-build" : "page"}-${process.env.ENGINE ?? "gpu"}`)
 await fs.mkdir(output, { recursive: true })
 const PUBLISH_EVERY = 4
+// ENGINE=cpu runs the Wasm model instead of the default GPU engine.
+const ENGINE = process.env.ENGINE ?? "gpu"
 const PAUSES = Number(process.env.PAUSES ?? 10)
 const CONTINUE_STEPS = 48
 // How far both continuations run, so they share some posted steps.
@@ -42,8 +45,11 @@ try {
 			constructor(...args) {
 				super(...args)
 				this.addEventListener("message", (event) => {
-					if (event.data?.type !== "progress") return
-					const { step, date, values } = event.data.latest
+					// The GPU worker posts each batch's latest snapshot; the Wasm
+					// workers post every snapshot.
+					const snapshot = event.data?.type === "progress" ? event.data.latest : event.data?.type === "snapshot" ? event.data.snapshot : null
+					if (!snapshot) return
+					const { step, date, values } = snapshot
 					window.__snapshots.push({ step, date, time: performance.now(), sum: values.reduce((a, b) => a + b, 0), first: Array.from(values.subarray(0, 8)) })
 				})
 			}
@@ -63,6 +69,7 @@ try {
 	const row = (label) => page.locator(`text=${label}`).first().locator("xpath=following-sibling::*[1]").textContent()
 
 	// Start and the step sequence.
+	await button(ENGINE.toUpperCase()).click()
 	await button("Start").click()
 	await waitFor({ test: async () => (await snapshots()).length >= 100, label: "100 batches" })
 	const first = await snapshots()
@@ -70,7 +77,7 @@ try {
 	// The page receives each batch's latest snapshot: steps rise, each a
 	// published (multiple of publishEvery) step.
 	report.checks.sequence = { messages: first.length, firstStep: first[0].step, firstDate: first[0].date, increasingPublishedSteps: gaps.every((gap) => gap > 0) && first.every((s) => s.step % PUBLISH_EVERY === 0) }
-	report.device = await row("GPU")
+	report.device = await row(ENGINE === "gpu" ? "GPU" : "Workers")
 	// Steady-state speed: steps advanced over 10 s, at 45-minute steps.
 	const before = (await snapshots()).at(-1)
 	await page.waitForTimeout(10000)
@@ -128,15 +135,15 @@ try {
 	const same = (a, b) => a.sum === b.sum && a.first.every((v, i) => v === b.first[i])
 	report.checks.checkpoint = { file: path.basename(file), bytes: (await fs.stat(file)).size, savedAfterStep: saved, firstStepAfterLoad: (await snapshots())[0].step, comparedSteps: reloaded.map((s) => s.step), identical: reloaded.length > 0 && reloaded.every((s) => same(s, unsaved.get(s.step))) }
 
-	// A Wasm-era checkpoint is rejected.
+	// A checkpoint in an unsupported format is rejected.
 	await button("Clear").click()
 	const magic = "EXOPLASIM-CHECKPOINT\n"
-	const header = JSON.stringify({ meta: { format: 2 } })
+	const header = JSON.stringify({ meta: { format: 1 } })
 	const old = Buffer.alloc(magic.length + 4 + header.length + 8)
 	old.write(magic, 0)
 	old.writeUInt32LE(header.length, magic.length)
 	old.write(header, magic.length + 4)
-	const oldFile = path.join(output, "format2.ckpt")
+	const oldFile = path.join(output, "format1.ckpt")
 	await fs.writeFile(oldFile, old)
 	await page.locator('input[type="file"][accept=".ckpt"]').setInputFiles(oldFile)
 	await page.waitForTimeout(1000)

@@ -4,7 +4,7 @@
 
 **Problem.** `/gcm` runs ExoPlaSim as Fortran compiled to Wasm, split across up to 8 shared-memory Web Workers. Recorded throughput (`docs/climate/exoplasim-wasm.md`) is about 2 model days/s at T21 and 0.30 model days/s at T42. A T42 year takes 11–20 minutes, and `balance` needs at least 14 model years before it can judge equilibrium. The remaining CPU levers are small: frontend `-O2` gave 10.5%, barrier waits are 18–20% of rank time, and SIMD was slower. The development machine's GPU (NVIDIA GeForce RTX 2070 SUPER, about 9 TFLOP/s f32) does nothing while the model runs.
 
-**Intended outcome.** The whole time integration of ExoPlaSim runs as WebGPU compute shaders on one device: spectral transforms, dynamical core, every physics and surface component the page can reach, and global reductions. The Wasm engine, its Fortran-to-Wasm toolchain and the shared-memory ranks are removed from the page. The page keeps its features: live maps, monthly and annual means, Köppen, balance, Pause/Resume, Save/Load, and custom terrain.
+**Intended outcome.** The whole time integration of ExoPlaSim runs as WebGPU compute shaders on one device: spectral transforms, dynamical core, every physics and surface component the page can reach, and global reductions. The page keeps the Wasm engine as a CPU option: it runs the WebGPU model by default where the browser has WebGPU, and the user can switch to the CPU engine (user decision, 2026-10-27, replacing the original plan to remove Wasm). The page keeps its features: live maps, monthly and annual means, Köppen, balance, Pause/Resume, Save/Load, and custom terrain.
 
 **What "entire model" means here.** Every Fortran statement that executes inside the time-step loop for any configuration the `/gcm` panel can produce. DP3/DP4 make this list mechanically with `gcov` (Verification V1). Two kinds of CPU work stay in TypeScript, both on purpose:
 - **One-time setup**, in f64: reading namelists and `.sra` files, Gaussian quadrature, Legendre tables, semi-implicit matrix inversion and the initial noise kick. These are I/O or need f64 that WGSL lacks. They run once and are uploaded.
@@ -15,9 +15,9 @@ No model state is read back to the CPU or computed there during integration, exc
 **Constraints.**
 - **C1 (climate fidelity).** The GPU model's 20-year climate statistics must match a double-precision reference within interannual noise (V5). Bitwise or trajectory agreement is impossible: WGSL has no `f64` type, and GPU evaluation order differs from Fortran's.
 - **C2 (same inputs).** The GPU model reads the same namelist text and `.sra` files the Fortran reference reads. Both get them from the existing `namelist` and `boundary` modules, so the two engines can't disagree about configuration.
-- **C3 (no compatibility).** Checkpoint formats ≤ 3, the Wasm assets, the rank selector and cross-origin isolation for shared memory are removed outright. No fallback engine is kept for browsers without WebGPU. The page shows that WebGPU is required.
+- **C3 (two engines).** The Wasm assets, rank selector and cross-origin isolation stay for the CPU engine, which is also the fallback for browsers without WebGPU. Checkpoint format 2 (Wasm `plasim_status`) and format 3 (WebGPU state) both load, each into the engine that saved it; earlier formats are rejected.
 
-**Scope.** New GPU model modules under `src/model/climate/gcm/`. Edits to `runner`, `checkpoint`, `boundary` and the `/gcm` UI. A Fortran *reference* toolchain (native builds, coverage, probes), adapted from `scripts/exoplasim-wasm/`. Removal of the Wasm path. Documentation.
+**Scope.** New GPU model modules under `src/model/climate/gcm/`. Edits to `runner`, `checkpoint`, `boundary` and the `/gcm` UI. A Fortran *reference* toolchain (native builds, coverage, probes), adapted from `scripts/exoplasim-wasm/`. An engine toggle between the WebGPU model and the Wasm path. Documentation.
 
 **Exclusions.**
 - New resolutions (T63 and up), more levels and new physics. The design does not block them; only T21 and T42 at 10 levels are built and verified.
@@ -34,7 +34,7 @@ No model state is read back to the CPU or computed there during integration, exc
 - **FR4 — Physics and surface on the GPU.** Every reachable physics and surface computation matches the reference, given identical inputs.
 - **FR5 — Run control and output.** The page receives every snapshot in order. Pause takes effect within 100 ms. Save/Load restores a run exactly. Device loss and instability are reported.
 - **FR6 — Throughput.** Model days per wall-clock second are higher than the 8-rank Wasm engine's at T21 and T42.
-- **FR7 — Single engine.** The repository builds, serves and documents only the WebGPU engine for `/gcm`. Fortran remains only as the verification reference.
+- **FR7 — Engine choice.** `/gcm` runs either engine: GPU by default when the browser has a WebGPU adapter, CPU when it does not or when the user picks it. A checkpoint loads into the engine that saved it.
 
 ## 3. DPs (Design Parameters)
 
@@ -92,13 +92,15 @@ No model state is read back to the CPU or computed there during integration, exc
 - **DP6.3 — Fuse a routine's work into one kernel** (DP4.2). Splits happen only at reductions and transforms. The expected count is 45–60 dispatches per step: about 10 transforms (2 inverse/forward round trips), about 7 dynamics, about 25 physics and surface, and about 5 reductions.
 - **DP6.4 — Profiling.** Benchmarks request the `timestamp-query` feature and launch Chrome with `--enable-webgpu-developer-features`. Without that flag Chrome rounds timestamps to 100 µs, which is coarser than most of these kernels. Per-kernel GPU time is reported by kernel name. Timing runs omit the queries.
 
-### DP7 — Remove the Wasm engine (→ FR7)
+### DP7 — Engine toggle (→ FR7)
 
-- Delete the Wasm targets, shared-memory layer and app hook. Move what's left of `scripts/exoplasim-wasm/` to `scripts/exoplasim-reference/` (native builds, coverage, probes). Delete `public/gcm/tNN/ranks-N/` and `exoplasim.data`. Ship `public/gcm/tNN/inputs.json`, mapping each shipped namelist and `.sra` file name to its text and generated by `scripts/exoplasim-reference/package-inputs.py`. Drop `ranks` from the manifest. Remove the rank selector and cross-origin-isolation headers (`vite.config.ts`, the `src/bootstrap.ts` check, the GitHub Pages workflow) once a grep confirms nothing else uses `SharedArrayBuffer`.
+- `runner/` keeps one interface (`GcmRun`, `GcmRunRequest` with an `engine`) over two implementations: `runner/webgpu/` (DP5) and `runner/wasm/` (the Wasm runner, kept). `GCM_RUNNER.start` dispatches by engine, `GCM_RUNNER.resolutions` merges the Wasm manifest (`public/gcm/manifest.json`, from `build_app.py`) with the WebGPU inputs index (`public/gcm/webgpu.json`, from `package-inputs.mjs`), and `GCM_RUNNER.gpuAvailable` checks for an adapter.
+- Both engines report the same events: the latest snapshot, the means when a month closes, and checkpoints with their averages. The WebGPU worker averages in the worker (DP5); the Wasm runner averages on the page and, since PlaSim writes `plasim_status` only when a run ends, continues each Save in a new session from it.
+- The panel's Numerics group gets an Engine control (GPU / CPU). GPU is selected by default and disabled with an explanation when no adapter exists. Resolutions show the selected engine's download size and are disabled where that engine is not built.
 
 ## 4. Matrix
 
-| | DP1 precision | DP2 arena/encoder | DP3 dynamics | DP4 physics | DP5 control/IO | DP6 throughput | DP7 removal |
+| | DP1 precision | DP2 arena/encoder | DP3 dynamics | DP4 physics | DP5 control/IO | DP6 throughput | DP7 engine toggle |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | FR1 precision | X | — | — | — | — | — | — |
 | FR2 residency | — | X | — | — | — | — | — |
@@ -106,7 +108,7 @@ No model state is read back to the CPU or computed there during integration, exc
 | FR4 physics | X | — | — | X | — | — | — |
 | FR5 control/IO | — | X | — | — | X | — | — |
 | FR6 throughput | X | X | X | X | X | X | — |
-| FR7 single engine | — | — | — | — | X | — | X |
+| FR7 engine choice | — | — | — | — | X | — | X |
 
 **Decoupled (lower triangular).** Required order: **DP1 → DP2 → DP3 → DP4 → DP5 → DP6 → DP7.**
 
@@ -114,7 +116,7 @@ No model state is read back to the CPU or computed there during integration, exc
 - FR3 and FR4 are judged on replayed reference inputs (V3). Physics fidelity therefore doesn't depend on the transforms, and arena addressing (DP2) doesn't change arithmetic. DP2 still comes before DP3 and DP4, because their kernels are written against its registry header.
 - DP5 depends on DP2's prognostic flags for checkpoints. Pause latency is decoupled from kernel speed by sizing batches from measured time (DP5.2) rather than a fixed step count. Without that, faster or slower kernels from DP6 would change FR5.
 - FR6 is affected by every DP before it: df64 cost, dispatch count, kernel efficiency and readback. So DP6 tuning comes after the others are correct, and only re-checks V3 and V5.
-- DP7 deletes the old runner only after DP5's runner replaces it.
+- DP7 puts both runners behind one interface after DP5's runner exists.
 
 Implementation phases follow that order. Each ends when its verification passes:
 
@@ -125,7 +127,7 @@ Implementation phases follow that order. Each ends when its verification passes:
 | P2 Dynamics | DP3 | Transforms and adiabatic core pass V3 |
 | P3 Physics | DP4 | Every covered routine passes V3, in `gridpointd` order |
 | P4 Integration | DP5 | Full model passes V4, V5 and V6 in the page |
-| P5 Speed and cutover | DP6, DP7 | V7 recorded, Wasm removed, docs updated |
+| P5 Speed and cutover | DP6, DP7 | V7 recorded, engine toggle, docs updated |
 
 **P0 feasibility gate.** Before P1 (spike: `node scripts/exoplasim-webgpu/spike.mjs`), a spike measures the empty-dispatch cost in one compute pass (200 dispatches, timestamp queries) and a T42 truncated DFT plus Legendre round trip for 10 levels × 8 fields on this machine. Projected step time = measured dispatch cost × 60 + transform time × 2 + a physics allowance. The physics allowance is native serial physics time ÷ 20, from the doc's native serial T21 one-day time and profile shares, scaled by 4 to T42 columns. If the projection is not below the fresh 8-rank Wasm per-step time at T42, stop and report to the user before P1.
 
@@ -211,7 +213,7 @@ Everything runs from the repository root. Never overlap two benchmarks, or a ben
 
 **V7 — Throughput (→ FR6).** `EXOPLASIM_ENGINE=webgpu node scripts/exoplasim-wasm/run-browser.mjs 480` (T21, 30 min) and the T42 320-step at 45 min run (`EXOPLASIM_MPSTEP=45`), 3 interleaved Wasm/WebGPU pairs on fresh Chrome. The script path becomes `scripts/exoplasim-reference/run-browser.mjs` after DP7. Accept when the slowest WebGPU run beats the fastest Wasm run at both resolutions. Record per-kernel GPU time from a separate `EXOPLASIM_PROFILE=1` run (DP6.4), dispatches per step, arena size and pipeline compile time. In the page, record Speed (model days/s) for 30 model days at T21 and T42, and the main-thread time spent in snapshot handling from a Chrome performance trace. Compare everything with §5.
 
-**V8 — Removal (→ FR7).** After DP7: `rg -n "exoplasim.wasm|ranks-|SharedArrayBuffer|library_shm|mpimod_shm" src public scripts docs vite.config.ts .github` returns nothing outside `scripts/exoplasim-reference/` and archived docs. `pnpm build` succeeds. `pnpm knip` reports no unused exports from the removed runner. The deployed GitHub Pages build loads `/gcm` without cross-origin-isolation headers.
+**V8 — Engine choice (→ FR7).** `verify-page.mjs` with `ENGINE=gpu` and `ENGINE=cpu` (production build, `PREVIEW=1`): each engine starts from the panel, its snapshot steps increase, Save → Clear → Load continues identically, and an unsupported checkpoint format is rejected. In a browser without WebGPU the panel selects CPU and disables GPU.
 
 ## 7. Documentation updates
 
@@ -253,18 +255,14 @@ Each physics or dynamics namespace exposes only `pipelines(device)` and `encode(
 - `grid/`: already computes Gaussian latitudes in f64 for any count. `setup` reuses it instead of porting `inilat`'s quadrature.
 - `namelist/`: unchanged in role. It stays the single producer of namelist text (C2). `setup` adds parsing of the merged text, reusing `GCM_NAMELIST.apply`'s tokenizer rather than writing a second one.
 - `boundary/`: unchanged output (`.sra` text). `setup` parses it.
-- `runner/`: `gcm.worker.ts` hosts `GCM_DEVICE`, `SETUP`, `STEPPER`, `SNAPSHOT`. `index.ts` drops ranks, exchange and control buffers. `types.ts` drops `ExoplasimModule`, `ExoplasimFactory`, `exchange` and `moduleUrl`.
-- `checkpoint/`: format 4 (DP5.4), using `LAYOUT`'s prognostic slice.
-- `src/ui/gcm/GcmConfigPanel.tsx`, `useGcmRun.ts`, `types.ts`: remove the worker-count control and add the WebGPU-required and device-lost states, following `src/ui/components/UI.md`.
-- `vite.config.ts`, `src/bootstrap.ts`, GitHub Pages workflow: remove cross-origin isolation (DP7).
+- `runner/`: `webgpu/gcm.worker.ts` hosts `GCM_DEVICE`, `SETUP`, `STEPPER`, `SNAPSHOT`; `wasm/` keeps the Wasm runner; `index.ts` dispatches by engine (DP7).
+- `checkpoint/`: format 3 for the WebGPU state (DP5.4, numbered 3 on this branch), format 2 kept for the Wasm engine.
+- `src/ui/gcm/GcmConfigPanel.tsx`, `useGcmRun.ts`, `types.ts`: the engine control (DP7) and the device-lost state, following `src/ui/components/UI.md`.
 
 **Scripts**
-- `scripts/exoplasim-wasm/` → `scripts/exoplasim-reference/` (git move at P5; before that, new files are added in place and moved with the rest).
-  - Kept: `setup.sh` (Wasm toolchain steps deleted), `run-browser.mjs` (WebGPU engine only after P5).
+- `scripts/exoplasim-wasm/` stays: it builds the CPU engine (`build.py`, `build_app.py`, the shared-memory layer and app hook) and the Fortran reference.
   - Added in P0: `model_source.py` (source copy and patches shared by `build.py` and `reference.py`), `reference.py` (gfortran/OpenMPI `build` with `--precision`, `--demote-double`, `--coverage`, and `run`), `gcm_reference.f90` (annual zonal means hook), `coverage.py`, `compare-climate.mjs`, `export-page-inputs.mjs` (writes the page's namelists and `.sra` through Vite's `createServer` in middleware mode, as `export-chaos-fixture.mjs` does). `reference.py` gains `--probe dump|replay` in P1.
-  - New later: `gcm_probe.f90`, `package-inputs.py`. `build.py` is deleted at P5, once its Wasm targets go.
-  - Deleted: `compile.py`, `runtime.py`, `runtime-check.f90`, `verify-runtime.py`, `mpimod_shm.f90`, `library_shm.js`, `library_gcm.js`, `gcm_publish.f90` (replaced by `SNAPSHOT`), `worker.js`, `build_app.py`.
-- New `scripts/exoplasim-webgpu/`: `verify-kernels.mjs` (V3), `run-climate.mjs` (V5), and the harness page they load.
-- `package.json`: `build:gcm-wasm` becomes `build:gcm-inputs` (runs `package-inputs.py`).
+  - Added later: `gcm_probe.f90`.
+- New `scripts/exoplasim-webgpu/`: the verification scripts (V3–V8, including `verify-page.mjs` with `ENGINE`), `run-climate.mjs` (V5) and `package-inputs.mjs`, which writes the GPU engine's `public/gcm/tNN/inputs.json` and `public/gcm/webgpu.json`. `pnpm build:gcm-wasm` keeps building the CPU engine.
 
 **Reuse checks before adding code:** Gaussian quadrature (`grid`), namelist tokenizing (`namelist`), `.sra` writing format (`boundary`, which `setup`'s parser mirrors), the seeded generator (`src/model/shared/random/rng`), the snapshot message and field layout (`fields`, `runner/types.ts`), and the Vite-in-Node script pattern (`export-chaos-fixture.mjs`).

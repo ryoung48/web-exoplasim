@@ -3,7 +3,7 @@ import type { GcmYearlyBalance } from "@/model/climate/gcm/balance/types"
 import type { GcmCheckpointDiagnostics } from "@/model/climate/gcm/checkpoint/types"
 import type { GcmMapMode } from "@/model/climate/gcm/fields/types"
 import type { GcmGrid } from "@/model/climate/gcm/grid/types"
-import type { GcmRunStatus } from "@/model/climate/gcm/runner/types"
+import type { GcmEngine, GcmRunStatus } from "@/model/climate/gcm/runner/types"
 import type {
 	GcmConfig,
 	GcmPhysicsFilter,
@@ -184,6 +184,7 @@ export interface GcmBalanceRow {
 }
 
 export interface GcmLaunchRequest {
+	engine: GcmEngine
 	config: GcmConfig
 	restart: ArrayBuffer | null
 	fresh: boolean

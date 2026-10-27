@@ -8,6 +8,7 @@ import { GCM_GRID } from "@/model/climate/gcm/grid"
 import { GCM_RUNNER } from "@/model/climate/gcm/runner"
 import type {
 	GcmAverageUpdate,
+	GcmEngine,
 	GcmResolution,
 	GcmRun,
 } from "@/model/climate/gcm/runner/types"
@@ -60,6 +61,9 @@ export function useGcmRun() {
 	const [config, setConfig] = useState<GcmConfig>(GCM.DEFAULT_CONFIG)
 	const [state, setState] = useState<GcmRunState>(IDLE)
 	const [resolutions, setResolutions] = useState<GcmResolution[]>([])
+	// GPU unless this browser has no WebGPU adapter (null while checking).
+	const [engine, setEngine] = useState<GcmEngine>("gpu")
+	const [gpuAvailable, setGpuAvailable] = useState<boolean | null>(null)
 	const [downscale, setDownscale] = useState<GcmDownscaleGrid | null>(null)
 	const [live] = useState(GCM_LIVE.create)
 	const averager = useRef(GCM_AVERAGES.create())
@@ -71,11 +75,13 @@ export function useGcmRun() {
 
 	useEffect(() => {
 		void loadCoastlineLines().then(setCoastlines)
-		GCM_RUNNER.manifest().then(
-			(manifest) => setResolutions(manifest.resolutions),
-			(error: unknown) =>
-				setState({ ...IDLE, status: "failed", message: String(error) }),
+		GCM_RUNNER.resolutions().then(setResolutions, (error: unknown) =>
+			setState({ ...IDLE, status: "failed", message: String(error) }),
 		)
+		void GCM_RUNNER.gpuAvailable().then((available) => {
+			setGpuAvailable(available)
+			if (!available) setEngine("cpu")
+		})
 		const clearMeasures = import.meta.env.DEV
 			? setInterval(() => performance.clearMeasures(), DEV_MEASURE_CLEAR_MS)
 			: undefined
@@ -137,17 +143,17 @@ export function useGcmRun() {
 			}))
 			try {
 				elevation.current ??= loadEarthRealElevation()
-				const [raster, manifest] = await Promise.all([
+				const [raster, available] = await Promise.all([
 					elevation.current,
-					GCM_RUNNER.manifest(),
+					GCM_RUNNER.resolutions(),
 				])
 				if (currentGeneration !== generation.current) return
-				const resolution = manifest.resolutions.find(
+				const resolution = available.find(
 					(entry) => entry.truncation === request.config.truncation,
 				)
-				if (!resolution) {
+				if (!resolution?.[request.engine]) {
 					throw new Error(
-						`T${request.config.truncation} inputs are missing: run \`node scripts/exoplasim-webgpu/package-inputs.mjs\``,
+						`T${request.config.truncation} is not built for the ${request.engine.toUpperCase()} engine`,
 					)
 				}
 				setState((current) => ({
@@ -164,6 +170,7 @@ export function useGcmRun() {
 							}),
 				)
 				run.current = GCM_RUNNER.start({
+					engine: request.engine,
 					config: request.config,
 					elevation: raster,
 					resolution,
@@ -190,9 +197,12 @@ export function useGcmRun() {
 						const latest = live.get().snapshot
 						if (latest) {
 							const meta = {
-								format: GCM_CHECKPOINT.FORMAT,
+								format: GCM_CHECKPOINT.FORMATS[request.engine],
 								config: request.config,
-								precisionBytes: GCM_CHECKPOINT.PRECISION_BYTES,
+								precisionBytes:
+									request.engine === "gpu"
+										? GCM_CHECKPOINT.GPU_PRECISION_BYTES
+										: (resolution.cpu?.precisionBytes ?? 0),
 								date: latest.date,
 								step: latest.step,
 							}
@@ -230,8 +240,27 @@ export function useGcmRun() {
 					await file.arrayBuffer(),
 				)
 				if (currentGeneration !== generation.current) return
+				const saved = GCM_CHECKPOINT.engine(meta)
+				if (saved === "gpu" && !gpuAvailable)
+					throw new Error(
+						"This checkpoint was saved by the GPU engine, and this browser has no WebGPU",
+					)
+				const build = resolutions.find(
+					(entry) => entry.truncation === meta.config.truncation,
+				)?.cpu
+				if (
+					saved === "cpu" &&
+					build &&
+					build.precisionBytes !== meta.precisionBytes
+				) {
+					throw new Error(
+						`Checkpoint uses ${meta.precisionBytes}-byte reals; this T${meta.config.truncation} CPU build uses ${build.precisionBytes}`,
+					)
+				}
 				setConfig(meta.config)
+				setEngine(saved)
 				await launch({
+					engine: saved,
 					config: meta.config,
 					restart,
 					fresh: true,
@@ -247,7 +276,7 @@ export function useGcmRun() {
 				})
 			}
 		},
-		[launch],
+		[launch, gpuAvailable, resolutions],
 	)
 
 	return {
@@ -258,8 +287,12 @@ export function useGcmRun() {
 		downscale,
 		live,
 		coastlines,
+		engine,
+		setEngine,
+		gpuAvailable,
 		start: () =>
 			launch({
+				engine,
 				config,
 				restart: null,
 				fresh: true,

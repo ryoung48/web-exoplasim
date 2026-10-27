@@ -1,17 +1,26 @@
 {
-  "engine": "webgpu",
   "resolutions": [
     {
       "truncation": 21,
       "latitudes": 32,
-      "inputs": "t21/inputs.json",
-      "downloadBytes": 1235859
+      "precisionBytes": 8,
+      "ranks": [
+        2,
+        4,
+        8
+      ],
+      "downloadBytes": 4612697
     },
     {
       "truncation": 42,
       "latitudes": 64,
-      "inputs": "t42/inputs.json",
-      "downloadBytes": 4925331
+      "precisionBytes": 8,
+      "ranks": [
+        2,
+        4,
+        8
+      ],
+      "downloadBytes": 12673763
     }
   ]
 }
