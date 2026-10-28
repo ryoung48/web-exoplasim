@@ -13,6 +13,7 @@ import type { GcmClimateScheme } from "@/model/climate/gcm/classification/types"
 import type { GcmMapMode } from "@/model/climate/gcm/fields/types"
 import type { GcmGrid } from "@/model/climate/gcm/grid/types"
 import type {
+	GcmEngine,
 	GcmResolution,
 	GcmRunStatus,
 } from "@/model/climate/gcm/runner/types"
@@ -95,6 +96,7 @@ export type GcmMapLayer =
 export type GcmMapDetail = "model" | "downscaled"
 
 export interface GcmMapProps {
+	loading: boolean
 	readLayer: () => GcmMapLayer | null
 	coastlines: CoastlineLineData | null
 	emptyMessage: string
@@ -218,7 +220,6 @@ export type GcmHelpKey =
 	| "truncation"
 	| "workers"
 	| "timestepMinutes"
-	| "radiationIntervalSteps"
 	| "physicsFilter"
 	| "gridpointFilter"
 	| "spectralFilter"
@@ -274,7 +275,7 @@ export interface GcmStepSample {
 export interface GcmRunState {
 	status: GcmRunStatus | "idle"
 	message: string
-	ranks: number
+	device: string
 	truncation: number
 	stepsPerSecond: number
 }
@@ -286,6 +287,7 @@ export interface GcmBalanceRow {
 
 export interface GcmLaunchRequest {
 	terrain: GcmTerrain | null
+	engine: GcmEngine
 	config: GcmConfig
 	restart: ArrayBuffer | null
 	fresh: boolean
@@ -304,6 +306,9 @@ export interface GcmWorkerOption {
 }
 
 export interface GcmConfigPanelProps {
+	engine: GcmEngine
+	gpuAvailable: boolean | null
+	onEngineChange: (engine: GcmEngine) => void
 	config: GcmConfig
 	terrain: GcmTerrain | null
 	latitudes: number

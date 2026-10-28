@@ -1,0 +1,120 @@
+override RDBRV: f32;
+override GASCON: f32;
+override GA: f32;
+override ACPD: f32;
+override ADV: f32;
+override DELTSEC2: f32;
+override ZUMIN: f32;
+override VDIFF_B: f32;
+override VDIFF_C: f32;
+override VDIFF_D: f32;
+// ndheat > 0: kinetic energy lost to vertical diffusion heats each level.
+override NDHEAT: bool;
+
+
+fn at(field: u32, l: u32, h: u32) -> u32 {
+	return field + l * NHOR + h;
+}
+
+// fluxmod's vdiff for one column: Richardson-number dependent diffusion
+// coefficients between levels, then implicit diffusion of u, v, q and
+// potential temperature, with kinetic-energy dissipation as heating.
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+	let h = id.x;
+	if (h >= THREADS) {
+		return;
+	}
+	var zt: array<f32, NLEV>;
+	var zq: array<f32, NLEV>;
+	var zu: array<f32, NLEV>;
+	var zv: array<f32, NLEV>;
+	var zabsu: array<f32, NLEV>;
+	var zskap: array<f32, NLEV>;
+	var zskaph: array<f32, NLEV>;
+	for (var l = 0u; l < NLEV; l++) {
+		zt[l] = state[at(DT, l, h)] + state[at(DTDT, l, h)] * DELTSEC2;
+		zq[l] = state[at(DQ, l, h)] + state[at(DQDT, l, h)] * DELTSEC2;
+		zu[l] = state[at(DU, l, h)] + state[at(DUDT, l, h)] * DELTSEC2;
+		zv[l] = state[at(DV, l, h)] + state[at(DVDT, l, h)] * DELTSEC2;
+		zabsu[l] = sqrt(zu[l] * zu[l] + zv[l] * zv[l]);
+		zskap[l] = tables[TABLE_VDIFF_SKAP + l];
+		zskaph[l] = tables[TABLE_VDIFF_SKAPH + l];
+	}
+	let zkonst1 = GA * DELTSEC2 / GASCON;
+	let zkonst2 = zkonst1 * GA / GASCON;
+	let zkonst3 = zkonst2 * GA / GASCON;
+	let moisture = 1.0 / RDBRV - 1.0;
+	var kh: array<f32, NLEV>;
+	var km: array<f32, NLEV>;
+	for (var l = 0u; l < NLEM; l++) {
+		let lp = l + 1u;
+		// Mixing lengths, the stability factor and sigma terms depend only on
+		// the level; SURFACE_FLUX.tables computes them in f64.
+		let sigmah = tables[TABLE_SIGMAH + l];
+		let dsigma = tables[TABLE_DSIGMA + l];
+		let dsigmap = tables[TABLE_DSIGMA + lp];
+		let zmixh2 = tables[TABLE_VDIFF_MIXH2 + l];
+		let zmixm2 = tables[TABLE_VDIFF_MIXM2 + l];
+		let zrdsig = tables[TABLE_VDIFF_RDSIG + l];
+		let zfac = zkonst3 * tables[TABLE_VDIFF_SIGMAH3 + l];
+		let zzkfac = tables[TABLE_VDIFF_KFAC + l];
+		let zrthl = (dsigmap + dsigma) / (zt[l] * dsigmap + zt[lp] * dsigma);
+		let zdvds = max(ZUMIN, abs(zabsu[l] - zabsu[lp])) * zrdsig;
+		let zdthds = (zt[l] * (1.0 + moisture * zq[l]) / zskap[l]
+			- zt[lp] * (1.0 + moisture * zq[lp]) / zskap[lp]) * zrdsig;
+		let zri = zskaph[l] * GASCON * zdthds / (sigmah * zdvds * zdvds);
+		var zrifh: f32;
+		var zrifm: f32;
+		if (zri <= 0.0) {
+			let zdenomh = 1.0 + 3.0 * VDIFF_C * VDIFF_B * sqrt(-1.0 * zri) * zzkfac * zmixh2;
+			let zdenomm = 1.0 + 3.0 * VDIFF_C * VDIFF_B * sqrt(-1.0 * zri) * zzkfac * zmixm2;
+			zrifh = 1.0 - 3.0 * VDIFF_B * zri / zdenomh;
+			zrifm = 1.0 - 2.0 * VDIFF_B * zri / zdenomm;
+		} else {
+			let zdenom = sqrt(1.0 + VDIFF_D * zri);
+			zrifh = 1.0 / (1.0 + 3.0 * VDIFF_B * zri * zdenom);
+			zrifm = 1.0 / (1.0 + 2.0 * VDIFF_B * zri / zdenom);
+		}
+		kh[l] = zfac * zmixh2 * zrifh * zdvds * zrthl * zrthl * zrthl;
+		km[l] = zfac * zmixm2 * zrifm * zdvds * zrthl * zrthl * zrthl;
+	}
+
+	var zun = zu;
+	var zvn = zv;
+	diffuse(&zun, &km);
+	diffuse(&zvn, &km);
+	for (var l = 0u; l < NLEV; l++) {
+		state[at(DUDT, l, h)] = state[at(DUDT, l, h)] + (zun[l] - zu[l]) / DELTSEC2;
+		state[at(DVDT, l, h)] = state[at(DVDT, l, h)] + (zvn[l] - zv[l]) / DELTSEC2;
+	}
+	if (NDHEAT) {
+		var zke: array<f32, NLEV>;
+		for (var l = 0u; l < NLEV; l++) {
+			zke[l] = 0.5 * zabsu[l] * zabsu[l];
+		}
+		var zken = zke;
+		diffuse(&zken, &km);
+		for (var l = 0u; l < NLEV; l++) {
+			let zdtdt = -((zun[l] * zun[l] - zu[l] * zu[l] + zvn[l] * zvn[l] - zv[l] * zv[l]) / DELTSEC2
+				- (zken[l] - zke[l]) / DELTSEC2) * 0.5 / ACPD / (1.0 + ADV * state[at(DQ, l, h)]);
+			state[at(DTDT, l, h)] = state[at(DTDT, l, h)] + zdtdt;
+		}
+	}
+
+	var zqn = zq;
+	diffuse(&zqn, &kh);
+	for (var l = 0u; l < NLEV; l++) {
+		state[at(DQDT, l, h)] = state[at(DQDT, l, h)] + (zqn[l] - zq[l]) / DELTSEC2;
+	}
+
+	// Potential temperature: kh scaled by sigmah^kappa.
+	for (var l = 0u; l < NLEM; l++) {
+		kh[l] = kh[l] * zskaph[l];
+	}
+	var ztn = zt;
+	diffuse_potential(&ztn, &kh, &zskap);
+	for (var l = 0u; l < NLEV; l++) {
+		state[at(DTDT, l, h)] = state[at(DTDT, l, h)] + (ztn[l] - zt[l]) / DELTSEC2;
+	}
+}

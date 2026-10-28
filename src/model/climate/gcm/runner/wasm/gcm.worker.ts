@@ -1,14 +1,15 @@
 import { GCM_FIELDS } from "@/model/climate/gcm/fields"
 import { GCM_NAMELIST } from "@/model/climate/gcm/namelist"
 import type { GcmNamelistFile } from "@/model/climate/gcm/namelist/types"
+import { GCM_INPUTS } from "@/model/climate/gcm/runner/inputs"
 import type {
 	ExoplasimFactory,
 	ExoplasimModule,
 	ExoplasimPublishedFields,
-	GcmWorkerLoad,
-	GcmWorkerRequest,
-	GcmWorkerResponse,
-} from "@/model/climate/gcm/runner/types"
+	GcmWasmWorkerLoad,
+	GcmWasmWorkerRequest,
+	GcmWasmWorkerResponse,
+} from "@/model/climate/gcm/runner/wasm/types"
 
 import type { GcmLayerCount } from "@/model/climate/gcm/types"
 
@@ -26,7 +27,7 @@ let model: ExoplasimModule | null = null
 let exitCode = 0
 let exchange: SharedArrayBuffer | null = null
 
-function post(response: GcmWorkerResponse) {
+function post(response: GcmWasmWorkerResponse) {
 	self.postMessage(response)
 }
 
@@ -44,7 +45,7 @@ function publish(fields: ExoplasimPublishedFields) {
 		)
 	}
 	const [year, month, day, hour, minute] = fields.date
-	const response: GcmWorkerResponse = {
+	const response: GcmWasmWorkerResponse = {
 		type: "snapshot",
 		snapshot: {
 			layers: loadedLayers,
@@ -56,19 +57,17 @@ function publish(fields: ExoplasimPublishedFields) {
 	self.postMessage(response, { transfer: [fields.values.buffer] })
 }
 
-function prepareFiles(request: GcmWorkerLoad) {
+function prepareFiles(request: GcmWasmWorkerLoad) {
 	if (!model) return
 	const fs = model.FS
-	const overrideLandAlbedo =
-		request.namelistEdits.landmod_namelist?.ALBLAND !== undefined
-	const overrideSoilWater =
-		request.namelistEdits.landmod_namelist?.WSMAX !== undefined
 	for (const name of fs.readdir("/")) {
 		if (
 			name.endsWith(".sra") &&
-			(!request.keepSurfaceFiles ||
-				(overrideLandAlbedo && name.endsWith("0174.sra")) ||
-				(overrideSoilWater && name.endsWith("0229.sra")))
+			!GCM_INPUTS.keepSurfaceFile({
+				name,
+				keepSurfaceFiles: request.keepSurfaceFiles,
+				namelistEdits: request.namelistEdits,
+			})
 		) {
 			fs.unlink(`/${name}`)
 		}
@@ -89,7 +88,7 @@ function prepareFiles(request: GcmWorkerLoad) {
 	}
 }
 
-async function load(request: GcmWorkerLoad) {
+async function load(request: GcmWasmWorkerLoad) {
 	loadedLayers = request.layers
 	exchange = request.exchange
 	const control = new Int32Array(request.control)
@@ -144,7 +143,7 @@ function run() {
 	model?.callMain([])
 	if (exitCode !== 0) abortOtherRanks()
 	const restart = exitCode === 0 ? savedRestart() : null
-	const response: GcmWorkerResponse = {
+	const response: GcmWasmWorkerResponse = {
 		type: "exit",
 		code: exitCode,
 		log: log.slice(-40),
@@ -153,7 +152,7 @@ function run() {
 	self.postMessage(response, { transfer: restart ? [restart] : [] })
 }
 
-self.onmessage = async (event: MessageEvent<GcmWorkerRequest>) => {
+self.onmessage = async (event: MessageEvent<GcmWasmWorkerRequest>) => {
 	try {
 		if (event.data.type === "load") await load(event.data)
 		else run()

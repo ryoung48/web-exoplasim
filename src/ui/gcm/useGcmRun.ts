@@ -2,11 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { GCM } from "@/model/climate/gcm"
 import { GCM_AVERAGES } from "@/model/climate/gcm/averages"
 import { GCM_CHECKPOINT } from "@/model/climate/gcm/checkpoint"
-import { GCM_DOWNSCALE } from "@/model/climate/gcm/downscale"
 import type { GcmDownscaleGrid } from "@/model/climate/gcm/downscale/types"
 import { GCM_GRID } from "@/model/climate/gcm/grid"
+import { GCM_PREPARATION } from "@/model/climate/gcm/preparation"
 import { GCM_RUNNER } from "@/model/climate/gcm/runner"
-import type { GcmResolution, GcmRun } from "@/model/climate/gcm/runner/types"
+import type {
+	GcmAverageUpdate,
+	GcmEngine,
+	GcmResolution,
+	GcmRun,
+} from "@/model/climate/gcm/runner/types"
 import { GCM_TERRAIN } from "@/model/climate/gcm/terrain"
 import type { GcmTerrain } from "@/model/climate/gcm/terrain/types"
 import type { GcmConfig, GcmSnapshot } from "@/model/climate/gcm/types"
@@ -36,7 +41,7 @@ const DISPLAY_HEIGHT = 360
 const IDLE: GcmRunState = {
 	status: "idle",
 	message: "Ready",
-	ranks: 0,
+	device: "",
 	truncation: 0,
 	stepsPerSecond: 0,
 }
@@ -60,7 +65,7 @@ export function useGcmRun() {
 			(entry) =>
 				entry.truncation === config.truncation &&
 				entry.layers === config.layers,
-		)?.ranks ?? []
+		)?.cpu?.ranks ?? []
 	const workerChoice = availableRanks.includes(Number(requestedWorkers))
 		? requestedWorkers
 		: "auto"
@@ -71,6 +76,9 @@ export function useGcmRun() {
 			label: String(ranks),
 		})),
 	]
+	// GPU unless this browser has no WebGPU adapter (null while checking).
+	const [engine, setEngine] = useState<GcmEngine>("gpu")
+	const [gpuAvailable, setGpuAvailable] = useState<boolean | null>(null)
 	const [downscale, setDownscale] = useState<GcmDownscaleGrid | null>(null)
 	const [live] = useState(GCM_LIVE.create)
 	const averager = useRef(GCM_AVERAGES.create())
@@ -85,8 +93,8 @@ export function useGcmRun() {
 		[terrain, earthCoastlines],
 	)
 	const run = useRef<GcmRun | null>(null)
+	const preparation = useRef<AbortController | null>(null)
 	const generation = useRef(0)
-	const checkpointWhilePaused = useRef(false)
 	const rate = useRef<GcmStepSample | null>(null)
 
 	useEffect(() => {
@@ -97,16 +105,21 @@ export function useGcmRun() {
 		void loadCoastlineLines().then(setEarthCoastlines, () =>
 			setEarthCoastlines(null),
 		)
-		GCM_RUNNER.manifest().then(
-			(manifest) => setResolutions(manifest.resolutions),
+		GCM_RUNNER.resolutions().then(
+			(available) => setResolutions(available),
 			(error: unknown) =>
 				setState({ ...IDLE, status: "failed", message: String(error) }),
 		)
+		void GCM_RUNNER.gpuAvailable().then((available) => {
+			setGpuAvailable(available)
+			if (!available) setEngine("cpu")
+		})
 		const clearMeasures = import.meta.env.DEV
 			? setInterval(() => performance.clearMeasures(), DEV_MEASURE_CLEAR_MS)
 			: undefined
 		return () => {
 			generation.current++
+			preparation.current?.abort()
 			run.current?.stop()
 			clearInterval(clearMeasures)
 		}
@@ -123,20 +136,20 @@ export function useGcmRun() {
 				rate.current = { step: next.step, time: now }
 				setState((current) => ({ ...current, stepsPerSecond }))
 			}
-			const monthClosed = GCM_AVERAGES.add({
-				averager: averager.current,
-				snapshot: next,
-			})
+			live.update({ snapshot: next })
+		},
+		[live],
+	)
+
+	// The worker averages every snapshot; the page mirrors the closed months.
+	const onAverages = useCallback(
+		({ months, years }: GcmAverageUpdate) => {
+			averager.current = { current: null, months, years }
 			live.update({
-				snapshot: next,
-				...(monthClosed
-					? {
-							averages: GCM_LIVE.averages({
-								averager: averager.current,
-								config: activeConfig.current,
-							}),
-						}
-					: {}),
+				averages: GCM_LIVE.averages({
+					averager: averager.current,
+					config: activeConfig.current,
+				}),
 			})
 		},
 		[live],
@@ -146,6 +159,9 @@ export function useGcmRun() {
 		async (request: GcmLaunchRequest) => {
 			activeConfig.current = request.config
 			const currentGeneration = ++generation.current
+			preparation.current?.abort()
+			const controller = new AbortController()
+			preparation.current = controller
 			run.current?.stop()
 			run.current = null
 			rate.current = null
@@ -171,65 +187,73 @@ export function useGcmRun() {
 				stepsPerSecond: 0,
 			}))
 			try {
-				const [raster, manifest] = await Promise.all([
+				const [raster, available] = await Promise.all([
 					request.terrain ?? elevation.current,
-					GCM_RUNNER.manifest(),
+					GCM_RUNNER.resolutions(),
 				])
 				if (!raster)
 					throw new Error("Unable to load the Earth elevation raster")
 				if (currentGeneration !== generation.current) return
-				const resolution = manifest.resolutions.find(
+				const resolution = available.find(
 					(entry) =>
 						entry.truncation === request.config.truncation &&
 						entry.layers === request.config.layers,
 				)
-				if (!resolution) {
+				if (!resolution?.[request.engine]) {
 					throw new Error(
-						`T${request.config.truncation} with ${request.config.layers} layers is not built: run \`pnpm build:gcm-wasm\``,
+						`T${request.config.truncation} is not built for the ${request.engine.toUpperCase()} engine`,
 					)
 				}
-				const ranks = resolution.ranks.includes(Number(requestedWorkers))
-					? Number(requestedWorkers)
-					: GCM_RUNNER.pickRanks({
-							available: resolution.ranks,
-							hardwareThreads: navigator.hardwareConcurrency,
-						})
 				setState((current) => ({
 					...current,
-					ranks,
 					truncation: resolution.truncation,
 				}))
-				setDownscale(
-					GCM_DOWNSCALE.create({
+				const prepared = await GCM_PREPARATION.run({
+					kind: "downscale",
+					signal: controller.signal,
+					input: {
 						grid: GCM_GRID.forLatitudes(resolution.latitudes),
 						terrain: raster,
 						factor: Math.max(1, Math.ceil(raster.height / DISPLAY_HEIGHT)),
-					}),
-				)
+					},
+				})
+				if (currentGeneration !== generation.current) return
+				setDownscale(prepared)
 				run.current = GCM_RUNNER.start({
+					engine: request.engine,
 					config: request.config,
 					terrain: raster,
 					resolution,
-					ranks,
+					ranks: workerChoice === "auto" ? null : Number(workerChoice),
 					publishEvery: PUBLISH_EVERY_STEPS,
 					restart: request.restart,
+					averager: request.diagnostics?.averager ?? null,
 					startPaused: request.paused,
 					onSnapshot: (snapshot) => {
 						if (currentGeneration === generation.current) onSnapshot(snapshot)
+					},
+					onAverages: (update) => {
+						if (currentGeneration === generation.current) onAverages(update)
 					},
 					onStatus: ({ status, message }) => {
 						if (currentGeneration === generation.current)
 							setState((current) => ({ ...current, status, message }))
 					},
-					onCheckpoint: (restart) => {
+					onDevice: (device) => {
+						if (currentGeneration === generation.current)
+							setState((current) => ({ ...current, device }))
+					},
+					onCheckpoint: ({ restart, averager: saved }) => {
 						if (currentGeneration !== generation.current) return
-						const saved = live.get()
-						const latest = saved.snapshot
+						const latest = live.get().snapshot
 						if (latest) {
 							const meta = {
-								format: GCM_CHECKPOINT.FORMAT,
+								format: GCM_CHECKPOINT.FORMATS[request.engine],
 								config: request.config,
-								precisionBytes: resolution.precisionBytes,
+								precisionBytes:
+									request.engine === "gpu"
+										? GCM_CHECKPOINT.GPU_PRECISION_BYTES
+										: (resolution.cpu?.precisionBytes ?? 0),
 								date: latest.date,
 								step: latest.step,
 							}
@@ -240,20 +264,12 @@ export function useGcmRun() {
 									meta,
 									restart,
 									diagnostics: {
-										averager: averager.current,
+										averager: saved,
 										snapshot: latest,
 									},
 								}),
 							})
 						}
-						void launch({
-							terrain: raster,
-							config: request.config,
-							restart,
-							fresh: false,
-							paused: checkpointWhilePaused.current,
-							diagnostics: null,
-						})
 					},
 				})
 			} catch (error) {
@@ -265,7 +281,7 @@ export function useGcmRun() {
 				})
 			}
 		},
-		[live, onSnapshot, requestedWorkers],
+		[live, onSnapshot, onAverages, workerChoice],
 	)
 
 	const loadFromFile = useCallback(
@@ -276,19 +292,30 @@ export function useGcmRun() {
 					await file.arrayBuffer(),
 				)
 				if (currentGeneration !== generation.current) return
-				const resolution = resolutions.find(
+				const saved = GCM_CHECKPOINT.engine(meta)
+				if (saved === "gpu" && !gpuAvailable)
+					throw new Error(
+						"This checkpoint was saved by the GPU engine, and this browser has no WebGPU",
+					)
+				const build = resolutions.find(
 					(entry) =>
 						entry.truncation === meta.config.truncation &&
 						entry.layers === meta.config.layers,
-				)
-				if (resolution && resolution.precisionBytes !== meta.precisionBytes) {
+				)?.cpu
+				if (
+					saved === "cpu" &&
+					build &&
+					build.precisionBytes !== meta.precisionBytes
+				) {
 					throw new Error(
-						`Checkpoint uses ${meta.precisionBytes}-byte reals; this T${resolution.truncation} build uses ${resolution.precisionBytes}`,
+						`Checkpoint uses ${meta.precisionBytes}-byte reals; this T${meta.config.truncation} CPU build uses ${build.precisionBytes}`,
 					)
 				}
 				setConfig(meta.config)
 				setTerrain(terrain)
+				setEngine(saved)
 				await launch({
+					engine: saved,
 					terrain,
 					config: meta.config,
 					restart,
@@ -305,15 +332,15 @@ export function useGcmRun() {
 				})
 			}
 		},
-		[launch, resolutions],
+		[launch, gpuAvailable, resolutions],
 	)
 
 	const clear = () => {
 		generation.current++
+		preparation.current?.abort()
 		run.current?.stop()
 		run.current = null
 		rate.current = null
-		checkpointWhilePaused.current = false
 		averager.current = GCM_AVERAGES.create()
 		live.update(GCM_LIVE.EMPTY)
 		setDownscale(null)
@@ -332,7 +359,12 @@ export function useGcmRun() {
 			}))
 		},
 		config,
-		setConfig,
+		setConfig: (next: GcmConfig) =>
+			setConfig((current) =>
+				next.truncation === 63 && current.truncation !== 63
+					? { ...next, timestepMinutes: Math.min(next.timestepMinutes, 20) }
+					: next,
+			),
 		state,
 		resolutions,
 		workerChoice,
@@ -341,9 +373,21 @@ export function useGcmRun() {
 		downscale,
 		live,
 		coastlines,
+		engine,
+		setEngine: (next: GcmEngine) => {
+			if (next === "cpu" && config.truncation === 63) {
+				const fallback = resolutions.find(
+					(entry) => entry.layers === config.layers && entry.cpu,
+				)
+				if (fallback) setConfig({ ...config, truncation: fallback.truncation })
+			}
+			setEngine(next)
+		},
+		gpuAvailable,
 		start: () =>
 			launch({
 				terrain,
+				engine,
 				config,
 				restart: null,
 				fresh: true,
@@ -354,9 +398,6 @@ export function useGcmRun() {
 		clear,
 		pause: () => run.current?.pause(),
 		resume: () => run.current?.resume(),
-		save: () => {
-			checkpointWhilePaused.current = state.status === "paused"
-			run.current?.checkpoint()
-		},
+		save: () => run.current?.checkpoint(),
 	}
 }

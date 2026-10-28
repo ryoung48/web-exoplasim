@@ -1,5 +1,7 @@
 import argparse
+import array
 import json
+import math
 from pathlib import Path
 import re
 import shutil
@@ -7,6 +9,15 @@ import subprocess
 import time
 
 from model_source import ModelSource, copy_sources, object_names, patch_sources
+from probe_source import module_variables, state_source
+
+# Modules whose variables the probe dumps and replays, with their sources:
+# the dynamics' pumamod and every physics module the page reaches.
+PROBED_MODULES = {
+    "pumamod": "plasimmod.f90", "miscmod": "miscmod.f90", "fluxmod": "fluxmod.f90", "radmod": "radmod.f90", "orbconst": "radmod.f90",
+    "rainmod": "rainmod.f90", "surfmod": "surfmod.f90", "landmod": "landmod.f90", "seamod": "seamod.f90", "icemod": "icemod.f90",
+    "oceanmod": "oceanmod.f90", "vegmod": "simba.f90", "carbonmod": "carbonmod.f90", "glaciermod": "glaciermod.f90", "specblock": "specblock.f90",
+}
 
 
 parser = argparse.ArgumentParser(description="Native gfortran ExoPlaSim references for the WebGPU port")
@@ -14,16 +25,22 @@ parser.add_argument("--work", type=Path, default=Path("/var/tmp/chaos-exoplasim-
 commands = parser.add_subparsers(dest="command", required=True)
 build_parser = commands.add_parser("build")
 build_parser.add_argument("--truncation", type=int, choices=[21, 42], default=21)
+build_parser.add_argument("--layers", type=int, choices=[5, 10], default=10)
 build_parser.add_argument("--ranks", type=int, choices=[1, 2, 4, 8], default=8)
 build_parser.add_argument("--precision", type=int, choices=[4, 8], default=8)
 build_parser.add_argument("--demote-double", action="store_true", help="also demote explicit real(kind=8), leaving no f64 (-freal-8-real-4)")
 build_parser.add_argument("--coverage", action="store_true")
+build_parser.add_argument("--probe", action="store_true", help="dump transform tables and FFT matrices after legini (serial only)")
 run_parser = commands.add_parser("run")
 run_parser.add_argument("--build", type=Path, required=True)
 run_parser.add_argument("--inputs", type=Path, required=True)
 run_parser.add_argument("--output", type=Path, required=True)
-run_parser.add_argument("--years", type=int, required=True)
+length = run_parser.add_mutually_exclusive_group(required=True)
+length.add_argument("--years", type=int)
+length.add_argument("--steps", type=int)
 run_parser.add_argument("--restart", type=Path, help="plasim_status from an earlier run")
+run_parser.add_argument("--probe-steps", type=int, nargs="+", default=[], help="steps at which a --probe build dumps its state")
+run_parser.add_argument("--replay", type=Path, help="directory of another run's probe dumps to restart each routine from")
 args = parser.parse_args()
 script_directory = Path(__file__).resolve().parent
 work = args.work.resolve()
@@ -38,10 +55,12 @@ def build_reference():
     latitudes = {21: 32, 42: 64}[args.truncation]
     if args.demote_double and args.precision != 4:
         parser.error("--demote-double needs --precision 4")
-    name = f"reference-t{args.truncation}-r{args.ranks}-p{args.precision}" + ("-demoted" if args.demote_double else "") + ("-coverage" if args.coverage else "")
+    if args.probe and args.ranks != 1:
+        parser.error("--probe needs --ranks 1, so dumped arrays are global")
+    name = f"reference-t{args.truncation}-r{args.ranks}-p{args.precision}" + ("" if args.layers == 10 else f"-l{args.layers}") + ("-demoted" if args.demote_double else "") + ("-coverage" if args.coverage else "") + ("-probe" if args.probe else "")
     build = work / name
-    model = ModelSource(source=work / "source" / "exoplasim", build=build, output=build, latitudes=latitudes, layers=10, ranks=args.ranks,
-                        main_suffix=(script_directory / "gcm_reference.f90").read_text(), step_hook="gcm_reference_step",
+    model = ModelSource(source=work / "source" / "exoplasim", build=build, output=build, latitudes=latitudes, layers=args.layers, ranks=args.ranks,
+                        main_suffix=(script_directory / "gcm_reference.f90").read_text() + ((script_directory / "gcm_probe.f90").read_text() if args.probe else ""), step_hook="gcm_reference_step",
                         mpi_module="mpimod" if args.ranks > 1 else "mpimod_stub", utility_module="utilities" if args.ranks > 1 else "utilities_stub")
     copy_sources(model)
     if args.demote_double:
@@ -55,6 +74,50 @@ def build_reference():
                 text = re.sub(r"(&\s*pf,n,)MPI_REAL8", r"\1MPI_REAL4", text, count=1)
             path.write_text(text)
     patch_sources(model)
+    if args.probe:
+        main = (build / "plasim.f90").read_text()
+        newline = chr(10)
+        # Main-loop calls only; the nkits start-up steps call the same
+        # routines with other neighbours.
+        hooks = [
+            ("      call legini" + newline, "      call legini" + newline + "      call gcm_probe_tables" + newline),
+            ("         call initpm ", "         call gcm_probe_init('initpm-in')" + newline + "         call initpm "),
+            ("         call initsi                ! Initialize semi implicit scheme" + newline, "         call initsi                ! Initialize semi implicit scheme" + newline + "         call gcm_probe_init('initsi-out')" + newline),
+            ("         call gridpointa" + newline + "         call makebm" + newline + "         call spectrala" + newline + "         call gridpointd" + newline + "         call spectrald" + newline,
+             newline.join([
+                 "         call gcm_probe_kits('a0')",
+                 "         call gridpointa",
+                 "         call makebm",
+                 "         call gcm_probe_kits('a1')",
+                 "         call spectrala",
+                 "         call gcm_probe_kits('a2')",
+                 "         call gridpointd",
+                 "         call gcm_probe_kits('a3')",
+                 "         call spectrald",
+                 "         call gcm_probe_kits('a4')",
+             ]) + newline),
+            ("         call gridpointa" + newline + newline, "         call gcm_probe_state('a0')" + newline + "         call gridpointa" + newline + "         call gcm_probe_state('a1')" + newline + newline),
+            ("         call spectrala" + newline + newline, "         call spectrala" + newline + "         call gcm_probe_state('a2')" + newline + newline),
+            ("         call gridpointd" + newline + newline, "         call gridpointd" + newline + "         call gcm_probe_state('a3')" + newline + newline),
+            ("         call spectrald" + newline + "         call outaccu", "         call spectrald" + newline + "         call gcm_probe_state('a4')" + newline + "         call outaccu"),
+            # Inside gridpointd: d0 before the first physics routine, then d1..d6
+            # after each of misc, flux, radiation, rain, surface and carbon.
+            ("      call miscstep" + newline, "      call gcm_probe_state('d0')" + newline + "      call miscstep" + newline + "      call gcm_probe_state('d1')" + newline),
+            ("      call fluxstep" + newline, "      call fluxstep" + newline + "      call gcm_probe_state('d2')" + newline),
+            ("      if(nrad > 0) call radstep" + newline, "      if(nrad > 0) call radstep" + newline + "      call gcm_probe_state('d3')" + newline),
+            ("      call rainstep" + newline, "      call rainstep" + newline + "      call gcm_probe_state('d4')" + newline),
+            ("      call surfstep" + newline, "      call surfstep" + newline + "      call gcm_probe_state('d5')" + newline),
+            ("      call carbonstep" + newline, "      call carbonstep" + newline + "      call gcm_probe_state('d6')" + newline),
+        ]
+        for anchor, replacement in hooks:
+            if main.count(anchor) != 1:
+                raise RuntimeError(f"Expected one probe anchor: {anchor.strip()}")
+            main = main.replace(anchor, replacement)
+        # Parse what the compiler sees: carbonmod declares some arrays in #if blocks.
+        preprocessed = {file: subprocess.run(["gfortran", "-cpp", "-E", "-P", build / file], capture_output=True, text=True, check=True).stdout for file in set(PROBED_MODULES.values())}
+        modules = {module: module_variables(preprocessed[file], module) for module, file in PROBED_MODULES.items()}
+        main += state_source(modules)
+        (build / "plasim.f90").write_text(main)
     precision = {8: "-fdefault-real-8 -fdefault-double-8", 4: "-freal-8-real-4" if args.demote_double else ""}[args.precision]
     optimization = "-O0 --coverage" if args.coverage else "-O2"
     (build / "Makefile").write_text(
@@ -74,7 +137,7 @@ def build_reference():
     subprocess.run(["make", "-e", *objects], cwd=build, check=True, env=make_env)
     run(["mpif90", *optimization.split(), "-o", build / "exoplasim", *[build / o for o in objects]])
     (build / "reference.json").write_text(json.dumps({"truncation": args.truncation, "latitudes": latitudes, "ranks": args.ranks, "precisionBytes": args.precision,
-                                                     "demoteDouble": args.demote_double, "coverage": args.coverage, "flags": f"-cpp {optimization} {precision}".strip(),
+                                                     "demoteDouble": args.demote_double, "coverage": args.coverage, "probe": args.probe, "flags": f"-cpp {optimization} {precision}".strip(),
                                                      "compiler": subprocess.run(["gfortran", "--version"], capture_output=True, text=True).stdout.splitlines()[0],
                                                      "compileSeconds": time.perf_counter() - started}, indent=2))
     print(build)
@@ -95,14 +158,27 @@ def run_reference():
     if output.exists():
         shutil.rmtree(output)
     shutil.copytree(args.inputs, output)
-    set_namelist(output / "plasim_namelist", {"N_RUN_YEARS": args.years, "N_RUN_MONTHS": 0, "N_RUN_DAYS": 0, "N_RUN_STEPS": 0, "NDIAG": 1000000})
+    set_namelist(output / "plasim_namelist", {"N_RUN_YEARS": args.years or 0, "N_RUN_MONTHS": 0, "N_RUN_DAYS": 0, "N_RUN_STEPS": args.steps or 0, "NDIAG": 1000000})
     if args.restart:
         shutil.copy2(args.restart, output / "plasim_restart")
+    if args.probe_steps:
+        (output / "probe-steps.txt").write_text("".join(f"{step}\n" for step in args.probe_steps))
+    if args.replay:
+        # Each routine starts from the other run's state just before it; the
+        # last point is only an output.
+        for dump in [*args.replay.glob("probe-*-a[0-3].bin"), *args.replay.glob("probe-*-d[0-6].bin")]:
+            source_bytes = int((dump.with_suffix(".txt")).read_text().split("\n", 1)[0].split()[1])
+            values = array.array({8: "d", 4: "f"}[source_bytes], dump.read_bytes())
+            # Round once to the target build's default real; out-of-range
+            # values become infinities, as a Fortran conversion would.
+            converted = array.array({8: "d", 4: "f"}[reference["precisionBytes"]],
+                                    [value if not abs(value) > 3.4028234663852886e38 or reference["precisionBytes"] == 8 else math.copysign(math.inf, value) for value in values])
+            (output / dump.name.replace("probe-", "replay-", 1)).write_bytes(converted.tobytes())
     started = time.perf_counter()
     command = f"ulimit -s unlimited && exec mpirun --oversubscribe -np {reference['ranks']} {args.build / 'exoplasim'}" if reference["ranks"] > 1 else f"ulimit -s unlimited && exec {args.build / 'exoplasim'}"
     with (output / "console.txt").open("w") as console:
         result = subprocess.run(["bash", "-c", command], cwd=output, stdout=console, stderr=subprocess.STDOUT)
-    (output / "run.json").write_text(json.dumps({**reference, "build": str(args.build), "inputs": str(args.inputs), "years": args.years,
+    (output / "run.json").write_text(json.dumps({**reference, "build": str(args.build), "inputs": str(args.inputs), "years": args.years, "steps": args.steps,
                                                  "restart": str(args.restart) if args.restart else None, "exitCode": result.returncode,
                                                  "elapsedSeconds": time.perf_counter() - started}, indent=2))
     result.check_returncode()

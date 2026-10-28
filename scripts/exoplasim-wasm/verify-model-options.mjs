@@ -16,6 +16,7 @@ const errors = []
 page.on("pageerror", (error) => errors.push(error.message))
 try {
 	await page.goto(`${baseUrl}/gcm`)
+	await page.getByRole("button", { name: "CPU", exact: true }).click()
 	const cores = []
     for (const layers of layerCounts) {
     const core = await page.evaluate(async (layers) => {
@@ -73,7 +74,7 @@ try {
         }`], { type: "text/javascript" }))
         try {
             for (const scenario of [{ keep: true, override: false, soil: false }, { keep: true, override: true, soil: false }, { keep: true, override: false, soil: true }, { keep: true, override: true, soil: true }, { keep: false, override: false, soil: false }]) {
-                const worker = new Worker("/src/model/climate/gcm/runner/gcm.worker.ts", { type: "module" })
+                const worker = new Worker("/src/model/climate/gcm/runner/wasm/gcm.worker.ts", { type: "module" })
                 try {
                     const paths = await new Promise((resolve, reject) => {
                         const timer = setTimeout(() => reject(new Error("Surface file preparation timed out")), 10000)
@@ -153,13 +154,13 @@ try {
 			for (const [mode, expected] of [["convectivePrecipitation", 2], ["largeScalePrecipitation", 3], ["toaShortwave", 700], ["toaLongwave", -250], ["surfaceShortwave", 200], ["surfaceLongwave", -60], ["sensibleHeatFlux", -20], ["latentHeatFlux", -100], ["snowfall", 3], ["snowmelt", 4], ["seaIceThickness", 2000], ["glacierCover", 25], ["seaLevelPressure", 1013.25], ["layerCloud5", 25]]) {
                 check({ condition: Math.abs(GCM_FIELDS.values({ snapshot: annual, mode })[0] - expected) < 0.001, message: `Annual ${mode} lost or mis-scaled` })
             }
-            const checkpoint = GCM_CHECKPOINT.encode({ terrain, meta: { format: GCM_CHECKPOINT.FORMAT, config: { ...config, truncation: latitudes === 32 ? 21 : 42 }, precisionBytes: 8, date: snapshot.date, step: snapshot.step }, diagnostics: { snapshot, averager }, restart: new Uint8Array([1, 2, 3]).buffer })
+            const checkpoint = GCM_CHECKPOINT.encode({ terrain, meta: { format: GCM_CHECKPOINT.FORMATS.cpu, config: { ...config, truncation: latitudes === 32 ? 21 : 42 }, precisionBytes: 8, date: snapshot.date, step: snapshot.step }, diagnostics: { snapshot, averager }, restart: new Uint8Array([1, 2, 3]).buffer })
 			const restored = GCM_CHECKPOINT.decode(checkpoint)
 			const mismatched = GCM_CHECKPOINT.encode({ ...restored, meta: { ...restored.meta, config: { ...restored.meta.config, layers: layers === 5 ? 10 : 5 } } })
             let rejectedMismatch = false
             try { GCM_CHECKPOINT.decode(mismatched) } catch { rejectedMismatch = true }
             check({ condition: rejectedMismatch, message: "Mismatched layer checkpoint accepted" })
-            const older = GCM_CHECKPOINT.encode({ ...restored, meta: { ...restored.meta, format: GCM_CHECKPOINT.FORMAT - 1 } })
+            const older = GCM_CHECKPOINT.encode({ ...restored, meta: { ...restored.meta, format: GCM_CHECKPOINT.FORMATS.cpu - 1 } })
 			let rejectedOlder = false
 			try { GCM_CHECKPOINT.decode(older) } catch (error) { rejectedOlder = error.message.includes("Unsupported checkpoint format") }
 			check({ condition: rejectedOlder, message: "An obsolete snapshot layout was accepted" })
@@ -167,7 +168,7 @@ try {
 			check({ condition: restored.diagnostics.snapshot.values.every((value, i) => value === snapshot.values[i]), message: "Expanded snapshot changed in checkpoint" })
 			check({ condition: GCM_AVERAGES.annual(restored.diagnostics.averager).values.length === snapshot.values.length, message: "Annual checkpoint history lost" })
 		}
-		return { fields: GCM_FIELDS.fieldCount(layers), mapModes: GCM_FIELDS.MODES.filter(({ mode }) => !GCM_FIELDS.layer(mode) || GCM_FIELDS.layer(mode).level <= layers).length, layers, checkpointFormat: GCM_CHECKPOINT.FORMAT }
+		return { fields: GCM_FIELDS.fieldCount(layers), mapModes: GCM_FIELDS.MODES.filter(({ mode }) => !GCM_FIELDS.layer(mode) || GCM_FIELDS.layer(mode).level <= layers).length, layers, checkpointFormat: GCM_CHECKPOINT.FORMATS.cpu }
 	}, layers)
     cores.push(core)
     }
@@ -185,8 +186,8 @@ try {
 				const check = ({ condition, message }) => { if (!condition) throw new Error(message) }
 				const config = { ...GCM.DEFAULT_CONFIG, truncation, layers, keplerian: ranks === 8, periapseLongitudeDeg: ranks === 8 ? 45 : null, initialMeanAnomalyDeg: ranks === 8 ? 90 : null, timestepMinutes: 30, atmosphere: { ...GCM.DEFAULT_CONFIG.atmosphere, partialPressures: { ...GCM.DEFAULT_CONFIG.atmosphere.partialPressures, N2: 0.78, O2: 0.21, Ar: 0.01, CO2: 1 / 999 } }, gravityMs2: 12, radiusEarth: 1.2, synchronous: ranks !== 8, substellarLongitudeDeg: 90, oceanDepthM: 20, vegetation: ranks === 2 ? 0 : ranks === 4 ? 1 : 2, ...(ranks === 8 ? { landAlbedo: 0.31, oceanAlbedo: 0.07, snowIceAlbedo: 0.65, soilWaterCapacityM: 0.25, soilHeatCapacity: 3000000, soilDepthScale: 2 } : {}) }
 				const terrain = { name: "Test continent", width: 4, height: 2, elevationM: new Float32Array([1000, 1000, 0, 0, 1000, 1000, 0, 0]), land: new Float32Array([1, 1, 0, 0, 1, 1, 0, 0]) }
-				const manifest = await GCM_RUNNER.manifest()
-				const resolution = manifest.resolutions.find((entry) => entry.truncation === truncation && entry.layers === layers)
+				const manifest = await GCM_RUNNER.resolutions()
+				const resolution = manifest.find((entry) => entry.truncation === truncation && entry.layers === layers)
 				const averager = GCM_AVERAGES.create()
 				let latest = null
 				let firstStep = null
@@ -198,7 +199,7 @@ try {
 					await new Promise((resolve, reject) => {
 						const timeout = setTimeout(() => { run?.stop(); reject(new Error("Simulation timed out")) }, 120000)
 						const fail = (error) => { clearTimeout(timeout); run?.stop(); reject(error) }
-						run = GCM_RUNNER.start({ config, terrain, resolution, ranks, publishEvery: 4, restart: null, startPaused: false,
+						run = GCM_RUNNER.start({ engine: "cpu", averager: null, onAverages() {}, onDevice() {}, config, terrain, resolution, ranks, publishEvery: 4, restart: null, startPaused: false,
 							onSnapshot(snapshot) {
 								try {
 									check({ condition: snapshot.values.length === resolution.latitudes ** 2 * 2 * GCM_FIELDS.fieldCount(layers), message: "Snapshot size mismatch" })
@@ -219,9 +220,10 @@ try {
 								} catch (error) { fail(error) }
 							},
 							onStatus({ status, message }) { if (status === "failed") fail(new Error(message)) },
-							onCheckpoint(restart) { clearTimeout(timeout); saved = GCM_CHECKPOINT.encode({ terrain, meta: { format: GCM_CHECKPOINT.FORMAT, config, precisionBytes: resolution.precisionBytes, date: latest.date, step: latest.step }, diagnostics: { snapshot: latest, averager }, restart }); resolve() },
+							onCheckpoint({ restart }) { clearTimeout(timeout); saved = GCM_CHECKPOINT.encode({ terrain, meta: { format: GCM_CHECKPOINT.FORMATS.cpu, config, precisionBytes: resolution.cpu.precisionBytes, date: latest.date, step: latest.step }, diagnostics: { snapshot: latest, averager }, restart }); resolve() },
 						})
 					})
+					run.stop()
 					const elapsedMs = performance.now() - started
 					const restored = GCM_CHECKPOINT.decode(saved)
 					check({ condition: completedRangeDays >= 1, message: "No completed daily ranges were captured" })
@@ -242,7 +244,7 @@ try {
 					let resumedSnapshots = 0
 					await new Promise((resolve, reject) => {
 						const timeout = setTimeout(() => { run?.stop(); reject(new Error("Paused restart timed out")) }, 120000)
-						run = GCM_RUNNER.start({ config: restored.meta.config, terrain: restored.terrain, resolution, ranks, publishEvery: 4, restart: restored.restart, startPaused: true,
+						run = GCM_RUNNER.start({ engine: "cpu", averager: restored.diagnostics.averager, onAverages() {}, onDevice() {}, config: restored.meta.config, terrain: restored.terrain, resolution, ranks, publishEvery: 4, restart: restored.restart, startPaused: true,
 							onSnapshot() { resumedSnapshots++ },
 							onCheckpoint() {},
 							onStatus({ status, message }) {

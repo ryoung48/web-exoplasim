@@ -2,6 +2,7 @@ import { GCM_ATMOSPHERE } from "@/model/climate/gcm/atmosphere"
 import type {
 	GcmNamelistApplication,
 	GcmNamelistEdits,
+	GcmNamelistRead,
 } from "@/model/climate/gcm/namelist/types"
 import type { GcmConfig } from "@/model/climate/gcm/types"
 
@@ -157,7 +158,7 @@ function edits(config: GcmConfig): GcmNamelistEdits {
 				? { NSTARTEMP: "1", STARBBTEMP: String(config.starTemperatureK) }
 				: {}),
 			NO3: flag(config.atmosphere.ozone),
-			NRADINT: String(config.radiationIntervalSteps),
+			NRADINT: "1",
 			CO2: String(co2Ppm),
 			NPBROADEN: "1",
 			NECHAM: "1",
@@ -190,9 +191,50 @@ function apply({ text, values }: GcmNamelistApplication): string {
 	return result
 }
 
+// A namelist file's "KEY = value" lines, keys upper-cased and values as
+// written (comma lists such as SEED stay one string). The group header and
+// /END are skipped.
+function parse(text: string): Record<string, string> {
+	const values: Record<string, string> = {}
+	for (const line of text.split(/\r?\n/)) {
+		const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line)
+		if (match) values[match[1].toUpperCase()] = match[2]
+	}
+	return values
+}
+
+function number(text: string): number {
+	return Number(text.trim().replace(/d/i, "e"))
+}
+
+// The defaults with every value the namelist sets, as Fortran's namelist
+// read leaves them: arrays are filled from the front.
+function read<T extends Record<string, number | number[]>>({
+	text,
+	defaults,
+}: GcmNamelistRead<T>): T {
+	const values = parse(text ?? "")
+	const result: Record<string, number | number[]> = { ...defaults }
+	for (const [key, fallback] of Object.entries(defaults)) {
+		const value = values[key.toUpperCase()]
+		if (value === undefined) continue
+		const parts = value.split(",").map(number)
+		if (Array.isArray(fallback)) {
+			const array = [...fallback]
+			parts.forEach((part, i) => {
+				array[i] = part
+			})
+			result[key] = array
+		} else result[key] = parts[0]
+	}
+	return result as T
+}
+
 export const GCM_NAMELIST = {
 	edits,
 	apply,
+	parse,
+	read,
 	wetSoilOverridden(config: GcmConfig): boolean {
 		return config.wetSoil && config.starTemperatureK > 0
 	},

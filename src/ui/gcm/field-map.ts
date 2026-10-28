@@ -19,6 +19,12 @@ const VECTOR_WIDTH = 1.25
 
 const raster = document.createElement("canvas")
 let cachedLayer: GcmMapPaint["layer"] | null = null
+// Coastlines change only with the view, so they are stroked into this
+// canvas once and copied on every redraw: stroking every segment each frame
+// competed with the model for the GPU.
+const coastlineLayer = document.createElement("canvas")
+let coastlineKey = ""
+let cachedCoastlines: GcmMapPaint["coastlines"] = null
 
 function wrapOffsets(viewport: GcmMapViewport): number[] {
 	const first = Math.floor((viewport.west + 180) / 360)
@@ -136,9 +142,37 @@ function paintRaster({ width, height, color }: GcmRasterPaint) {
 	context.putImageData(image, 0, 0)
 }
 
-function paintCoastlines({ canvas, coastlines, viewport }: GcmMapPaint) {
+function paintCoastlines(paint: GcmMapPaint) {
+	const { canvas, coastlines, viewport } = paint
 	if (!coastlines) return
-	const context = canvas.getContext("2d") as CanvasRenderingContext2D
+	const { width, height } = canvas
+	const key = [
+		coastlines.rings.length,
+		width,
+		height,
+		canvas.clientWidth,
+		viewport.west,
+		viewport.north,
+		viewport.longitudeSpan,
+		viewport.latitudeSpan,
+	].join()
+	if (key !== coastlineKey || coastlines !== cachedCoastlines) {
+		coastlineKey = key
+		cachedCoastlines = coastlines
+		coastlineLayer.width = width
+		coastlineLayer.height = height
+		strokeCoastlines(paint)
+	}
+	;(canvas.getContext("2d") as CanvasRenderingContext2D).drawImage(
+		coastlineLayer,
+		0,
+		0,
+	)
+}
+
+function strokeCoastlines({ canvas, coastlines, viewport }: GcmMapPaint) {
+	if (!coastlines) return
+	const context = coastlineLayer.getContext("2d") as CanvasRenderingContext2D
 	const { width, height } = canvas
 	context.strokeStyle = uiPalette.fieldMap.coastline
 	context.lineWidth = (COASTLINE_WIDTH * canvas.width) / canvas.clientWidth

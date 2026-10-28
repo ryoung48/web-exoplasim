@@ -63,11 +63,19 @@ const PERIOD_OPTIONS = [
 export function GcmView() {
 	const gcm = useGcmRun()
 	const [requestedView, setView] = useState<GcmViewMode>("surfaceTemperature")
-	const requestedLayer = GCM_FIELDS.layer(requestedView)
+	const supportedView: GcmViewMode =
+		gcm.engine === "gpu" &&
+		requestedView !== "elevation" &&
+		requestedView !== "koppen" &&
+		requestedView !== "pasta" &&
+		!GCM_FIELDS.gpuSupports(requestedView)
+			? "surfaceTemperature"
+			: requestedView
+	const requestedLayer = GCM_FIELDS.layer(supportedView)
 	const view =
 		requestedLayer && requestedLayer.level > gcm.config.layers
 			? GCM_FIELDS.layerMode({ ...requestedLayer, level: gcm.config.layers })
-			: requestedView
+			: supportedView
 	const levelOptions = GCM_FIELDS.levels(gcm.config.layers).map((level) => ({
 		value: String(level),
 		label:
@@ -275,7 +283,14 @@ export function GcmView() {
 					{modeGroup && modeGroup.children.length > 0 && (
 						<div className={cx("flex border-l pl-2", uiTokens.border.default)}>
 							<SegmentedControl
-								options={modeGroup.children}
+								options={modeGroup.children.filter(
+									(child) =>
+										gcm.engine === "cpu" ||
+										child.value === "elevation" ||
+										child.value === "koppen" ||
+										child.value === "pasta" ||
+										GCM_FIELDS.gpuSupports(child.value),
+								)}
 								value={groupView}
 								onChange={setView}
 							/>
@@ -321,6 +336,7 @@ export function GcmView() {
 				</div>
 				<div className="relative min-h-0 flex-1">
 					<GcmMap
+						loading={status === "loading" || (status === "running" && !latest)}
 						onHover={setHover}
 						readLayer={readLayer}
 						coastlines={gcm.coastlines}
@@ -484,7 +500,10 @@ export function GcmView() {
 							label="Status"
 							value={gcm.state.message.split("\n")[0]}
 						/>
-						<LabeledValueRow label="Workers" value={gcm.state.ranks || "—"} />
+						<LabeledValueRow
+							label={gcm.engine === "gpu" ? "GPU" : "Workers"}
+							value={gcm.state.device || "—"}
+						/>
 						<LabeledValueRow
 							label="Speed"
 							value={
@@ -560,6 +579,9 @@ export function GcmView() {
 						}
 						unitSystem={unitSystem}
 						resolutions={gcm.resolutions}
+						engine={gcm.engine}
+						gpuAvailable={gcm.gpuAvailable}
+						onEngineChange={gcm.setEngine}
 						workerChoice={gcm.workerChoice}
 						workerOptions={gcm.workerOptions}
 						onWorkerChange={gcm.setWorkerChoice}

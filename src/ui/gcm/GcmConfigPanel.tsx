@@ -122,7 +122,7 @@ const ORBIT_SLIDERS: ReadonlyArray<GcmSliderSpec> = [
 		label: "Year length",
 		min: 60,
 		max: 720,
-		step: 12,
+		step: 1,
 		unit: "days",
 		digits: 0,
 	},
@@ -153,15 +153,11 @@ const SMOOTHING_OPTIONS = [
 	{ value: "exp", label: "Exp" },
 	{ value: "lh", label: "L-H" },
 ] as const
-const RADIATION_OPTIONS = [
-	{ value: "1", label: "Every step" },
-	{ value: "2", label: "Every 2" },
-	{ value: "3", label: "Every 3" },
-] as const
 const TIMESTEP_OPTIONS = [
 	{ value: "5", label: "5" },
 	{ value: "10", label: "10" },
 	{ value: "15", label: "15" },
+	{ value: "20", label: "20" },
 	{ value: "30", label: "30" },
 	{ value: "45", label: "45" },
 ] as const
@@ -176,6 +172,9 @@ export function GcmConfigPanel({
 	latitudes,
 	unitSystem,
 	resolutions,
+	engine,
+	gpuAvailable,
+	onEngineChange,
 	workerChoice,
 	workerOptions,
 	onWorkerChange,
@@ -216,6 +215,32 @@ export function GcmConfigPanel({
 		<div className="space-y-3">
 			<fieldset disabled={disabled} className={groupClass}>
 				<legend className={groupLabel}>Numerics</legend>
+				<div className="space-y-1">
+					<span className={label}>Engine</span>
+					<SegmentedControl
+						fullWidth
+						options={[
+							{
+								value: "gpu",
+								label: "GPU",
+								disabled: gpuAvailable === false,
+								title:
+									gpuAvailable === false
+										? "This browser has no WebGPU"
+										: "The WebGPU port of ExoPlaSim, on the graphics card",
+							},
+							{
+								value: "cpu",
+								label: "CPU",
+								title: "ExoPlaSim compiled to WebAssembly, on CPU workers",
+							},
+						]}
+						value={engine}
+						onChange={(value) => {
+							if (!disabled) onEngineChange(value)
+						}}
+					/>
+				</div>
 				{resolutions.length > 0 && (
 					<div className="space-y-1">
 						<span className={label}>
@@ -224,11 +249,24 @@ export function GcmConfigPanel({
 						<SegmentedControl
 							fullWidth
 							options={resolutions
-								.filter((resolution) => resolution.layers === config.layers)
-								.map((resolution) => ({
-									value: String(resolution.truncation),
-									label: `T${resolution.truncation} · ${formatWithUnit(resolution.downloadBytes / BYTES_PER_MEGABYTE, "MB", 1)}`,
-								}))}
+								.filter(
+									(resolution) =>
+										resolution.layers === config.layers &&
+										(engine !== "cpu" || resolution.truncation !== 63),
+								)
+								.map((resolution) => {
+									const assets = resolution[engine]
+									return {
+										value: String(resolution.truncation),
+										label: assets
+											? `T${resolution.truncation} · ${formatWithUnit(assets.downloadBytes / BYTES_PER_MEGABYTE, "MB", 1)}`
+											: `T${resolution.truncation}`,
+										disabled: !assets,
+										title: assets
+											? undefined
+											: `Not built for the ${engine.toUpperCase()} engine`,
+									}
+								})}
 							value={String(config.truncation)}
 							onChange={(value) =>
 								update({ truncation: Number(value) as GcmTruncation })
@@ -255,17 +293,19 @@ export function GcmConfigPanel({
 						}
 					/>
 				</fieldset>
-				<fieldset className="space-y-1" aria-label="Workers">
-					<legend className={label}>
-						<InputLabel label="Workers" help={GCM_INPUT_HELP.workers} />
-					</legend>
-					<SegmentedControl
-						fullWidth
-						options={workerOptions}
-						value={workerChoice}
-						onChange={onWorkerChange}
-					/>
-				</fieldset>
+				{engine === "cpu" && (
+					<fieldset className="space-y-1" aria-label="Workers">
+						<legend className={label}>
+							<InputLabel label="Workers" help={GCM_INPUT_HELP.workers} />
+						</legend>
+						<SegmentedControl
+							fullWidth
+							options={workerOptions}
+							value={workerChoice}
+							onChange={onWorkerChange}
+						/>
+					</fieldset>
+				)}
 				<div className="space-y-1">
 					<span className={label}>
 						<InputLabel
@@ -282,26 +322,6 @@ export function GcmConfigPanel({
 							) as (typeof TIMESTEP_OPTIONS)[number]["value"]
 						}
 						onChange={(value) => update({ timestepMinutes: Number(value) })}
-					/>
-				</div>
-				<div className="space-y-1">
-					<span className={label}>
-						<InputLabel
-							label="Radiation"
-							help={GCM_INPUT_HELP.radiationIntervalSteps}
-						/>
-					</span>
-					<SegmentedControl
-						fullWidth
-						options={RADIATION_OPTIONS}
-						value={
-							String(
-								config.radiationIntervalSteps,
-							) as (typeof RADIATION_OPTIONS)[number]["value"]
-						}
-						onChange={(value) =>
-							update({ radiationIntervalSteps: Number(value) })
-						}
 					/>
 				</div>
 				<div className="space-y-1">
@@ -409,15 +429,17 @@ export function GcmConfigPanel({
 					disabled={disabled}
 					onChange={onChange}
 				/>
-				<ToggleRow
-					label="Earth surface climatology"
-					help={GCM_INPUT_HELP.earthSurfaceClimatology}
-					checked={config.earthSurfaceClimatology}
-					disabled={disabled}
-					onChange={(earthSurfaceClimatology) =>
-						update({ earthSurfaceClimatology })
-					}
-				/>
+				{terrain === null && (
+					<ToggleRow
+						label="Earth surface climatology"
+						help={GCM_INPUT_HELP.earthSurfaceClimatology}
+						checked={config.earthSurfaceClimatology}
+						disabled={disabled}
+						onChange={(earthSurfaceClimatology) =>
+							update({ earthSurfaceClimatology })
+						}
+					/>
+				)}
 				<ToggleRow
 					label="Wet soil"
 					help={GCM_INPUT_HELP.wetSoil}

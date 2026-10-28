@@ -463,7 +463,12 @@ function values(request: GcmModeRequest): Float32Array {
 	throw new Error(`Unknown map mode: ${mode}`)
 }
 
+function gpuSupports(mode: GcmMapMode): boolean {
+	return mode !== "seaLevelPressure" && layer(mode)?.variable !== "Humidity"
+}
+
 export const GCM_FIELDS = {
+	gpuSupports,
 	fieldCount,
 	levels,
 	layer,

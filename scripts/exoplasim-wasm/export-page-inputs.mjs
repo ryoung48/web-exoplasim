@@ -32,7 +32,7 @@ try {
 		earth: {},
 		bare: { earthSurfaceClimatology: false },
 		alt1: { vegetation: 0, glaciers: { ...defaults.glaciers, enabled: false }, ozone: false, physicsFilter: ["none"], timestepMinutes: 30 },
-		alt2: { starTemperatureK: 0, wetSoil: true, physicsFilter: ["gp", "lh", "sp"], radiationIntervalSteps: 3, vegetation: 1 },
+		alt2: { starTemperatureK: 0, wetSoil: true, physicsFilter: ["gp", "lh", "sp"], vegetation: 1 },
 		orbit: { eccentricity: 0.3, obliquityDeg: 60, fixedOrbit: false, physicsFilter: ["gp", "cesaro", "sp"], rotationPeriodDays: 2 },
 	}
 	for (const [truncation, latitudes, base] of [[21, 32, baseT21], [42, 64, baseT42]]) {
@@ -47,7 +47,9 @@ try {
 				if (file.endsWith("namelist") || (config.earthSurfaceClimatology && file.endsWith(".sra"))) files[file] = await readFile(path.join(base, file), "utf8")
 			}
 			Object.assign(files, boundary)
-			for (const [file, values] of Object.entries(GCM_NAMELIST.edits(config))) {
+			const edits = GCM_NAMELIST.edits(config)
+			if (name === "alt2") edits.radmod_namelist.NRADINT = "3"
+			for (const [file, values] of Object.entries(edits)) {
 				assert(files[file], `Missing ${file} in ${base}`)
 				files[file] = GCM_NAMELIST.apply({ text: files[file], values })
 			}

@@ -74,11 +74,11 @@ try {
 		check(downscale.elevationM.every(Number.isFinite) && downscale.cellElevationM.every(Number.isFinite), "Downscale produced nonfinite terrain")
 		const small = GCM_DOWNSCALE.create({ grid: GCM_GRID.forLatitudes(32), terrain: quadrants, factor: 1 })
 		check(small.land.every((value) => value === 1), "Downscale lost explicit land")
-		const meta = { format: GCM_CHECKPOINT.FORMAT, config: GCM.DEFAULT_CONFIG, precisionBytes: 8, date: { year: 1, month: 1, day: 1, hour: 0, minute: 0 }, step: 0 }
+		const meta = { format: GCM_CHECKPOINT.FORMATS.cpu, config: GCM.DEFAULT_CONFIG, precisionBytes: 8, date: { year: 1, month: 1, day: 1, hour: 0, minute: 0 }, step: 0 }
 		const checkpoint = { terrain, meta, restart: new Uint8Array([1, 2, 3]).buffer, diagnostics: { averager: GCM_AVERAGES.create(), snapshot: { step: 0, date: meta.date, values: new Float32Array([1]) } } }
 		const restored = GCM_CHECKPOINT.decode(GCM_CHECKPOINT.encode(checkpoint))
 		check(restored.terrain.elevationM.every((value, i) => value === terrain.elevationM[i]) && restored.terrain.land.every((value, i) => value === terrain.land[i]), "Checkpoint lost terrain")
-		return { ...GCM_TERRAIN.summary(terrain), explicitMaskDifferences: differences, precision, checkpointFormat: GCM_CHECKPOINT.FORMAT }
+		return { ...GCM_TERRAIN.summary(terrain), explicitMaskDifferences: differences, precision, checkpointFormat: GCM_CHECKPOINT.FORMATS.cpu }
 	}, { name, fixture })
 	console.log("Terrain core checks", core)
 	await page.goto(`${baseUrl}/gcm`)

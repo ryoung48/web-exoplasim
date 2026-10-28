@@ -6,7 +6,7 @@ export type GcmVegetation = 0 | 1 | 2
 
 export type GcmLayerCount = 5 | 10
 
-export type GcmTruncation = 21 | 42
+export type GcmTruncation = 21 | 42 | 63
 
 export type GcmAlbedoKey = "landAlbedo" | "oceanAlbedo" | "snowIceAlbedo"
 
@@ -55,7 +55,6 @@ export interface GcmConfig {
 	glaciers: GcmGlaciers
 	physicsFilter: ReadonlyArray<GcmPhysicsFilter>
 	timestepMinutes: number
-	radiationIntervalSteps: number
 	truncation: GcmTruncation
 	earthSurfaceClimatology: boolean
 }

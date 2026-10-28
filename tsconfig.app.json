@@ -6,7 +6,7 @@
 		"useDefineForClassFields": true,
 		"lib": ["ESNext", "DOM", "DOM.Iterable"],
 		"module": "ESNext",
-		"types": ["vite/client", "node"],
+		"types": ["vite/client", "node", "@webgpu/types"],
 		"skipLibCheck": true,
 
 		/* Bundler mode */

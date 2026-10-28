@@ -4,9 +4,9 @@ The `/gcm` page exposes the controls below from ExoPlaSim commit `5f8dff4aaa8d6c
 
 ## Planet, atmosphere and illumination
 
-Settings apply when starting a new run. A checkpoint restores its saved settings.
+Settings apply when starting a new run. A checkpoint restores its saved settings. Radiation is calculated every model step in both engines (`NRADINT = 1`); the page no longer offers a radiation-cadence control.
 
-Each settings input has a question-circle icon explaining its meaning, effect on the simulation and relevant interactions. The 53 help topics include numerics, planet/star/orbit/atmosphere/surface settings and conditional terrain-import controls. Hover, focus with the keyboard, or tap to read; Escape or a click outside dismisses help. Help remains available while a run locks the inputs. Tooltips stay within the viewport and outside the scrolling sidebar's clipping area. Help text is centralized in `src/ui/gcm/input-help.ts`; these descriptions do not change the model configuration or calculations.
+Each settings input has a question-circle icon explaining its meaning, effect on the simulation and relevant interactions. Help topics include numerics, planet/star/orbit/atmosphere/surface settings and conditional terrain-import controls. Hover, focus with the keyboard, or tap to read; Escape or a click outside dismisses help. Help remains available while a run locks the inputs. Tooltips stay within the viewport and outside the scrolling sidebar's clipping area. Help text is centralized in `src/ui/gcm/input-help.ts`; these descriptions do not change the model configuration or calculations.
 
 | Control | Default | Panel range | Model setting |
 | --- | --- | --- | --- |
@@ -27,6 +27,7 @@ Each settings input has a question-circle icon explaining its meaning, effect on
 | Initial orbital phase override | Unset; native −2.9589° | −360–360°, steps of 0.0001° when enabled; shown in Keplerian mode | `MEANANOM0` |
 | Atmospheric layers | 10 | 5 or 10 | Compiled `NLEV_ATM`; selects the matching model asset |
 | Rotation period | 1 day | 0.25–100 days, steps of 0.25 | Existing `ROTSPD` and calendar mapping |
+| Year length | 360 Earth days | 60–720 days, steps of 1 | `SIDEREAL_YEAR` and derived `N_DAYS_PER_YEAR`; exactly 365 model days selects the native Gregorian calendar |
 
 The newly added control defaults and radius conversion (6,371,220 m per Earth radius) follow the pinned Python `Model.configure()` implementation and inherited Earth constants. In particular, the wrapper explicitly initializes CO₂ to 300 ppm when no CO₂ partial pressure is supplied. This does not mean every pre-existing browser preset matches upstream: stellar temperature, vegetation, glaciers, fixed orbit and filtering include browser-selected defaults. The slider ranges are interface choices for terrestrial-planet experiments, not claims that every combination is stable or scientifically validated: the radius/gravity ranges cover smaller and larger terrestrial worlds; ocean depths span shallow through deep slab oceans; and the rotation range allows slow rotators. Their increments balance adjustment precision with useful travel on a slider. Substellar longitude covers a complete turn.
 
@@ -34,9 +35,9 @@ Atmosphere now supports the two upstream input patterns: derive total pressure a
 
 Terrain elevation is converted to geopotential using the selected gravity. Terrain previews use standard Earth gravity; they display elevation and land coverage, which do not depend on this conversion. Climate downscaling retains its empirical Earth-calibrated lapse-rate heuristic; it is a display approximation, particularly for non-Earth planets. Atmospheric-layer temperatures are interpolated without a surface lapse correction.
 
-Tidally locked illumination fixes the star at the chosen longitude using upstream's synchronous-illumination switch. The rotation period still controls dynamics independently. Fixed orbit is the separate control for freezing orbital parameters; it does not fix the star in the sky.
+Tidally locked illumination uses upstream's synchronous-illumination switch. The native fixed-star declination equals the orbital obliquity; generic Keplerian mode also applies its right-ascension correction to the chosen longitude. The rotation period still controls dynamics independently. Fixed orbit is the separate control for freezing orbital parameters; it does not fix the star in the sky. Both engines support these controls; see [GPU input support](exoplasim-webgpu-inputs.md) for the native conventions and parity checks.
 
-The ocean setting controls slab-ocean heat storage, not a dynamic deep ocean. The Earth surface climatology switch continues to retain shipped surface boundary data when enabled.
+The ocean setting controls slab-ocean heat storage, not a dynamic deep ocean. Earth surface climatology is unchecked by default. Enabling it retains the bundled surface boundary data; leaving it off initializes those properties from model defaults.
 
 ## Orbital geometry and atmospheric layers
 

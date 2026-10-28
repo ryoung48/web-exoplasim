@@ -12,12 +12,13 @@ const CANVAS_WIDTH = 1440
 const CANVAS_HEIGHT = 720
 
 export function GcmMap({
+	loading,
 	readLayer,
 	coastlines,
 	emptyMessage,
 	onHover,
 }: GcmMapProps) {
-	const layer = readLayer()
+	const layer = loading ? null : readLayer()
 	const canvas = useRef<HTMLCanvasElement>(null)
 	const navigation = useRef<GcmMapNavigation | null>(null)
 	const hoverHandler = useRef(onHover)
@@ -66,6 +67,7 @@ export function GcmMap({
 
 	return (
 		<div
+			aria-busy={loading}
 			className={cx(
 				"relative h-full min-h-0 w-full overflow-hidden border",
 				uiTokens.radius.md,
@@ -106,7 +108,45 @@ export function GcmMap({
 					</Button>
 				</div>
 			)}
-			{!layer && (
+			{loading && (
+				<div
+					role="status"
+					aria-label="Loading climate map"
+					className="absolute inset-0 p-4"
+				>
+					<div
+						aria-hidden="true"
+						className="grid h-full grid-cols-4 grid-rows-2 gap-3 motion-safe:animate-pulse"
+					>
+						{["nw", "north", "ne", "east", "sw", "south", "se", "west"].map(
+							(tile) => (
+								<div
+									key={tile}
+									className={cx(uiTokens.radius.md, uiTokens.surface.canvas)}
+								/>
+							),
+						)}
+					</div>
+					<div
+						className={cx(
+							"absolute inset-0 flex items-center justify-center",
+							uiTokens.type.value,
+							uiTokens.text.muted,
+						)}
+					>
+						<span
+							className={cx(
+								"px-3 py-2",
+								uiTokens.radius.sm,
+								uiTokens.surface.panel,
+							)}
+						>
+							Preparing climate map…
+						</span>
+					</div>
+				</div>
+			)}
+			{!loading && !layer && (
 				<EmptyState message={emptyMessage} className="absolute inset-0" />
 			)}
 		</div>

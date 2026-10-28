@@ -1,4 +1,8 @@
-import type { GcmNamelistEdits } from "@/model/climate/gcm/namelist/types"
+import type {
+	GcmAverager,
+	GcmMonthlyMean,
+} from "@/model/climate/gcm/averages/types"
+import type { GcmYearlyBalance } from "@/model/climate/gcm/balance/types"
 import type { GcmTerrain } from "@/model/climate/gcm/terrain/types"
 import type {
 	GcmConfig,
@@ -7,88 +11,22 @@ import type {
 	GcmTruncation,
 } from "@/model/climate/gcm/types"
 
-export interface ExoplasimPathInfo {
-	exists: boolean
+// The model's two implementations: the WebGPU port, or ExoPlaSim compiled
+// to WebAssembly on CPU workers.
+export type GcmEngine = "gpu" | "cpu"
+
+// The means the page shows: the last 12 closed months and every year's
+// balance, sent when a month closes.
+export interface GcmAverageUpdate {
+	months: GcmMonthlyMean[]
+	years: GcmYearlyBalance[]
 }
 
-export interface ExoplasimFileSystem {
-	readFile(path: string, options: { encoding: "utf8" }): string
-	readFile(path: string): Uint8Array
-	writeFile(path: string, data: Uint8Array): void
-	analyzePath(path: string): ExoplasimPathInfo
-	writeFile(path: string, data: string): void
-	unlink(path: string): void
-	readdir(path: string): string[]
+// A saved run: the engine's restart data and the averages at that point.
+export interface GcmRunCheckpoint {
+	restart: ArrayBuffer
+	averager: GcmAverager
 }
-
-export interface ExoplasimModule {
-	FS: ExoplasimFileSystem
-	callMain(args: string[]): void
-}
-
-export interface ExoplasimPublishedFields {
-	step: number
-	date: number[]
-	fields: number
-	points: number
-	values: Float32Array
-}
-
-export interface ExoplasimSharedMemory {
-	sab: SharedArrayBuffer
-	rank: number
-	size: number
-	spin: number
-}
-
-export interface ExoplasimSnapshotHooks {
-	shouldPublish(step: number): boolean
-	shouldStop(): boolean
-	publish(fields: ExoplasimPublishedFields): void
-}
-
-export interface ExoplasimModuleOptions {
-	noInitialRun: boolean
-	print(line: string): void
-	printErr(line: string): void
-	onExit(code: number): void
-	locateFile(path: string): string
-	shm: ExoplasimSharedMemory
-	gcm: ExoplasimSnapshotHooks
-}
-
-export type ExoplasimFactory = (
-	options: ExoplasimModuleOptions,
-) => Promise<ExoplasimModule>
-
-export interface GcmWorkerLoad {
-	layers: GcmLayerCount
-	type: "load"
-	rank: number
-	size: number
-	exchange: SharedArrayBuffer
-	control: SharedArrayBuffer
-	moduleUrl: string
-	dataUrl: string
-	files: Record<string, string>
-	keepSurfaceFiles: boolean
-	restart: ArrayBuffer | null
-	namelistEdits: GcmNamelistEdits
-	publishEvery: number
-	spin: number
-}
-
-export interface GcmWorkerRun {
-	type: "run"
-}
-
-export type GcmWorkerRequest = GcmWorkerLoad | GcmWorkerRun
-
-export type GcmWorkerResponse =
-	| { type: "loaded" }
-	| { type: "snapshot"; snapshot: GcmSnapshot }
-	| { type: "exit"; code: number; log: string[]; restart: ArrayBuffer | null }
-	| { type: "error"; message: string; log: string[] }
 
 export type GcmRunStatus =
 	| "loading"
@@ -104,16 +42,22 @@ export interface GcmStatusUpdate {
 }
 
 export interface GcmRunRequest {
+	engine: GcmEngine
+	ranks: number | null
 	config: GcmConfig
 	terrain: GcmTerrain
 	resolution: GcmResolution
-	ranks: number
 	publishEvery: number
 	restart: ArrayBuffer | null
+	// The averages saved with the restart; null for a fresh start.
+	averager: GcmAverager | null
 	startPaused: boolean
 	onSnapshot(snapshot: GcmSnapshot): void
+	onAverages(update: GcmAverageUpdate): void
 	onStatus(update: GcmStatusUpdate): void
-	onCheckpoint(restart: ArrayBuffer): void
+	// What runs the model: the GPU's name, or the number of CPU workers.
+	onDevice(description: string): void
+	onCheckpoint(saved: GcmRunCheckpoint): void
 }
 
 export interface GcmRun {
@@ -123,20 +67,26 @@ export interface GcmRun {
 	stop(): void
 }
 
-export interface GcmResolution {
-	layers: GcmLayerCount
-	truncation: GcmTruncation
-	latitudes: number
+// The Wasm build of a resolution (public/gcm/manifest.json).
+export interface GcmCpuBuild {
 	precisionBytes: number
 	ranks: number[]
 	downloadBytes: number
 }
 
-export interface GcmManifest {
-	resolutions: GcmResolution[]
+// The WebGPU model's inputs for a resolution (public/gcm/webgpu.json).
+export interface GcmGpuInputs {
+	// public/gcm-relative path of the resolution's inputs.json.
+	inputs: string
+	downloadBytes: number
 }
 
-export interface GcmRankChoice {
-	available: ReadonlyArray<number>
-	hardwareThreads: number
+// A resolution and what each engine needs to run it; null where that
+// engine's assets are not built.
+export interface GcmResolution {
+	layers: GcmLayerCount
+	truncation: GcmTruncation
+	latitudes: number
+	cpu: GcmCpuBuild | null
+	gpu: GcmGpuInputs | null
 }

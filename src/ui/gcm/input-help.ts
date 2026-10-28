@@ -22,13 +22,11 @@ export const GCM_INPUT_HELP: Record<GcmHelpKey, string> = {
 	snowIceAlbedo:
 		"Reflectivity settings for snow, glaciers and sea ice. Higher values generally reduce sunlight absorbed by frozen surfaces and can strengthen ice cooling feedbacks. Off preserves ExoPlaSim's native temperature-dependent and spectral settings. The override follows upstream's snowicealbedo option; effective reflectivity can still depend on surface state and snow cover.",
 	truncation:
-		"Horizontal model resolution. T21 uses 64 × 32 grid cells; T42 uses 128 × 64 and resolves smaller weather and terrain features. T42 downloads more data and requires substantially more computation. Downscaled display maps do not increase the model's resolution.",
+		"Horizontal model resolution. T21 uses 64 × 32 grid cells, T42 uses 128 × 64, and T63 uses 192 × 96. Higher resolutions resolve smaller weather and terrain features and require more computation. T63 is available on GPU; its Earth climatologies are resampled from T42. Downscaled display maps do not increase the model's resolution.",
 	workers:
 		"Number of browser workers sharing the model calculation. Auto chooses from the available builds using your processor's reported concurrency. More workers can run faster, but also use more memory and CPU; speed does not always improve. Small numerical differences can arise from summation order.",
 	timestepMinutes:
 		"Simulated minutes advanced by each integration step. The available choices are 5, 10, 15, 30 and 45 minutes. Larger steps need fewer calculations but can reduce numerical accuracy or stability; pressure extremes may require steps as short as 5 minutes. The simulated physical processes remain the same.",
-	radiationIntervalSteps:
-		"How often the model recalculates radiation. Every 2 or 3 steps reuses the previous radiative fluxes and heating between updates. This can speed up a run, but responds less frequently to changing sunlight, clouds and temperature.",
 	physicsFilter:
 		"Chooses how the shortest spatial waves are smoothed. None disables smoothing; Cesàro, exponential and Lander–Hoskins use different damping profiles. Filtering can reduce ringing near sharp terrain or day/night boundaries, while smoothing small-scale detail. The port uses fixed filter-strength parameters.",
 	gridpointFilter:
@@ -50,9 +48,9 @@ export const GCM_INPUT_HELP: Record<GcmHelpKey, string> = {
 	rotationPeriodDays:
 		"Time for one rotation, in 24-hour Earth days. Slower rotation weakens the Coriolis effect and changes winds and large-scale circulation. The fixed-star illumination switch is separate. Non-one-day rotation also changes the model calendar using ExoPlaSim's rotation-based day-count convention.",
 	yearDays:
-		"Orbital period in 24-hour Earth days, controlling how quickly the seasonal cycle repeats. When rotation differs from one day, the port follows ExoPlaSim's convention of deriving the model calendar's day count from rotation; a displayed model year can therefore have a different number of model days.",
+		"Orbital period in 24-hour Earth days, controlling how quickly the seasonal cycle repeats. A derived model calendar of exactly 365 days uses native Gregorian months and leap years; other lengths use the rescaled 360-day calendar. When rotation differs from one day, the port follows ExoPlaSim's convention of deriving the model calendar's day count from rotation; a displayed model year can therefore have a different number of model days.",
 	synchronous:
-		"Keeps the star at a fixed longitude, producing a persistent day/night heating pattern. This can reorganize temperature, clouds and circulation. Rotation remains separately controlled; Substellar longitude chooses the illuminated side.",
+		"Keeps the star at a fixed longitude, producing a persistent day/night heating pattern. This can reorganize temperature, clouds and circulation. Rotation remains separately controlled; Substellar longitude chooses the illuminated side. The native fixed-illumination scheme uses obliquity as the substellar latitude and applies its right-ascension correction in generic Keplerian mode.",
 	substellarLongitudeDeg:
 		"Longitude, measured eastward from 0°, beneath the fixed star. It places the center of the illuminated side relative to your continents and oceans. It only affects the model when Tidally locked illumination is enabled.",
 	fixedOrbit:

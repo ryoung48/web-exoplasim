@@ -1,0 +1,22 @@
+{
+  "resolutions": [
+    {
+      "truncation": 21,
+      "latitudes": 32,
+      "inputs": "t21/inputs.json",
+      "downloadBytes": 1235859
+    },
+    {
+      "truncation": 42,
+      "latitudes": 64,
+      "inputs": "t42/inputs.json",
+      "downloadBytes": 4925331
+    },
+    {
+      "truncation": 63,
+      "latitudes": 96,
+      "inputs": "t63/inputs.json",
+      "downloadBytes": 8497608
+    }
+  ]
+}

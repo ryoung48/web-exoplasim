@@ -5,12 +5,14 @@ import type {
 } from "@/model/climate/gcm/checkpoint/types"
 import { GCM_FIELDS } from "@/model/climate/gcm/fields"
 import { GCM_GRID } from "@/model/climate/gcm/grid"
+import type { GcmEngine } from "@/model/climate/gcm/runner/types"
 import { GCM_TERRAIN } from "@/model/climate/gcm/terrain"
 
 // File layout: magic, uint32 header length, JSON header, uint32 array bytes,
 // terrain and diagnostic arrays, then the unchanged plasim_status restart file.
 const MAGIC = "EXOPLASIM-CHECKPOINT\n"
-const FORMAT = 12
+const FORMATS: Record<GcmEngine, number> = { cpu: 12, gpu: 13 }
+const GPU_PRECISION_BYTES = 4
 const HEADER_LENGTH_BYTES = 4
 
 function encode({
@@ -81,9 +83,9 @@ function decode(buffer: ArrayBuffer): GcmCheckpoint {
 	)
 	const parsed = JSON.parse(header)
 	const meta = parsed.meta as GcmCheckpointMeta
-	if (meta.format !== FORMAT) {
+	if (!Object.values(FORMATS).includes(meta.format)) {
 		throw new Error(
-			`Unsupported checkpoint format ${meta.format}. Format ${FORMAT} with the current climate-field layout is required.`,
+			`Unsupported checkpoint format ${meta.format}. Format ${FORMATS.cpu} (CPU) or ${FORMATS.gpu} (GPU) is required.`,
 		)
 	}
 	const arrayBytes = new DataView(buffer).getUint32(headerEnd, true)
@@ -122,9 +124,7 @@ function decode(buffer: ArrayBuffer): GcmCheckpoint {
 			? [diagnostics.averager.current.last]
 			: []),
 	]
-	const points = GCM_GRID.forLatitudes(
-		meta.config.truncation === 21 ? 32 : 64,
-	).points
+	const points = GCM_GRID.forTruncation(meta.config.truncation).points
 	const expectedValues = points * GCM_FIELDS.fieldCount(meta.config.layers)
 	if (
 		snapshots.some(
@@ -148,13 +148,19 @@ function decode(buffer: ArrayBuffer): GcmCheckpoint {
 	}
 }
 
+function engine(meta: GcmCheckpointMeta): GcmEngine {
+	return meta.format === FORMATS.gpu ? "gpu" : "cpu"
+}
+
 function fileName(meta: GcmCheckpointMeta): string {
 	const { year, month } = meta.date
 	return `exoplasim-t${meta.config.truncation}-layers${meta.config.layers}-year${String(year).padStart(4, "0")}-month${String(month).padStart(2, "0")}.ckpt`
 }
 
 export const GCM_CHECKPOINT = {
-	FORMAT,
+	FORMATS,
+	GPU_PRECISION_BYTES,
+	engine,
 	encode,
 	decode,
 	fileName,
