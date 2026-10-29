@@ -151,7 +151,7 @@ const MODES: ReadonlyArray<GcmModeDefinition> = [
 	},
 	{
 		mode: "airTemperature",
-		label: "Air temp",
+		label: "2 m air temp",
 		unit: "celsius",
 		min: -50,
 		max: 40,

@@ -75,6 +75,41 @@ def radiation_interval(text: str) -> str:
     return text
 
 
+def glacier_years(text: str) -> str:
+    edits = [
+        ("      integer noromax\n",
+         "      integer noromax\n      real :: rpersist(NHOR)\n"),
+        ("        call mpgetgp('doro'    ,doro      ,NHOR,1)\n",
+         "        call mpgetgp('doro'    ,doro      ,NHOR,1)\n"
+         "        call mpgetgp('persist' ,rpersist  ,NHOR,1)\n"
+         "        persistflag(:) = rpersist(:) > 0.5\n"),
+        ("      subroutine glacierstep\n      use glaciermod\n",
+         "      subroutine glacierstep\n      use glaciermod\n      integer :: idatim(7)\n"),
+        ("      enddo\n      \n      endif\n      \n      return\n      end subroutine glacierstep\n",
+         "      enddo\n"
+         "      if (n_days_per_year == 365) then\n"
+         "         call step2cal(nstep+1,ntspd,idatim)\n"
+         "      else\n"
+         "         call step2cal30(nstep+1,idatim)\n"
+         "      endif\n"
+         "      if (idatim(1) /= ndatim(1)) then\n"
+         "         where (persistflag(:)) dglac = 1.0\n"
+         "         persistflag(:) = dls(:) >= 0.5\n"
+         "      endif\n"
+         "      \n      endif\n      \n      return\n      end subroutine glacierstep\n"),
+        ("      where (persistflag(:)) dglac = 1.0\n      where (persistflag(:)) rpersist = 1.0\n",
+         "      where (persistflag(:)) rpersist = 1.0\n"),
+        ("      call mpputgp('dglac'   ,dglac     ,NHOR,1)\n",
+         "      call mpputgp('dglac'   ,dglac     ,NHOR,1)\n"
+         "      call mpputgp('persist' ,rpersist  ,NHOR,1)\n"),
+    ]
+    for old, new in edits:
+        if text.count(old) != 1:
+            raise RuntimeError(f"Glacier year anchor not unique: {old.strip()[:60]}")
+        text = text.replace(old, new)
+    return text
+
+
 def patch_sources(model: ModelSource):
     resolution = f"module resmod\nparameter(NLAT_ATM={model.latitudes})\nparameter(NLEV_ATM={model.layers})\nparameter(NPRO_ATM={model.ranks})\nend module resmod\n"
     if not (model.build / "resmod.f90").exists() or (model.build / "resmod.f90").read_text() != resolution:
@@ -103,8 +138,10 @@ def patch_sources(model: ModelSource):
     hurricane.write_text(hurricane.read_text().replace("subroutine hurricaneini(gascon)\n      use hurricanemod", "subroutine hurricaneini(gascon)\n      use hurricanemod\n      use pumamod, only: mypid,NROOT,nwritehurricane"))
     radiation = model.build / "radmod.f90"
     radiation.write_text(radiation_interval(radiation.read_text()))
+    glacier = model.build / "glaciermod.f90"
+    glacier.write_text(glacier_years(glacier.read_text()))
     patches = []
-    for name in ["plasim.f90", "mpimod_stub.f90", "cpl_stub.f90", "hurricanemod.f90", "radmod.f90"]:
+    for name in ["plasim.f90", "mpimod_stub.f90", "cpl_stub.f90", "hurricanemod.f90", "radmod.f90", "glaciermod.f90"]:
         original = model.source / "plasim/src" / name
         patches.extend(difflib.unified_diff(original.read_text().splitlines(keepends=True), (model.build / name).read_text().splitlines(keepends=True), fromfile="a/exoplasim/plasim/src/" + name, tofile="b/exoplasim/plasim/src/" + name))
     (model.output / "model-source.patch").write_text("".join(patches))

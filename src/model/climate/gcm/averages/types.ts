@@ -1,5 +1,5 @@
 import type { GcmYearlyBalance } from "@/model/climate/gcm/balance/types"
-import type { GcmSnapshot } from "@/model/climate/gcm/types"
+import type { GcmConfig, GcmSnapshot } from "@/model/climate/gcm/types"
 
 export interface GcmMonthlyMean {
 	year: number
@@ -26,4 +26,17 @@ export interface GcmAverager {
 export interface GcmAveragerSample {
 	averager: GcmAverager
 	snapshot: GcmSnapshot
+}
+
+export interface GcmAverageState {
+	months: GcmMonthlyMean[]
+	years: GcmYearlyBalance[]
+	annual: GcmSnapshot | null
+	koppen: Uint8Array | null
+	pasta: Uint8Array | null
+}
+
+export interface GcmAveragesRequest {
+	averager: GcmAverager
+	config: GcmConfig
 }

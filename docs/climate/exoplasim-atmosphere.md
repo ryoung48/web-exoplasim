@@ -20,11 +20,15 @@ The Atmosphere panel supports two input modes using the existing native `PSURF`,
 
 The pinned wrapper's pressure default is 1.011 bar, rather than the rounded 1 bar sometimes quoted in descriptions. It initializes CO₂ to 300 ppm when no CO₂ partial pressure is supplied; that is not a universal 0.0003 bar partial pressure. At the native pressure, 300 ppm corresponds to 0.0003033 bar. Earth reference partial pressures are help examples and are not silently prefilled as defaults.
 
-This reorganization intentionally replaces the old browser atmosphere preset (N₂ 0.78 bar, O₂ 0.21 bar, Ar 0.01 bar, CO₂ 300 ppm and ozone on). New runs now use the pinned native automatic atmosphere by default. Existing non-atmospheric browser presets are unchanged.
+This reorganization intentionally replaces the old browser atmosphere preset (N₂ 0.78 bar, O₂ 0.21 bar, Ar 0.01 bar, CO₂ 300 ppm and ozone on). New runs use the pinned native automatic pressure, gas constant and CO2 defaults, with ozone enabled by default. Existing non-atmospheric browser presets are unchanged.
 
 ## Mixture calculation
 
-All nine partial pressures are in bars. For supplied pressures `pᵢ` and molar masses `Mᵢ` in g/mol:
+All nine partial pressures are in bars.
+
+The CO₂ input also takes bar, not ppm; its placeholder and the panel guidance use partial-pressure units. For 550 ppm at 1 bar, enter 0.00055 bar CO₂ and supply the remaining background gases in mixture mode. Entering only CO₂ in mixture mode creates a pure CO₂ atmosphere. To retain native bulk pressure and gas constant, open Advanced, select direct mode and leave those two inputs blank; at the native 1.011 bar, 550 ppm corresponds to 0.00055605 bar CO₂. The resolved CO₂ row displays the resulting ppm.
+
+For supplied pressures `pᵢ` and molar masses `Mᵢ` in g/mol:
 
 - `P = Σpᵢ`.
 - `M = Σ(pᵢ × Mᵢ) / P`.

@@ -273,7 +273,10 @@ function constants(request: GcmSetupConstantsRequest): GcmSetup {
 					CO2_SENS: 0.3,
 					NCVEG: veg.ncveg,
 				},
-				nglacier: glacier.nglacier > 0,
+				glacier: {
+					NGLACIER: glacier.nglacier > 0 ? 1 : 0,
+					GLACELIM: glacier.glacelim,
+				},
 				ice: {
 					XDT: ice.xdt,
 					XMIND: ice.xmind,

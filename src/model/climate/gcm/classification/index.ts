@@ -64,15 +64,23 @@ function classes({
 	if (scheme === "koppen") {
 		const temperatureMonthly = new Float32Array(12 * points)
 		const rainfallMonthly = new Float32Array(12 * points)
+		const surfaceTemperatureMonthly = new Float32Array(12 * points)
+		const seaIcePercentMonthly = new Float32Array(12 * points)
+		const surface = read("surfaceTemperature")
+		const ice = read("seaIce")
 		for (let month = 0; month < 12; month++) {
 			temperatureMonthly.set(temperatures[month], month * points)
 			rainfallMonthly.set(rainfall[month], month * points)
+			surfaceTemperatureMonthly.set(surface[month], month * points)
+			seaIcePercentMonthly.set(ice[month], month * points)
 		}
 		KOPPEN.koppenCells({
 			start: 0,
 			end: points,
 			isLand,
 			temperatureMonthly,
+			surfaceTemperatureMonthly,
+			seaIcePercentMonthly,
 			rainfallMonthly,
 			classes: result,
 		})

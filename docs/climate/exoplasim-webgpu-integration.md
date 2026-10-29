@@ -14,9 +14,11 @@ Sea-level pressure reduction and relative humidity at the other atmospheric leve
 
 The GPU engine now supports tidally locked illumination, generic Keplerian orbits and phase, the native 365-day calendar, and nonnegative initial glacier heights. Their native conventions, implementation and focused parity tests are documented in [GPU input support](exoplasim-webgpu-inputs.md).
 
+Glacier formation during a continuous run is incomplete: GPU initialization and glacier removal are implemented, but native snow-persistence tracking and end-of-session promotion are missing. Continuous CPU sessions also defer the native persistence lifecycle. See the [glacier lifecycle audit](exoplasim-glaciers.md) for the reproduced behavior and checkpoint evidence.
+
 ## Checkpoints
 
-CPU keeps checkpoint format 12; GPU uses format 13 with main's terrain, layer metadata, climate averages and field validation. The GPU restart includes the complete model state and temperature-tracking arrays, preserving partial days and publication intervals across save/load. Earlier GPU formats are rejected. Loading selects the engine that saved the checkpoint.
+CPU uses checkpoint format 14; GPU uses format 15 with main's terrain, layer metadata, climate averages and field validation. Both restarts carry glacier snow persistence ([Glacier lifecycle](exoplasim-glaciers.md)). The GPU restart includes the complete model state and temperature-tracking arrays, preserving partial days and publication intervals across save/load. Earlier formats are rejected. Loading selects the engine that saved the checkpoint.
 
 ## Verification
 

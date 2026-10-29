@@ -146,7 +146,7 @@ export function useGcmRun() {
 		({ months, years }: GcmAverageUpdate) => {
 			averager.current = { current: null, months, years }
 			live.update({
-				averages: GCM_LIVE.averages({
+				averages: GCM_AVERAGES.view({
 					averager: averager.current,
 					config: activeConfig.current,
 				}),
@@ -172,10 +172,12 @@ export function useGcmRun() {
 					request.diagnostics
 						? {
 								snapshot: request.diagnostics.snapshot,
-								averages: GCM_LIVE.averages({
-									averager: averager.current,
-									config: request.config,
-								}),
+								averages:
+									request.averages ??
+									GCM_AVERAGES.view({
+										averager: averager.current,
+										config: request.config,
+									}),
 							}
 						: GCM_LIVE.EMPTY,
 				)
@@ -286,11 +288,21 @@ export function useGcmRun() {
 
 	const loadFromFile = useCallback(
 		async (file: File) => {
-			const currentGeneration = generation.current
+			const currentGeneration = ++generation.current
+			preparation.current?.abort()
+			const controller = new AbortController()
+			preparation.current = controller
+			run.current?.stop()
+			run.current = null
+			rate.current = null
+			setState({ ...IDLE, status: "loading", message: "Reading checkpoint" })
 			try {
-				const { meta, restart, diagnostics, terrain } = GCM_CHECKPOINT.decode(
-					await file.arrayBuffer(),
-				)
+				const { checkpoint, averages } = await GCM_PREPARATION.run({
+					kind: "checkpoint",
+					input: file,
+					signal: controller.signal,
+				})
+				const { meta, restart, diagnostics, terrain } = checkpoint
 				if (currentGeneration !== generation.current) return
 				const saved = GCM_CHECKPOINT.engine(meta)
 				if (saved === "gpu" && !gpuAvailable)
@@ -322,6 +334,7 @@ export function useGcmRun() {
 					fresh: true,
 					paused: true,
 					diagnostics,
+					averages,
 				})
 			} catch (error) {
 				if (currentGeneration !== generation.current) return
@@ -393,6 +406,7 @@ export function useGcmRun() {
 				fresh: true,
 				paused: false,
 				diagnostics: null,
+				averages: null,
 			}),
 		load: loadFromFile,
 		clear,

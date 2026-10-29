@@ -25,6 +25,7 @@ import type { GcmHoverPoint } from "@/ui/gcm/hover/types"
 import { GCM_LIVE } from "@/ui/gcm/live-store"
 import { GCM_MODE_GROUPS } from "@/ui/gcm/map-mode-options"
 import { GCM_PERIOD_VIEW } from "@/ui/gcm/period-view"
+import type { GcmSettingsDetail } from "@/ui/gcm/settings-sections/types"
 import type {
 	GcmMapDetail,
 	GcmMapLayer,
@@ -39,10 +40,17 @@ const UNIT_OPTIONS = [
 	{ value: "imperial", label: "Imperial" },
 ] as const
 const SUMMARY_MODES: ReadonlyArray<GcmMapMode> = [
-	"surfaceTemperature",
+	"airTemperature",
+	"relativeHumidity",
 	"precipitation",
 	"cloudCover",
 	"seaIce",
+	"albedo",
+	"toaShortwave",
+	"surfaceShortwave",
+	"surfaceLongwave",
+	"latentHeatFlux",
+	"sensibleHeatFlux",
 	"outgoingLongwave",
 ]
 
@@ -54,6 +62,18 @@ const LAPSE_CORRECTED_MODES: ReadonlyArray<GcmMapMode> = [
 	"surfaceTemperature",
 	"airTemperature",
 ]
+const SETTINGS_DETAIL_OPTIONS = [
+	{
+		value: "basic",
+		label: "Basic",
+		title: "The settings that shape a planet's climate",
+	},
+	{
+		value: "advanced",
+		label: "Advanced",
+		title: "Every ExoPlaSim option, including numerics and overrides",
+	},
+] as const
 const PERIOD_OPTIONS = [
 	{ value: "now", label: "Now" },
 	{ value: "month", label: "Monthly" },
@@ -62,7 +82,7 @@ const PERIOD_OPTIONS = [
 
 export function GcmView() {
 	const gcm = useGcmRun()
-	const [requestedView, setView] = useState<GcmViewMode>("surfaceTemperature")
+	const [requestedView, setView] = useState<GcmViewMode>("airTemperature")
 	const supportedView: GcmViewMode =
 		gcm.engine === "gpu" &&
 		requestedView !== "elevation" &&
@@ -91,6 +111,8 @@ export function GcmView() {
 	const [detail, setDetail] = useState<GcmMapDetail>("model")
 	const [hover, setHover] = useState<GcmHoverPoint | null>(null)
 	const [sidebarOpen, setSidebarOpen] = useState(true)
+	const [settingsDetail, setSettingsDetail] =
+		useState<GcmSettingsDetail>("basic")
 	const atmosphere = GCM_FIELDS.layer(view)
 	const groupView = atmosphere
 		? GCM_FIELDS.layerMode({ ...atmosphere, level: 10 })
@@ -269,7 +291,7 @@ export function GcmView() {
 							value={climateView ? "year" : period}
 							onChange={(next) => {
 								setPeriod(next)
-								if (climateView) setView("surfaceTemperature")
+								if (climateView) setView("airTemperature")
 							}}
 						/>
 					)}
@@ -475,7 +497,7 @@ export function GcmView() {
 								gcm.clear()
 								setPeriod("now")
 								setMonthIndex(null)
-								setView("surfaceTemperature")
+								setView("airTemperature")
 								setHover(null)
 							}}
 							disabled={status === "idle" && !latest}
@@ -500,25 +522,26 @@ export function GcmView() {
 							label="Status"
 							value={gcm.state.message.split("\n")[0]}
 						/>
-						<LabeledValueRow
-							label={gcm.engine === "gpu" ? "GPU" : "Workers"}
-							value={gcm.state.device || "—"}
-						/>
-						<LabeledValueRow
-							label="Speed"
-							value={
-								gcm.state.stepsPerSecond > 0
-									? `${((gcm.state.stepsPerSecond * gcm.config.timestepMinutes) / 1440).toFixed(2)} model days/s`
-									: "—"
-							}
-						/>
-						{balance.map((row) => (
+						{gcm.state.device && (
 							<LabeledValueRow
-								key={row.label}
-								label={row.label}
-								value={row.value}
+								label={gcm.engine === "gpu" ? "GPU" : "Workers"}
+								value={gcm.state.device}
 							/>
-						))}
+						)}
+						{gcm.state.stepsPerSecond > 0 && (
+							<LabeledValueRow
+								label="Speed"
+								value={`${((gcm.state.stepsPerSecond * gcm.config.timestepMinutes) / 1440).toFixed(2)} model days/s`}
+							/>
+						)}
+						{latest &&
+							balance.map((row) => (
+								<LabeledValueRow
+									key={row.label}
+									label={row.label}
+									value={row.value}
+								/>
+							))}
 					</div>
 					{status === "failed" && (
 						<pre
@@ -550,7 +573,9 @@ export function GcmView() {
 					/>
 					<div className="space-y-1">
 						{means.length === 0 && (
-							<LabeledValueRow label="—" value="No data yet" />
+							<p className={uiTokens.field.note}>
+								Appears once the model is running
+							</p>
 						)}
 						{means.map((entry) => (
 							<LabeledValueRow
@@ -565,10 +590,26 @@ export function GcmView() {
 						))}
 					</div>
 				</section>
-				<section className="space-y-3">
-					<PanelHeader title="Settings" />
+				<section>
+					<PanelHeader
+						title="Settings"
+						action={
+							<SegmentedControl
+								size="xs"
+								options={SETTINGS_DETAIL_OPTIONS}
+								value={settingsDetail}
+								onChange={setSettingsDetail}
+							/>
+						}
+					/>
+					{active && (
+						<p className={cx("-mt-2 mb-3", uiTokens.field.note)}>
+							Settings are locked while a run exists. Clear it to change them.
+						</p>
+					)}
 					<GcmConfigPanel
 						config={gcm.config}
+						detail={settingsDetail}
 						terrain={gcm.terrain}
 						latitudes={
 							gcm.resolutions.find(

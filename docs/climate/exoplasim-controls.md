@@ -6,6 +6,10 @@ The `/gcm` page exposes the controls below from ExoPlaSim commit `5f8dff4aaa8d6c
 
 Settings apply when starting a new run. A checkpoint restores its saved settings. Radiation is calculated every model step in both engines (`NRADINT = 1`); the page no longer offers a radiation-cadence control.
 
+Fresh runs start at displayed Year 1, January 1. The shared namelist sets `N_START_YEAR = 0` for the model's 360-day-style calendars, whose date conversion adds one, and `N_START_YEAR = 1` for the 365-day calendar. This choice follows the effective year length after rotation adjustments. Checkpoints retain their saved calendar position.
+
+Checkpoint loading reads and validates the file and restores annual means and climate classifications in the preparation worker. Large diagnostic arrays transfer back to the page without copying. The status shows “Reading checkpoint” during preparation; Clear cancels it, and selecting another file replaces the pending load. Loaded runs still resume paused.
+
 Each settings input has a question-circle icon explaining its meaning, effect on the simulation and relevant interactions. Help topics include numerics, planet/star/orbit/atmosphere/surface settings and conditional terrain-import controls. Hover, focus with the keyboard, or tap to read; Escape or a click outside dismisses help. Help remains available while a run locks the inputs. Tooltips stay within the viewport and outside the scrolling sidebar's clipping area. Help text is centralized in `src/ui/gcm/input-help.ts`; these descriptions do not change the model configuration or calculations.
 
 | Control | Default | Panel range | Model setting |

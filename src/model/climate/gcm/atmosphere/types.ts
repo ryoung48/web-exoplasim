@@ -15,6 +15,7 @@ export interface GcmGasDefinition {
 	id: GcmGas
 	label: string
 	molarMass: number
+	nativeFraction: number
 }
 
 export interface GcmAtmosphereConfig {
@@ -32,6 +33,11 @@ export interface GcmAtmosphereValues {
 	co2Ppm: number
 	meanMolarMass: number
 	specifiedPressureBar: number
+}
+
+export interface GcmCo2Change {
+	config: GcmAtmosphereConfig
+	co2Ppm: number | null
 }
 
 export type GcmAtmosphereResult =

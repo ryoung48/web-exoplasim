@@ -96,6 +96,7 @@ function edits(config: GcmConfig): GcmNamelistEdits {
 			) * 12,
 		)
 	}
+	plasim.N_START_YEAR = plasim.N_DAYS_PER_YEAR === "365" ? "1" : "0"
 	for (const filter of config.physicsFilter) {
 		const [key, value] = FILTER_SWITCHES[filter]
 		plasim[key] = value

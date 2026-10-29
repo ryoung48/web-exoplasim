@@ -55,17 +55,6 @@ const SURFACE_OVERRIDES: ReadonlyArray<GcmOverrideSpec> = [
 
 const ORBIT_OVERRIDES: ReadonlyArray<GcmOverrideSpec> = [
 	{
-		key: "periapseLongitudeDeg",
-		label: "Longitude of periapse",
-		initialOverride: 102.7,
-		min: 0,
-		max: 360,
-		step: 0.1,
-		unit: "°",
-		displayScale: 1,
-		digits: 1,
-	},
-	{
 		key: "initialMeanAnomalyDeg",
 		label: "Initial orbital phase",
 		initialOverride: -2.9589,

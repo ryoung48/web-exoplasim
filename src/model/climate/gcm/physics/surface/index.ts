@@ -25,14 +25,16 @@ const SHARED = [
 ].concat(["dsndch", "dtsoil", "dtd2", "dtd3", "dtd4", "dtd5", "diced", "dmld"])
 
 // SURFACE_STEP: momint's month, neighbour and weight at nstep, then at
-// nstep + 1, written by the CPU each step.
-const STEP_VALUES = 6
+// nstep + 1, then 1 when nstep + 1 starts a new calendar year, written by
+// the CPU each step.
+const STEP_VALUES = 7
 
 function fields(): GcmFieldSpec[] {
 	return [
 		...SHARED.map((name) => ({ name, shape: "grid" as const, count: 1 })),
 		{ name: "surface_step", shape: "table", count: STEP_VALUES },
 		...LAND.fields(),
+		...GLACIER.fields(),
 		...VEGETATION.fields(),
 		...SEA_ICE.fields(),
 		...OCEAN.fields(),
@@ -40,7 +42,7 @@ function fields(): GcmFieldSpec[] {
 	]
 }
 
-function step({ now, next }: GcmSurfaceStepRequest): Float64Array {
+function step({ now, next, yearEnds }: GcmSurfaceStepRequest): Float64Array {
 	return Float64Array.of(
 		now.month,
 		now.neighbour,
@@ -48,12 +50,13 @@ function step({ now, next }: GcmSurfaceStepRequest): Float64Array {
 		next.month,
 		next.neighbour,
 		next.weight,
+		yearEnds ? 1 : 0,
 	)
 }
 
 // surfmod's surfstep with naqua = 0 and sea points present: landstep
 // (soil, river routing, surface with vegstep and glacier albedo),
-// glacierstep, then seastep with icestep and oceanstep every main-loop
+// glacierstep with the yearly glacier promotion, then seastep with icestep and oceanstep every main-loop
 // step; the nkits start-up steps skip icestep (seaCoupled false).
 // Kernels with Fortran's atan, exp, log or pow get GPU_MATH's versions.
 async function kernels({
@@ -111,7 +114,7 @@ async function kernels({
 				...growth,
 				CVEG_E: Math.atan(CVEG_D),
 				CVEG_G: Math.atan(-vegetation.CVEG_F),
-				NGLACIER: constants.nglacier ? 1 : 0,
+				...constants.glacier,
 			},
 		}),
 		...coupling,

@@ -1,6 +1,7 @@
 import type {
 	GcmAtmosphereConfig,
 	GcmAtmosphereResult,
+	GcmCo2Change,
 	GcmGasDefinition,
 } from "@/model/climate/gcm/atmosphere/types"
 
@@ -11,15 +12,55 @@ const NATIVE_GAS_CONSTANT = UNIVERSAL_GAS_CONSTANT / NATIVE_MEAN_MOLAR_MASS
 const NATIVE_CO2_PPM = 300
 
 const GASES: ReadonlyArray<GcmGasDefinition> = [
-	{ id: "H2", label: "Hydrogen (H₂)", molarMass: 2.01588 },
-	{ id: "He", label: "Helium (He)", molarMass: 4.002602 },
-	{ id: "N2", label: "Nitrogen (N₂)", molarMass: 28.0134 },
-	{ id: "O2", label: "Oxygen (O₂)", molarMass: 31.9988 },
-	{ id: "Ar", label: "Argon (Ar)", molarMass: 39.948 },
-	{ id: "Ne", label: "Neon (Ne)", molarMass: 20.1797 },
-	{ id: "Kr", label: "Krypton (Kr)", molarMass: 83.798 },
-	{ id: "CO2", label: "Carbon dioxide (CO₂)", molarMass: 44.01 },
-	{ id: "H2O", label: "Water vapor (H₂O)", molarMass: 18.01528 },
+	{
+		id: "H2",
+		label: "Hydrogen (H₂)",
+		molarMass: 2.01588,
+		nativeFraction: 0.55e-6,
+	},
+	{
+		id: "He",
+		label: "Helium (He)",
+		molarMass: 4.002602,
+		nativeFraction: 5.24e-6,
+	},
+	{
+		id: "N2",
+		label: "Nitrogen (N₂)",
+		molarMass: 28.0134,
+		nativeFraction: 0.78084,
+	},
+	{
+		id: "O2",
+		label: "Oxygen (O₂)",
+		molarMass: 31.9988,
+		nativeFraction: 0.20946,
+	},
+	{ id: "Ar", label: "Argon (Ar)", molarMass: 39.948, nativeFraction: 0.00934 },
+	{
+		id: "Ne",
+		label: "Neon (Ne)",
+		molarMass: 20.1797,
+		nativeFraction: 18.18e-6,
+	},
+	{
+		id: "Kr",
+		label: "Krypton (Kr)",
+		molarMass: 83.798,
+		nativeFraction: 1.14e-6,
+	},
+	{
+		id: "CO2",
+		label: "Carbon dioxide (CO₂)",
+		molarMass: 44.01,
+		nativeFraction: NATIVE_CO2_PPM * 1e-6,
+	},
+	{
+		id: "H2O",
+		label: "Water vapor (H₂O)",
+		molarMass: 18.01528,
+		nativeFraction: 0,
+	},
 ]
 
 const DEFAULT_CONFIG: GcmAtmosphereConfig = {
@@ -37,7 +78,7 @@ const DEFAULT_CONFIG: GcmAtmosphereConfig = {
 	},
 	pressureBar: null,
 	gasConstant: null,
-	ozone: false,
+	ozone: true,
 }
 
 function resolve(config: GcmAtmosphereConfig): GcmAtmosphereResult {
@@ -89,7 +130,7 @@ function resolve(config: GcmAtmosphereConfig): GcmAtmosphereResult {
 	const warnings: string[] = []
 	if (pressureBar < 0.1 || pressureBar > 10)
 		warnings.push(
-			"Outside 0.1–10 bar, ExoPlaSim may require a much shorter timestep, potentially 5 minutes. Adjust Timestep under Numerics.",
+			"Outside 0.1–10 bar the model may need a much shorter timestep, possibly 5 minutes. Change Timestep under Numerics.",
 		)
 	if (
 		config.mode === "pressureAndGasConstant" &&
@@ -97,7 +138,7 @@ function resolve(config: GcmAtmosphereConfig): GcmAtmosphereResult {
 		specifiedPressureBar > 0
 	)
 		warnings.push(
-			"The gas constant is still ExoPlaSim’s native Earth value. For an incomplete gas list, supply a gas constant describing the whole atmosphere.",
+			"The gas constant is still Earth’s value. If your gas list is incomplete, enter a gas constant for the whole atmosphere.",
 		)
 	return {
 		ok: true,
@@ -113,10 +154,48 @@ function resolve(config: GcmAtmosphereConfig): GcmAtmosphereResult {
 	}
 }
 
+function setCo2Ppm({ config, co2Ppm }: GcmCo2Change): GcmAtmosphereConfig {
+	if (co2Ppm === null)
+		return {
+			...config,
+			partialPressures: { ...config.partialPressures, CO2: null },
+		}
+	if (!Number.isFinite(co2Ppm) || co2Ppm < 0 || co2Ppm > 1e6) return config
+	const result = resolve(config)
+	if (!result.ok) return config
+	const fraction = co2Ppm / 1e6
+	const backgroundPressure = GASES.reduce(
+		(total, gas) =>
+			total + (gas.id === "CO2" ? 0 : (config.partialPressures[gas.id] ?? 0)),
+		0,
+	)
+	if (config.mode === "partialPressures" && backgroundPressure > 0) {
+		if (fraction === 1) return config
+		return {
+			...config,
+			partialPressures: {
+				...config.partialPressures,
+				CO2: (backgroundPressure * fraction) / (1 - fraction),
+			},
+		}
+	}
+	return {
+		...config,
+		mode: "pressureAndGasConstant",
+		pressureBar: result.values.pressureBar,
+		gasConstant: result.values.gasConstant,
+		partialPressures: {
+			...config.partialPressures,
+			CO2: result.values.pressureBar * fraction,
+		},
+	}
+}
+
 export const GCM_ATMOSPHERE = {
 	DEFAULT_CONFIG,
 	GASES,
 	NATIVE_PRESSURE_BAR,
 	NATIVE_GAS_CONSTANT,
 	resolve,
+	setCo2Ppm,
 }

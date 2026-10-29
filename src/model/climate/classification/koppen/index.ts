@@ -1,3 +1,4 @@
+import { KOPPEN_OCEAN } from "@/model/climate/classification/koppen/ocean"
 import type { KoppenCellsParams } from "@/model/climate/classification/koppen/types"
 
 const KOPPEN_CLASSES = [
@@ -156,6 +157,7 @@ const KOPPEN_CLASSES = [
 		name: "Ice cap",
 		color: [0.41, 0.41, 0.41] as [number, number, number],
 	},
+	...KOPPEN_OCEAN.CLASSES,
 ] as const
 
 const koppenLabels = KOPPEN_CLASSES.map(
@@ -171,6 +173,8 @@ function koppenCells({
 	end,
 	isLand,
 	temperatureMonthly,
+	surfaceTemperatureMonthly,
+	seaIcePercentMonthly,
 	rainfallMonthly,
 	classes,
 }: KoppenCellsParams): void {
@@ -180,7 +184,35 @@ function koppenCells({
 	const mRain = new Float64Array(12)
 
 	for (let r = start; r < end; r++) {
-		if (!isLand[r]) continue
+		if (!isLand[r]) {
+			let minimumTemperatureC = Infinity
+			let minimumIceFraction = Infinity
+			let maximumIceFraction = -Infinity
+			for (let month = 0; month < 12; month++) {
+				const index = month * N + r
+				minimumTemperatureC = Math.min(
+					minimumTemperatureC,
+					surfaceTemperatureMonthly[index],
+				)
+				minimumIceFraction = Math.min(
+					minimumIceFraction,
+					seaIcePercentMonthly[index] / 100,
+				)
+				maximumIceFraction = Math.max(
+					maximumIceFraction,
+					seaIcePercentMonthly[index] / 100,
+				)
+			}
+			classes[r] =
+				CLASS_ID[
+					KOPPEN_OCEAN.classify({
+						minimumTemperatureC,
+						minimumIceFraction,
+						maximumIceFraction,
+					})
+				]
+			continue
+		}
 
 		// Single-pass stats collection
 		let hot = -Infinity,

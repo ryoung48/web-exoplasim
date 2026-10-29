@@ -56,7 +56,6 @@ export function TerrainPanel({
 										onChange={(invertMask) =>
 											upload.setMapping({ ...upload.mapping, invertMask })
 										}
-										labelClassName={uiTokens.text.primary}
 									/>
 									<Button
 										className={cx(
@@ -126,12 +125,12 @@ export function TerrainPanel({
 				)}
 			</fieldset>
 			{upload.busy && (
-				<p role="status" className={uiTokens.type.valueSm}>
+				<p role="status" className={uiTokens.field.note}>
 					Reading terrain…
 				</p>
 			)}
 			{upload.error && (
-				<p role="alert" className={uiTokens.type.valueSm}>
+				<p role="alert" className={uiTokens.field.note}>
 					{upload.error}
 				</p>
 			)}
@@ -185,11 +184,6 @@ export function TerrainPanel({
 					Use Earth
 				</Button>
 			</div>
-			{disabled && (
-				<p className={cx(uiTokens.type.valueSm, uiTokens.text.muted)}>
-					Clear run to edit terrain.
-				</p>
-			)}
 		</div>
 	)
 }

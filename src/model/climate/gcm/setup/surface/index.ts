@@ -470,6 +470,7 @@ function initial(module: GcmModuleSetupRequest): GcmSurfaceState {
 		dsnowz.forEach((value, h) => {
 			if (value > 30) dglac[h] = 1
 		})
+	const dpersist = dls.map((value) => (value < 0.5 ? 0 : 1))
 
 	// vegini
 	const dagg = field({ code: CODE.ABOVE_GROUND_GROWTH, fallback: veg.rinidagg })
@@ -585,6 +586,7 @@ function initial(module: GcmModuleSetupRequest): GcmSurfaceState {
 			dmld,
 			dforest,
 			dglac,
+			dpersist,
 			dwmax,
 			dsnow,
 			dtsoil: soil[0],

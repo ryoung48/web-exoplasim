@@ -1,10 +1,13 @@
 import type {
 	GcmAverager,
 	GcmAveragerSample,
+	GcmAverageState,
+	GcmAveragesRequest,
 	GcmMonthAccumulator,
 	GcmMonthlyMean,
 } from "@/model/climate/gcm/averages/types"
 import type { GcmYearlyBalance } from "@/model/climate/gcm/balance/types"
+import { GCM_CLASSIFICATION } from "@/model/climate/gcm/classification"
 import { GCM_FIELDS } from "@/model/climate/gcm/fields"
 import type { GcmFieldId } from "@/model/climate/gcm/fields/types"
 import { GCM_GRID } from "@/model/climate/gcm/grid"
@@ -152,4 +155,25 @@ export const GCM_AVERAGES = {
 	create,
 	add,
 	annual,
+	view: averages,
+}
+
+function averages({ averager, config }: GcmAveragesRequest): GcmAverageState {
+	return {
+		months: averager.months,
+		years: averager.years,
+		annual: annual(averager),
+		pasta: GCM_CLASSIFICATION.classes({
+			config,
+			months: averager.months,
+			downscale: null,
+			scheme: "pasta",
+		}),
+		koppen: GCM_CLASSIFICATION.classes({
+			config,
+			months: averager.months,
+			downscale: null,
+			scheme: "koppen",
+		}),
+	}
 }

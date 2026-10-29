@@ -84,6 +84,11 @@ export interface GcmVegetationConstants {
 	NCVEG: number
 }
 
+export interface GcmGlacierConstants {
+	NGLACIER: number
+	GLACELIM: number
+}
+
 export interface GcmIceConstants {
 	XDT: number
 	XMIND: number
@@ -131,7 +136,7 @@ export interface GcmSurfaceConstants {
 	soil: GcmSoilConstants
 	land: GcmLandSurfaceConstants
 	vegetation: GcmVegetationConstants
-	nglacier: boolean
+	glacier: GcmGlacierConstants
 	ice: GcmIceConstants
 	ocean: GcmOceanConstants
 	sea: GcmSeaConstants
@@ -145,8 +150,9 @@ export interface GcmSurfaceRequest {
 }
 
 // momint at nstep (icemod's xclssto) and at nstep + 1 (every other
-// climatology).
+// climatology), and whether nstep + 1 starts a new calendar year.
 export interface GcmSurfaceStepRequest {
 	now: GcmMonthInterpolation
 	next: GcmMonthInterpolation
+	yearEnds: boolean
 }

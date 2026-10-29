@@ -271,8 +271,8 @@ function batch({
 }
 
 // The CPU's per-step parameters: solang's orbit, momint's month weights
-// (nstep for the ice climatology, nstep + 1 for the rest) and carbonmod's
-// weathering counter.
+// (nstep for the ice climatology, nstep + 1 for the rest), the calendar
+// year's end and carbonmod's weathering counter.
 function values({
 	step,
 	carbonStep,
@@ -296,6 +296,13 @@ function values({
 		stepMinutes: calendar.stepMinutes,
 		orbit: calendar.orbit,
 	})
+	const year = (at: number) =>
+		CALENDAR.date({
+			step: at,
+			stepsPerDay: calendar.stepsPerDay,
+			daysPerYear: calendar.daysPerYear,
+			stepMinutes: calendar.stepMinutes,
+		}).year
 	const cycle = CARBON.cycle({
 		cstep: carbonStep,
 		interval: calendar.carbonInterval,
@@ -310,7 +317,11 @@ function values({
 				rotationSpeed: calendar.rotationSpeed,
 				toffo3: calendar.toffo3,
 			}),
-			surface_step: SURFACE.step({ now: month(step), next: month(step + 1) }),
+			surface_step: SURFACE.step({
+				now: month(step),
+				next: month(step + 1),
+				yearEnds: year(step + 1) !== year(step),
+			}),
 			carbon_step: Float64Array.of(cycle.weathers ? 1 : 0),
 		},
 		carbonStep: cycle.cstep,

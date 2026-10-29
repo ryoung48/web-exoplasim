@@ -3,11 +3,7 @@ import type {
 	GcmAtmosphereMode,
 	GcmGas,
 } from "@/model/climate/gcm/atmosphere/types"
-import type {
-	GcmAverager,
-	GcmMonthlyMean,
-} from "@/model/climate/gcm/averages/types"
-import type { GcmYearlyBalance } from "@/model/climate/gcm/balance/types"
+import { GcmAverageState } from "@/model/climate/gcm/averages/types"
 import type { GcmCheckpointDiagnostics } from "@/model/climate/gcm/checkpoint/types"
 import type { GcmClimateScheme } from "@/model/climate/gcm/classification/types"
 import type { GcmMapMode } from "@/model/climate/gcm/fields/types"
@@ -28,6 +24,7 @@ import type {
 import type { RgbColor } from "@/model/shared/color/color-palettes/types"
 import type { GcmHoverPoint } from "@/ui/gcm/hover/types"
 import type { GcmMapViewport } from "@/ui/gcm/map-navigation/types"
+import type { GcmSettingsDetail } from "@/ui/gcm/settings-sections/types"
 import type { CoastlineLineData } from "@/ui/genesis/shared/coastline-lines"
 import type { UnitSystem } from "@/ui/genesis/shared/ui-format"
 
@@ -127,19 +124,6 @@ export interface GcmClassPaint {
 	scheme: GcmClimateScheme
 	snapshot: GcmSnapshot
 	classes: Uint8Array
-}
-
-export interface GcmAverageState {
-	months: GcmMonthlyMean[]
-	years: GcmYearlyBalance[]
-	annual: GcmSnapshot | null
-	koppen: Uint8Array | null
-	pasta: Uint8Array | null
-}
-
-export interface GcmAveragesRequest {
-	averager: GcmAverager
-	config: GcmConfig
 }
 
 export interface GcmLiveData {
@@ -293,6 +277,7 @@ export interface GcmLaunchRequest {
 	fresh: boolean
 	paused: boolean
 	diagnostics: GcmCheckpointDiagnostics | null
+	averages: GcmAverageState | null
 }
 
 export interface GcmDownload {
@@ -306,6 +291,7 @@ export interface GcmWorkerOption {
 }
 
 export interface GcmConfigPanelProps {
+	detail: GcmSettingsDetail
 	engine: GcmEngine
 	gpuAvailable: boolean | null
 	onEngineChange: (engine: GcmEngine) => void
@@ -324,6 +310,7 @@ export interface GcmConfigPanelProps {
 
 export interface GcmAtmosphereControlsProps {
 	config: GcmAtmosphereConfig
+	advanced: boolean
 	disabled: boolean
 	onChange: (config: GcmAtmosphereConfig) => void
 }

@@ -1,8 +1,9 @@
+import type { GcmAverageState } from "@/model/climate/gcm/averages/types"
 import { GCM_BALANCE } from "@/model/climate/gcm/balance"
 import { GCM_FIELDS } from "@/model/climate/gcm/fields"
 import type { GcmFieldId } from "@/model/climate/gcm/fields/types"
 import { GCM_GRID } from "@/model/climate/gcm/grid"
-import type { GcmAverageState, GcmBalanceRow } from "@/ui/gcm/types"
+import type { GcmBalanceRow } from "@/ui/gcm/types"
 import { formatWithUnit } from "@/ui/genesis/shared/ui-format"
 
 const MILLIWATTS_PER_WATT = 1000
@@ -20,7 +21,6 @@ function rows(averages: GcmAverageState): GcmBalanceRow[] {
 				)
 			: Number.NaN
 	const assessment = GCM_BALANCE.assess(averages.years)
-	const threshold = GCM_BALANCE.THRESHOLD_W_M2_PER_YEAR * MILLIWATTS_PER_WATT
 	const drift =
 		assessment.status === "spinning-up"
 			? `needs ${assessment.yearsNeeded} more year${assessment.yearsNeeded === 1 ? "" : "s"}`
@@ -28,8 +28,8 @@ function rows(averages: GcmAverageState): GcmBalanceRow[] {
 					Math.max(assessment.toaDriftPerYear, assessment.surfaceDriftPerYear) *
 						MILLIWATTS_PER_WATT,
 					"mW/m²/yr",
-					2,
-				)} (< ${threshold})`
+					0,
+				)}`
 	return [
 		{
 			label: "Top of atmosphere",

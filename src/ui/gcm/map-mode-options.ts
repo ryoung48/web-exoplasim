@@ -8,7 +8,7 @@ export const GCM_MODE_GROUPS: ReadonlyArray<GcmModeGroup> = [
 	},
 	{
 		label: "Temperature",
-		defaultView: "surfaceTemperature",
+		defaultView: "airTemperature",
 		children: [
 			{ value: "surfaceTemperature", label: "Surface" },
 			{ value: "airTemperature", label: "2 m air" },

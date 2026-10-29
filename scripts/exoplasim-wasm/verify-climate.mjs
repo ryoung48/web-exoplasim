@@ -24,6 +24,8 @@ try {
   const { GCM_NAMELIST: NAMELIST } = await import('/src/model/climate/gcm/namelist/index.ts')
   const { PASTA } = await import('/src/model/climate/classification/pasta/index.ts')
   const { GCM_CLASSIFICATION: C } = await import('/src/model/climate/gcm/classification/index.ts')
+  const { KOPPEN } = await import('/src/model/climate/classification/koppen/index.ts')
+  const { KOPPEN_OCEAN } = await import('/src/model/climate/classification/koppen/ocean/index.ts')
   const { GCM_AVERAGES: A } = await import('/src/model/climate/gcm/averages/index.ts')
   const { GCM_FIELDS: F } = await import('/src/model/climate/gcm/fields/index.ts')
   const { GCM_DOWNSCALE: D } = await import('/src/model/climate/gcm/downscale/index.ts')
@@ -33,6 +35,31 @@ try {
   const { GCM_DISPLAY: DISPLAY } = await import('/src/ui/gcm/field-display.ts')
   const check = condition => { if (!condition) throw new Error('Climate verification failed') }
   const repeated = value => Array(12).fill(value)
+  const oceanCases = [
+   [18, 0, 0, 'SeaTemp'], [18.001, 0, 0, 'SeaTrop'],
+   [25, 0, 0.2, 'SeaTrop'], [25, 0, 0.201, 'SeaSeasonalIce'],
+   [25, 0.8, 1, 'SeaSeasonalIce'], [25, 0.801, 1, 'SeaPermIce'],
+   [-5, 0, 0, 'SeaTemp'], [-5, 0.9, 1, 'SeaPermIce'],
+  ]
+  for (const [minimumTemperatureC, minimumIceFraction, maximumIceFraction, expected] of oceanCases)
+   check(KOPPEN_OCEAN.classify({ minimumTemperatureC, minimumIceFraction, maximumIceFraction }) === expected)
+  const oceanIds = ['SeaTrop', 'SeaTemp', 'SeaSeasonalIce', 'SeaPermIce'].map(code => KOPPEN.koppenLabels.indexOf(code))
+  const oceanClasses = new Uint8Array(5)
+  const seaIcePercentMonthly = new Float32Array(60)
+  for (let month = 0; month < 12; month++) {
+   seaIcePercentMonthly[month * 5 + 2] = month === 0 ? 30 : 0
+   seaIcePercentMonthly[month * 5 + 3] = 90
+  }
+  KOPPEN.koppenCells({ start: 0, end: 5, isLand: new Uint8Array([0,0,0,0,1]), temperatureMonthly: new Float32Array(60).fill(25), rainfallMonthly: new Float32Array(60).fill(100), surfaceTemperatureMonthly: Float32Array.from({length:60}, (_, index) => index % 5 === 1 ? 10 : 25), seaIcePercentMonthly, classes: oceanClasses })
+  check(oceanClasses.every((id, point) => point < 4 ? id === oceanIds[point] : KOPPEN.koppenLabels[id] === 'Af'))
+  seaIcePercentMonthly.fill(20)
+  KOPPEN.koppenCells({ start: 0, end: 4, isLand: new Uint8Array(5), temperatureMonthly: new Float32Array(60), rainfallMonthly: new Float32Array(60), surfaceTemperatureMonthly: new Float32Array(60).fill(25), seaIcePercentMonthly, classes: oceanClasses })
+  check(oceanClasses.slice(0, 4).every(id => id === oceanIds[0]))
+  seaIcePercentMonthly.fill(80)
+  KOPPEN.koppenCells({ start: 0, end: 4, isLand: new Uint8Array(5), temperatureMonthly: new Float32Array(60), rainfallMonthly: new Float32Array(60), surfaceTemperatureMonthly: new Float32Array(60).fill(25), seaIcePercentMonthly, classes: oceanClasses })
+  check(oceanClasses.slice(0, 4).every(id => id === oceanIds[2]))
+  const oceanColors = [[9,120,171], [113,171,216], [185,227,255], [226,248,255]]
+  oceanIds.forEach((id, index) => check(KOPPEN.koppenClimateColor(id).every((value, channel) => Math.round(value * 255) === oceanColors[index][channel])))
   const base = { monthDays: 30, pressureHpa: repeated(1013.25), hydrology: null, land: true, downscaled: false, temperature: repeated(25), minimum: repeated(10), maximum: repeated(35), rainfall: repeated(200), light: repeated(250), surfaceTemperature: repeated(25), seaIce: repeated(0), snow: repeated(0) }
   if (referenceColors) {
    check(Object.keys(referenceColors).length === 104)
@@ -136,6 +163,19 @@ try {
   check(classes.every(value => PASTA.CLASSES[value].code === 'TUr'))
   const terrain = { name: 'Flat land', width: 4, height: 2, elevationM: new Float32Array(8), land: new Float32Array(8).fill(1) }
   const downscale = D.create({ grid, terrain, factor: 1 })
+  const oceanMonths = averager.months.map(month => {
+   const snapshot = { ...month.snapshot, values: new Float32Array(month.snapshot.values) }
+   F.field({ snapshot, field: 'landFraction' }).fill(0)
+   F.field({ snapshot, field: 'surfaceTemperature' }).fill(300)
+   F.field({ snapshot, field: 'airTemperature' }).fill(280)
+   F.field({ snapshot, field: 'seaIce' }).fill(0)
+   return { ...month, snapshot }
+  })
+  const oceanGrid = D.create({ grid, terrain: { ...terrain, land: new Float32Array(8) }, factor: 1 })
+  for (const downscale of [null, oceanGrid]) {
+   const classified = C.classes({ config, months: oceanMonths, downscale, scheme: 'koppen' })
+   check(classified.every(id => id === oceanIds[0]))
+  }
   for (const scheme of ['koppen', 'pasta']) {
    const model = C.classes({ config, months: averager.months, downscale: null, scheme })
    const fine = C.classes({ config, months: averager.months, downscale, scheme })
@@ -168,6 +208,9 @@ try {
   check(legendDiagnosticProperties < 100)
   flushSync(() => legendRoot.render(renderLegend({ readClasses: () => new Uint8Array(displayClasses.length).fill(1), scheme: 'koppen' })))
   check(legendHost.textContent === 'Af')
+  flushSync(() => legendRoot.render(renderLegend({ readClasses: () => Uint8Array.from(oceanIds), scheme: 'koppen' })))
+  check(legendHost.textContent === 'SeaTropSeaTempSeaSeasonalIceSeaPermIce')
+  check(legendHost.querySelector('[title="Permanent sea ice"]') !== null)
   flushSync(() => legendRoot.unmount())
   legendHost.remove()
   const dryMonths = averager.months.map(month => {
@@ -191,7 +234,7 @@ try {
    check(id >= 0 && id < PASTA.CLASSES.length)
   }
   for (const store of globalThis.climateTestStores) store.update({ snapshot, averages: { months: averager.months, years: [], annual: A.annual(averager), koppen: C.classes({ config, months: averager.months, downscale: null, scheme: "koppen" }), pasta: classes } })
-  return { dailyTemperatureRange: true, legendSwitchMs, legendDiagnosticProperties, upstreamPetCases: upstream.petCases.length, yearLengthScaling: true, nativeAet: true, pressureBoiling: true, ascePetMm: pet, paletteMatched: referenceColors ? Object.keys(referenceColors).length : 0, cases: cases.length, seasonalFixtures: 2000, monthlyExtremaPreserved: true, bothDownscaledSchemes: true, displayPoints: displayClasses.length, hover: true, classes: PASTA.CLASSES.length }
+  return { koppenOceanCases: oceanCases.length, koppenOceanLegend: true, dailyTemperatureRange: true, legendSwitchMs, legendDiagnosticProperties, upstreamPetCases: upstream.petCases.length, yearLengthScaling: true, nativeAet: true, pressureBoiling: true, ascePetMm: pet, paletteMatched: referenceColors ? Object.keys(referenceColors).length : 0, cases: cases.length, seasonalFixtures: 2000, monthlyExtremaPreserved: true, bothDownscaledSchemes: true, displayPoints: displayClasses.length, hover: true, classes: PASTA.CLASSES.length }
  }, { referenceColors, upstream })
  assert.deepEqual(errors, [])
  await mkdir('stats/pasta', { recursive: true })

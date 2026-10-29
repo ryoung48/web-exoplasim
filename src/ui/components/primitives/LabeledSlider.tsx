@@ -1,24 +1,21 @@
 import React from "react"
-import { cx } from "@/ui/components/lib"
+import { EditableNumberValue } from "@/ui/components/primitives/EditableNumberValue"
 import { InputLabel } from "@/ui/components/primitives/InputLabel"
-import { LabeledValueRow } from "@/ui/components/primitives/LabeledValueRow"
+import { uiTokens } from "@/ui/components/tokens"
 
 interface LabeledSliderProps {
-	// [JUSTIFICATION] Existing sliders can omit contextual help.
+	// [JUSTIFICATION] Sliders outside model settings can omit contextual help.
 	help?: string
-	label: React.ReactNode
+	label: string
 	value: React.ReactNode
 	min: number
 	max: number
+	// [JUSTIFICATION] Native range inputs default to a step of 1.
 	step?: number
 	numericValue: number
 	onChange: (value: number) => void
+	// [JUSTIFICATION] Most sliders are always editable.
 	disabled?: boolean
-	className?: string
-	sliderClassName?: string
-	onPointerUp?: React.PointerEventHandler<HTMLInputElement>
-	onKeyUp?: React.KeyboardEventHandler<HTMLInputElement>
-	onBlur?: React.FocusEventHandler<HTMLInputElement>
 }
 
 export const LabeledSlider: React.FC<LabeledSliderProps> = ({
@@ -31,35 +28,35 @@ export const LabeledSlider: React.FC<LabeledSliderProps> = ({
 	numericValue,
 	onChange,
 	disabled,
-	className,
-	sliderClassName,
-	onPointerUp,
-	onKeyUp,
-	onBlur,
-}) => (
-	<div className={className}>
-		<LabeledValueRow
-			label={help ? <InputLabel label={label} help={help} /> : label}
-			value={value}
-			labelClassName="text-[11px] font-medium text-slate-300"
-			valueClassName="font-mono text-[11px] text-slate-400"
-		/>
-		<input
-			type="range"
-			aria-label={typeof label === "string" ? label : undefined}
-			min={min}
-			max={max}
-			step={step}
-			value={numericValue}
-			disabled={disabled}
-			onChange={(e) => onChange(Number(e.target.value))}
-			onPointerUp={onPointerUp}
-			onKeyUp={onKeyUp}
-			onBlur={onBlur}
-			className={cx(
-				"w-full accent-slate-100 disabled:cursor-not-allowed",
-				sliderClassName,
-			)}
-		/>
-	</div>
-)
+}) => {
+	return (
+		<div>
+			<div className="flex items-baseline justify-between gap-2">
+				<span className={uiTokens.field.label}>
+					{help ? <InputLabel label={label} help={help} /> : label}
+				</span>
+				<EditableNumberValue
+					label={label}
+					value={value}
+					numericValue={numericValue}
+					min={min}
+					max={max}
+					disabled={disabled ?? false}
+					valueClassName={uiTokens.field.value}
+					onChange={onChange}
+				/>
+			</div>
+			<input
+				type="range"
+				aria-label={label}
+				min={min}
+				max={max}
+				step={step}
+				value={numericValue}
+				disabled={disabled}
+				onChange={(event) => onChange(Number(event.target.value))}
+				className={uiTokens.field.range}
+			/>
+		</div>
+	)
+}

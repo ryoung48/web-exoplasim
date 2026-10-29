@@ -1,12 +1,6 @@
 import { useSyncExternalStore } from "react"
-import { GCM_AVERAGES } from "@/model/climate/gcm/averages"
-import { GCM_CLASSIFICATION } from "@/model/climate/gcm/classification"
-import type {
-	GcmAverageState,
-	GcmAveragesRequest,
-	GcmLiveData,
-	GcmLiveStore,
-} from "@/ui/gcm/types"
+import type { GcmAverageState } from "@/model/climate/gcm/averages/types"
+import type { GcmLiveData, GcmLiveStore } from "@/ui/gcm/types"
 
 const NO_AVERAGES: GcmAverageState = {
 	months: [],
@@ -57,29 +51,8 @@ function useLive(store: GcmLiveStore): GcmLiveData {
 	return useSyncExternalStore(store.subscribe, store.get)
 }
 
-function averages({ averager, config }: GcmAveragesRequest): GcmAverageState {
-	return {
-		months: averager.months,
-		years: averager.years,
-		annual: GCM_AVERAGES.annual(averager),
-		pasta: GCM_CLASSIFICATION.classes({
-			config,
-			months: averager.months,
-			downscale: null,
-			scheme: "pasta",
-		}),
-		koppen: GCM_CLASSIFICATION.classes({
-			config,
-			months: averager.months,
-			downscale: null,
-			scheme: "koppen",
-		}),
-	}
-}
-
 export const GCM_LIVE = {
 	EMPTY,
 	create,
 	useLive,
-	averages,
 }
