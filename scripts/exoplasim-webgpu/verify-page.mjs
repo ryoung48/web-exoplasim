@@ -96,9 +96,9 @@ try {
 	await button(`${LAYERS} layers`).click()
 	await page.getByRole("button", { name: new RegExp(`^T${TRUNCATION} `) }).click()
 	if (STORMCLIM) {
-		assert.equal(await button("Storm environment").isEnabled(), false)
+		assert.equal(await button("Storms").isEnabled(), false)
 		await page.getByRole("checkbox", { name: "Storm climatology", exact: true }).check()
-		assert.equal(await button("Storm environment").isEnabled(), true)
+		assert.equal(await button("Storms").isEnabled(), true)
 	}
 	await button("Start").click()
 	await waitFor({ test: async () => (await snapshots()).length >= 100, label: "100 batches" })
@@ -153,7 +153,7 @@ try {
 		const length = bytes.readUInt32LE(start)
 		const header = JSON.parse(bytes.subarray(start + 4, start + 4 + length).toString("utf8"))
 		assert.equal(header.meta.config.stormclim, true)
-		await button("Storm environment").click()
+		await button("Storms").click()
 		for (const label of ["CAPE", "LNB", "Intensity", "Entropy", "Vorticity", "Ventilation", "Reduced intensity", "Genesis", "Shear"]) await button(label).click()
 		await button("Intensity").click()
 		await page.screenshot({ path: path.join(output, "storm.png") })

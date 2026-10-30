@@ -107,7 +107,7 @@ export const GCM_MODE_GROUPS: ReadonlyArray<GcmModeGroup> = [
 		],
 	},
 	{
-		label: "Storm environment",
+		label: "Storms",
 		defaultView: "potentialIntensity",
 		children: [
 			{ value: "cape", label: "CAPE" },
