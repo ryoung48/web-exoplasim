@@ -27,7 +27,7 @@ const DEFAULT_CONFIG: GcmConfig = {
 	rotationPeriodDays: 1,
 	obliquityDeg: 23.5,
 	fixedOrbit: true,
-	wetSoil: true,
+	wetSoil: false,
 	vegetation: 2,
 	initialGrowth: 0.5,
 	glaciers: { enabled: true, minDepthM: 2, initialHeightM: -1 },

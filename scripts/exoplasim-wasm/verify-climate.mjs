@@ -60,7 +60,7 @@ try {
   check(oceanClasses.slice(0, 4).every(id => id === oceanIds[2]))
   const oceanColors = [[9,120,171], [113,171,216], [185,227,255], [226,248,255]]
   oceanIds.forEach((id, index) => check(KOPPEN.koppenClimateColor(id).every((value, channel) => Math.round(value * 255) === oceanColors[index][channel])))
-  const base = { monthDays: 30, pressureHpa: repeated(1013.25), hydrology: null, land: true, downscaled: false, temperature: repeated(25), minimum: repeated(10), maximum: repeated(35), rainfall: repeated(200), light: repeated(250), surfaceTemperature: repeated(25), seaIce: repeated(0), snow: repeated(0) }
+  const base = { monthDays: 30, pressureHpa: repeated(1013.25), hydrology: null, land: true, downscaled: false, temperature: repeated(25), minimum: repeated(15), maximum: repeated(35), rainfall: repeated(200), light: repeated(250), surfaceTemperature: repeated(25), seaIce: repeated(0), snow: repeated(0) }
   if (referenceColors) {
    check(Object.keys(referenceColors).length === 104)
    for (const [code, expected] of Object.entries(referenceColors)) {
@@ -141,14 +141,14 @@ try {
    return snapshot
   }
   for (let month = 1; month <= 12; month++) {
-   A.add({ averager, snapshot: makeSnapshot({ month, day: 1, minimum: 283.15, maximum: 308.15 }) })
-   A.add({ averager, snapshot: makeSnapshot({ month, day: 2, minimum: 278.15, maximum: 318.15 }) })
+   A.add({ averager, snapshot: makeSnapshot({ month, day: 1, minimum: 293.15, maximum: 308.15 }) })
+   A.add({ averager, snapshot: makeSnapshot({ month, day: 2, minimum: 288.15, maximum: 318.15 }) })
   }
   A.add({ averager, snapshot: makeSnapshot({ month: 1, day: 1, minimum: 283.15, maximum: 308.15 }) })
   check(averager.months.length === 12)
   const snapshot = averager.months[0].snapshot
-  check(Math.abs(F.field({ snapshot, field: 'surfaceTemperatureMin' })[0] - 278.15) < 0.001)
-  check(Math.abs(F.field({ snapshot, field: 'surfaceTemperatureMax' })[0] - 318.15) < 0.001)
+  check(Math.abs(F.field({ snapshot, field: 'surfaceTemperatureMin' })[0] - 290.65) < 0.001)
+  check(Math.abs(F.field({ snapshot, field: 'surfaceTemperatureMax' })[0] - 313.15) < 0.001)
   const dailyRange = F.values({ snapshot, mode: 'diurnalTemperatureRange' })
   check(dailyRange.every(value => Math.abs(value - 5 / 3) < 1e-5))
   check(F.values({ snapshot: A.annual(averager), mode: 'diurnalTemperatureRange' }).every(value => Math.abs(value - 65 / 6) < 1e-5))
@@ -233,7 +233,7 @@ try {
    const id = PASTA.classify({ ...base, temperature, minimum: temperature.map(value => value - 15), maximum: temperature.map(value => value + 15), rainfall: repeated(sample % 500), light: repeated(sample % 400) })
    check(id >= 0 && id < PASTA.CLASSES.length)
   }
-  for (const store of globalThis.climateTestStores) store.update({ snapshot, averages: { months: averager.months, years: [], annual: A.annual(averager), koppen: C.classes({ config, months: averager.months, downscale: null, scheme: "koppen" }), pasta: classes } })
+  for (const store of globalThis.climateTestStores) store.update({ snapshot, averages: { ...A.view({ averager, config }), pasta: classes } })
   return { koppenOceanCases: oceanCases.length, koppenOceanLegend: true, dailyTemperatureRange: true, legendSwitchMs, legendDiagnosticProperties, upstreamPetCases: upstream.petCases.length, yearLengthScaling: true, nativeAet: true, pressureBoiling: true, ascePetMm: pet, paletteMatched: referenceColors ? Object.keys(referenceColors).length : 0, cases: cases.length, seasonalFixtures: 2000, monthlyExtremaPreserved: true, bothDownscaledSchemes: true, displayPoints: displayClasses.length, hover: true, classes: PASTA.CLASSES.length }
  }, { referenceColors, upstream })
  assert.deepEqual(errors, [])
@@ -244,13 +244,13 @@ try {
  await page.getByRole('button', { name: 'Pasta', exact: true }).click()
  await page.getByText('TUr', { exact: true }).waitFor()
  assert.match(await page.getByRole('button', { name: 'Pasta', exact: true }).getAttribute('class'), /bg-white/)
- assert(await page.getByText('Pasta from the', { exact: false }).count())
+ assert(await page.getByText('Pasta · 1-year monthly climatology', { exact: false }).count())
  await page.screenshot({ path: 'stats/pasta/controls.png', fullPage: true })
  await page.getByRole('button', { name: 'Köppen', exact: true }).click()
  await page.getByText('Af', { exact: true }).waitFor()
  await page.getByRole('button', { name: 'Temperature', exact: true }).click()
  await page.getByRole('button', { name: 'DTR', exact: true }).click()
- await page.getByText('Daily temperature range · 2 m air', { exact: true }).waitFor()
+ await page.getByText('Daily temperature range · surface', { exact: true }).waitFor()
  await page.getByRole('button', { name: 'Monthly', exact: true }).click()
  await page.getByRole('button', { name: 'Annual', exact: true }).click()
  await page.screenshot({ path: 'stats/pasta/dtr-controls.png', fullPage: true })

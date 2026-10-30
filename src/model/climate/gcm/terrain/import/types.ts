@@ -12,9 +12,8 @@ export interface GcmTerrainFile {
 }
 
 export interface GcmTerrainMapping {
-	blackM: number
-	whiteM: number
-	seaLevelM: number
+	maxElevationM: number
+	seaLevel: number
 	invertMask: boolean
 }
 

@@ -69,9 +69,17 @@ function read({ name, buffer }: GcmTerrainFile): GcmTerrainImage {
 }
 
 function create({ heightmap, mask, mapping }: GcmTerrainImport): GcmTerrain {
-	const { blackM, whiteM, seaLevelM, invertMask } = mapping
-	if (![blackM, whiteM, seaLevelM].every(Number.isFinite) || whiteM <= blackM)
-		throw new Error("Enter finite elevations with white higher than black")
+	const { maxElevationM, seaLevel, invertMask } = mapping
+	if (
+		!Number.isFinite(maxElevationM) ||
+		maxElevationM <= 0 ||
+		!Number.isFinite(seaLevel) ||
+		seaLevel < 0 ||
+		seaLevel > 255
+	)
+		throw new Error(
+			"Enter a positive maximum elevation and a sea level from 0 to 255",
+		)
 	if (
 		mask &&
 		(mask.encoding !== "normalized" ||
@@ -81,17 +89,33 @@ function create({ heightmap, mask, mapping }: GcmTerrainImport): GcmTerrain {
 		throw new Error(
 			"Land mask must be a PNG with the same dimensions as the heightmap",
 		)
+	let min = 0
+	let max = 1
+	if (heightmap.encoding === "metres") {
+		min = Infinity
+		max = -Infinity
+		for (const sample of heightmap.samples) {
+			min = Math.min(min, sample)
+			max = Math.max(max, sample)
+		}
+	}
+	let brightest = 0
+	if (heightmap.encoding === "normalized") {
+		for (const sample of heightmap.samples)
+			brightest = Math.max(brightest, sample)
+	} else if (max > min) brightest = 1
+	const cutoff = seaLevel / 255
 	const elevationM = new Float32Array(heightmap.samples.length)
 	const land = new Float32Array(elevationM.length)
 	for (let i = 0; i < land.length; i++) {
-		const value =
-			heightmap.encoding === "metres"
-				? heightmap.samples[i]
-				: blackM + heightmap.samples[i] * (whiteM - blackM)
-		elevationM[i] = value - seaLevelM
+		const sample = max > min ? (heightmap.samples[i] - min) / (max - min) : 0
+		elevationM[i] =
+			sample > cutoff
+				? ((sample - cutoff) / (brightest - cutoff)) * maxElevationM
+				: 0
 		land[i] = mask
 			? Number(invertMask ? mask.samples[i] < 0.5 : mask.samples[i] >= 0.5)
-			: Number(elevationM[i] > 0)
+			: Number(sample > cutoff)
 	}
 	return GCM_TERRAIN.validate({
 		name: heightmap.name,

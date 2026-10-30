@@ -173,10 +173,10 @@ function landZone(zone: PastaZone): string {
 	if (ice) return "CI"
 	const torrid = boiling || max > 70
 	const group =
-		boiling || max >= 50 ? (min > 0 ? "H" : "E") : min > 0 ? "T" : "C"
-	const winter = min >= -15 ? "a" : min >= -60 ? "b" : "c"
+		boiling || max >= 50 ? (min > 10 ? "H" : "E") : min > 10 ? "T" : "C"
+	const winter = min >= -10 ? "a" : min >= -40 ? "b" : "c"
 	const summer = boiling ? "c" : torrid ? "b" : "a"
-	const extreme = min < -15 || torrid ? "b" : "a"
+	const extreme = min < -10 || torrid ? "b" : "a"
 	const suffix =
 		group === "C"
 			? winter === "c"
@@ -187,7 +187,7 @@ function landZone(zone: PastaZone): string {
 				: extreme
 	if (zeroGrowth < 50) return `${group}G`
 	if (aridity < 0.2)
-		return `A${aridity < 0.06 ? "h" : "d"}${min < -15 ? (torrid ? "e" : "c") : torrid ? "h" : "a"}`
+		return `A${aridity < 0.06 ? "h" : "d"}${min < -10 ? (torrid ? "e" : "c") : torrid ? "h" : "a"}`
 	if (growth < 350 && interruption >= 1250)
 		return group === "T" ? "TF" : `${group}F${suffix}`
 	let code: string

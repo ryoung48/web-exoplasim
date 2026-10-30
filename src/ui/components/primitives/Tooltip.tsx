@@ -30,13 +30,30 @@ export function Tooltip({
 			const target = anchor.current.getBoundingClientRect()
 			const bounds = bubble.current.getBoundingClientRect()
 			const { gap, viewportInset } = uiTokens.tooltip
+			const dialog = anchor.current.closest("dialog[open]")
+			const container = dialog?.getBoundingClientRect()
+			const leftEdge = Math.max(
+				viewportInset,
+				(container?.left ?? 0) + viewportInset,
+			)
+			const rightEdge = Math.min(
+				window.innerWidth - viewportInset,
+				(container?.right ?? window.innerWidth) - viewportInset,
+			)
+			const topEdge = Math.max(
+				viewportInset,
+				(container?.top ?? 0) + viewportInset,
+			)
+			const bottomEdge = Math.min(
+				window.innerHeight - viewportInset,
+				(container?.bottom ?? window.innerHeight) - viewportInset,
+			)
 			const below = target.bottom + gap
 			const above = target.top - gap - bounds.height
 			const preferred = position === "bottom" ? below : above
 			const alternate = position === "bottom" ? above : below
 			const top =
-				preferred >= viewportInset &&
-				preferred + bounds.height <= window.innerHeight - viewportInset
+				preferred >= topEdge && preferred + bounds.height <= bottomEdge
 					? preferred
 					: alternate
 			const left =
@@ -46,14 +63,8 @@ export function Tooltip({
 						? target.left + (target.width - bounds.width) / 2
 						: target.left
 			setLocation({
-				left: Math.max(
-					viewportInset,
-					Math.min(left, window.innerWidth - bounds.width - viewportInset),
-				),
-				top: Math.max(
-					viewportInset,
-					Math.min(top, window.innerHeight - bounds.height - viewportInset),
-				),
+				left: Math.max(leftEdge, Math.min(left, rightEdge - bounds.width)),
+				top: Math.max(topEdge, Math.min(top, bottomEdge - bounds.height)),
 			})
 		}
 		updateLocation()
@@ -118,11 +129,14 @@ export function Tooltip({
 							left: location?.left ?? 0,
 							top: location?.top ?? 0,
 							visibility: location ? "visible" : "hidden",
+							maxWidth: anchor.current?.closest("dialog[open]")
+								? `calc(min(100vw, ${anchor.current.closest("dialog[open]")?.clientWidth}px) - ${2 * uiTokens.tooltip.viewportInset}px)`
+								: undefined,
 						}}
 					>
 						{content}
 					</div>,
-					document.body,
+					anchor.current?.closest("dialog[open]") ?? document.body,
 				)}
 		</div>
 	)

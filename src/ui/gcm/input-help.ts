@@ -87,15 +87,12 @@ export const GCM_INPUT_HELP: Record<GcmHelpKey, string> = {
 	initialGrowth:
 		"How much vegetation growth a new run starts with. Higher values start with more. Diagnostic or Coupled vegetation then evolves from there. This is not a fixed percentage of forest cover.",
 	heightmap:
-		"A world elevation map with a 2:1 width-to-height ratio. Pixel brightness is converted to elevation using Black and White elevation. The map is resampled to the model grid and shapes winds, mountain rainfall and surface geopotential.",
+		"A 2:1 world elevation map. Values at or below the sea-level shade are flattened to zero; brighter values scale up to the maximum elevation.",
 	landMask:
-		"Optional PNG the same size as the heightmap. White or bright pixels are land and black or dark pixels are ocean. It decides land and ocean independent of elevation, which changes heat storage and water exchange. Without one, land is anything above sea level.",
-	invertMask:
-		"Swaps land and ocean in the mask. Use it if your mask is dark where land is and bright where ocean is. Elevations are unchanged.",
-	blackElevation:
-		"The elevation given to black pixels. Shades in between are blended up to White elevation, which must be higher than Black elevation.",
-	whiteElevation:
-		"The elevation given to white pixels. Raising it makes bright areas taller, which affects winds and mountain rainfall. Must stay higher than Black elevation.",
+		"Optional PNG the same size as the heightmap. White or bright pixels are land and black or dark pixels are ocean. Without one, pixels brighter than the sea-level shade are land.",
+	invertMask: "Swaps land and ocean in the mask. Elevations are unchanged.",
+	maxElevation:
+		"Elevation assigned to the brightest pixel in a PNG or the highest sample in a binary file. Values above the sea-level shade scale linearly up to this height.",
 	seaLevel:
-		"The elevation treated as sea level; it is subtracted from every heightmap value. Raising it lowers the terrain relative to the sea and, without a mask, turns more pixels into ocean. With a mask, which pixels are land stays the same but elevations still shift.",
+		"Grayscale cutoff from 0 (black) to 255 (white). Values at or below it have zero elevation. Without a land mask they are ocean; an imported mask controls land and ocean independently.",
 }

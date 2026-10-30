@@ -139,9 +139,7 @@ function decode(buffer: ArrayBuffer): GcmCheckpoint {
 				snapshot.values.length !== expectedValues,
 		) ||
 		(diagnostics.averager.current &&
-			(diagnostics.averager.current.sum.length !== expectedValues ||
-				diagnostics.averager.current.minimum.length !== points ||
-				diagnostics.averager.current.maximum.length !== points))
+			diagnostics.averager.current.sum.length !== expectedValues)
 	)
 		throw new Error(
 			"Checkpoint diagnostics do not match the saved model resolution and atmospheric layers",

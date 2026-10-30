@@ -15,8 +15,7 @@ import type {
 	GcmTruncation,
 } from "@/model/climate/gcm/types"
 
-// The model's two implementations: the WebGPU port, or ExoPlaSim compiled
-// to WebAssembly on CPU workers.
+// The WebGPU port, or ExoPlaSim on CPU workers.
 export type GcmEngine = "gpu" | "cpu"
 
 // The means the page shows: the last 12 closed months and every year's

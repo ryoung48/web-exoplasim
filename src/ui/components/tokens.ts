@@ -147,6 +147,8 @@ export const uiTokens = {
 			"w-24 border-b border-slate-900 bg-transparent text-right font-mono text-[11px] text-slate-950 focus:outline-none",
 		range:
 			"block h-4 w-full cursor-pointer appearance-none bg-transparent disabled:cursor-not-allowed disabled:opacity-40 [&::-webkit-slider-runnable-track]:h-px [&::-webkit-slider-runnable-track]:bg-slate-300 [&::-webkit-slider-thumb]:-mt-[5px] [&::-webkit-slider-thumb]:h-[11px] [&::-webkit-slider-thumb]:w-[11px] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-none [&::-webkit-slider-thumb]:bg-slate-900 [&::-moz-range-track]:h-px [&::-moz-range-track]:bg-slate-300 [&::-moz-range-thumb]:h-[11px] [&::-moz-range-thumb]:w-[11px] [&::-moz-range-thumb]:rounded-none [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-slate-900 focus-visible:outline-none focus-visible:[&::-webkit-slider-thumb]:ring-2 focus-visible:[&::-webkit-slider-thumb]:ring-slate-400",
+		grayscaleRange:
+			"[&::-webkit-slider-runnable-track]:!h-3 [&::-webkit-slider-runnable-track]:bg-gradient-to-r [&::-webkit-slider-runnable-track]:from-black [&::-webkit-slider-runnable-track]:to-white [&::-webkit-slider-thumb]:!mt-0 [&::-webkit-slider-thumb]:ring-1 [&::-webkit-slider-thumb]:ring-slate-400 [&::-moz-range-track]:!h-3 [&::-moz-range-track]:bg-gradient-to-r [&::-moz-range-track]:from-black [&::-moz-range-track]:to-white [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-slate-400",
 		check:
 			"h-3.5 w-3.5 shrink-0 cursor-pointer accent-slate-900 disabled:cursor-not-allowed",
 		note: "text-[10px] leading-snug text-slate-500",
@@ -229,6 +231,7 @@ export const uiTokens = {
 		controlLoose: "text-[10px] font-semibold uppercase tracking-[0.14em]",
 		value: "font-mono text-[11px]",
 		valueSm: "font-mono text-[10px]",
+		chartValue: "font-mono text-[7px] leading-none",
 		title: "text-sm font-semibold tracking-tight",
 		hero: "text-[30px] leading-snug [font-family:var(--font-jedar)]",
 	},

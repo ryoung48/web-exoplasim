@@ -8,8 +8,6 @@ export interface GcmMonthlyMean {
 }
 
 export interface GcmMonthAccumulator {
-	minimum: Float32Array
-	maximum: Float32Array
 	year: number
 	month: number
 	sum: Float64Array
@@ -30,10 +28,23 @@ export interface GcmAveragerSample {
 
 export interface GcmAverageState {
 	months: GcmMonthlyMean[]
+	climateMonths: GcmMonthlyMean[]
+	climateYears: number
 	years: GcmYearlyBalance[]
 	annual: GcmSnapshot | null
 	koppen: Uint8Array | null
 	pasta: Uint8Array | null
+}
+
+export interface GcmClimatology {
+	months: GcmMonthlyMean[]
+	years: number
+}
+
+export interface GcmAverageMerge {
+	averager: GcmAverager
+	months: GcmMonthlyMean[]
+	years: GcmYearlyBalance[]
 }
 
 export interface GcmAveragesRequest {

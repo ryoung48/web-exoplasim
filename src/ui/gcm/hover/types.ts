@@ -17,8 +17,29 @@ export interface GcmHoverRow {
 	value: string
 }
 
+export interface GcmHoverMonthLayer {
+	month: number
+	year: number
+	layer: GcmMapLayer
+}
+
+export interface GcmHoverMonthlyRequest {
+	point: GcmHoverPoint
+	months: GcmHoverMonthLayer[]
+	unitSystem: UnitSystem
+}
+
+export interface GcmHoverMonthlyValue {
+	month: number
+	year: number
+	value: number
+	formatted: string
+	color: string
+}
+
 export interface GcmHoverReadoutProps {
 	point: GcmHoverPoint | null
 	readLayer: () => GcmMapLayer | null
+	readMonths: () => GcmHoverMonthLayer[]
 	unitSystem: UnitSystem
 }

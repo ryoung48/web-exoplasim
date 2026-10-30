@@ -1,50 +1,105 @@
+import { useCallback, useRef, useState } from "react"
+
 import { cx } from "@/ui/components/lib"
+
 import { Button } from "@/ui/components/primitives/Button"
+
 import { FilePicker } from "@/ui/components/primitives/FilePicker"
+
+import { LabeledNumberInput } from "@/ui/components/primitives/LabeledNumberInput"
 import { LabeledSlider } from "@/ui/components/primitives/LabeledSlider"
-import { LabeledValueRow } from "@/ui/components/primitives/LabeledValueRow"
+
 import { ToggleRow } from "@/ui/components/primitives/ToggleRow"
+
 import { uiTokens } from "@/ui/components/tokens"
+
 import { GCM_INPUT_HELP } from "@/ui/gcm/input-help"
+
 import { TerrainPreview } from "@/ui/gcm/terrain/TerrainPreview"
+
 import type { GcmTerrainPanelProps } from "@/ui/gcm/terrain/types"
+
 import { useTerrainImport } from "@/ui/gcm/terrain/useTerrainImport"
-import { formatElevation, formatWithUnit } from "@/ui/genesis/shared/ui-format"
+
+import { formatWithUnit, KM_TO_FT } from "@/ui/genesis/shared/ui-format"
 
 export function TerrainPanel({
-	terrain,
-	latitudes,
+	hasTerrain,
+
 	disabled,
+
 	unitSystem,
+
 	onChange,
 }: GcmTerrainPanelProps) {
-	const upload = useTerrainImport(latitudes)
+	const upload = useTerrainImport()
+
+	const readTerrain = useCallback(() => upload.terrain, [upload.terrain])
+	const dialog = useRef<HTMLDialogElement>(null)
+	const [emptyElevation, setEmptyElevation] = useState(false)
+	const elevationFactor = unitSystem === "imperial" ? KM_TO_FT / 1000 : 1
+
 	return (
 		<div className="min-w-0 space-y-2">
-			<fieldset disabled={disabled || upload.busy} className="space-y-2">
-				<FilePicker
-					label="Heightmap"
-					help={GCM_INPUT_HELP.heightmap}
-					action="Choose heightmap"
-					accept=".png,.bin"
-					emptyLabel="Required"
-					fileName={upload.heightmap?.name ?? null}
-					disabled={disabled || upload.busy}
-					onSelect={(file) => void upload.read({ file, kind: "heightmap" })}
-				/>
-				<FilePicker
-					label="Land mask"
-					help={GCM_INPUT_HELP.landMask}
-					action="Choose land mask"
-					accept=".png"
-					emptyLabel="Optional"
-					fileName={upload.mask?.name ?? null}
-					disabled={disabled || upload.busy}
-					onSelect={(file) => void upload.read({ file, kind: "mask" })}
-				/>
-				{(upload.heightmap || upload.mask) && (
-					<details>
-						<summary className={uiTokens.field.disclosure}>Options</summary>
+			<div className={uiTokens.field.actions}>
+				<Button
+					size="md"
+					disabled={disabled}
+					onClick={() => dialog.current?.showModal()}
+				>
+					Import terrain
+				</Button>
+				<Button
+					size="md"
+					disabled={disabled || !hasTerrain}
+					onClick={() => onChange(null)}
+				>
+					Use Earth
+				</Button>
+			</div>
+			<dialog
+				ref={dialog}
+				aria-labelledby="terrain-import-title"
+				className={cx(
+					"m-auto max-h-[90vh] w-[min(36rem,95vw)] overflow-y-auto p-4",
+					uiTokens.surface.panel,
+					uiTokens.radius.md,
+					uiTokens.shadow.lg,
+				)}
+			>
+				<div className="mb-3 flex items-center justify-between gap-2">
+					<h2 id="terrain-import-title" className={uiTokens.type.title}>
+						Import terrain
+					</h2>
+					<Button
+						onClick={() => dialog.current?.close()}
+						aria-label="Close terrain import"
+					>
+						Close
+					</Button>
+				</div>
+				<fieldset disabled={disabled || upload.busy} className="space-y-2">
+					<FilePicker
+						label="Heightmap"
+						help={GCM_INPUT_HELP.heightmap}
+						action="Choose heightmap"
+						accept=".png,.bin"
+						emptyLabel="Required"
+						fileName={upload.heightmap?.name ?? null}
+						disabled={disabled || upload.busy}
+						onSelect={(file) => void upload.read({ file, kind: "heightmap" })}
+					/>
+					<FilePicker
+						label="Land mask"
+						help={GCM_INPUT_HELP.landMask}
+						action="Choose land mask"
+						accept=".png"
+						emptyLabel="Optional"
+						fileName={upload.mask?.name ?? null}
+						disabled={disabled || upload.busy}
+						onSelect={(file) => void upload.read({ file, kind: "mask" })}
+					/>
+					{(upload.heightmap || upload.mask) && (
 						<div className="space-y-2 pt-2">
 							{upload.mask && (
 								<div className="flex items-center gap-2">
@@ -60,6 +115,7 @@ export function TerrainPanel({
 									<Button
 										className={cx(
 											uiTokens.uploadAction.base,
+
 											uiTokens.uploadAction.secondary,
 										)}
 										onClick={upload.removeMask}
@@ -69,121 +125,95 @@ export function TerrainPanel({
 									</Button>
 								</div>
 							)}
-							{upload.heightmap?.encoding === "normalized" && (
-								<>
-									<LabeledSlider
-										label="Black elevation"
-										help={GCM_INPUT_HELP.blackElevation}
-										value={formatElevation(
-											upload.mapping.blackM / 1000,
-											unitSystem,
-										)}
-										min={-12000}
-										max={20000}
-										step={1}
-										numericValue={upload.mapping.blackM}
-										onChange={(blackM) =>
-											upload.setMapping({ ...upload.mapping, blackM })
-										}
-									/>
-									<LabeledSlider
-										label="White elevation"
-										help={GCM_INPUT_HELP.whiteElevation}
-										value={formatElevation(
-											upload.mapping.whiteM / 1000,
-											unitSystem,
-										)}
-										min={-12000}
-										max={20000}
-										step={1}
-										numericValue={upload.mapping.whiteM}
-										onChange={(whiteM) =>
-											upload.setMapping({ ...upload.mapping, whiteM })
-										}
-									/>
-								</>
-							)}
 							{upload.heightmap && (
-								<LabeledSlider
-									label="Sea level"
-									help={GCM_INPUT_HELP.seaLevel}
-									value={formatElevation(
-										upload.mapping.seaLevelM / 1000,
-										unitSystem,
-									)}
-									min={-12000}
-									max={20000}
-									step={1}
-									numericValue={upload.mapping.seaLevelM}
-									onChange={(seaLevelM) =>
-										upload.setMapping({ ...upload.mapping, seaLevelM })
-									}
-								/>
+								<div className="grid grid-cols-2 items-start gap-3">
+									<LabeledNumberInput
+										label="Maximum elevation"
+										help={GCM_INPUT_HELP.maxElevation}
+										unit={unitSystem === "imperial" ? "ft" : "m"}
+										value={
+											emptyElevation
+												? null
+												: Number(
+														(
+															upload.mapping.maxElevationM * elevationFactor
+														).toFixed(2),
+													)
+										}
+										placeholder="Enter elevation"
+										min={0}
+										disabled={disabled || upload.busy}
+										onChange={(value) => {
+											setEmptyElevation(value === null)
+											if (value !== null)
+												upload.setMapping({
+													...upload.mapping,
+													maxElevationM: value / elevationFactor,
+												})
+										}}
+									/>
+									<LabeledSlider
+										label="Sea level"
+										rangeClassName={uiTokens.field.grayscaleRange}
+										help={GCM_INPUT_HELP.seaLevel}
+										value={`${upload.mapping.seaLevel} / 255`}
+										min={0}
+										max={255}
+										step={1}
+										numericValue={upload.mapping.seaLevel}
+										onChange={(seaLevel) =>
+											upload.setMapping({ ...upload.mapping, seaLevel })
+										}
+									/>
+								</div>
 							)}
 						</div>
-					</details>
+					)}
+				</fieldset>
+				{upload.busy && (
+					<p role="status" className={uiTokens.field.note}>
+						Reading terrain…
+					</p>
 				)}
-			</fieldset>
-			{upload.busy && (
-				<p role="status" className={uiTokens.field.note}>
-					Reading terrain…
-				</p>
-			)}
-			{upload.error && (
-				<p role="alert" className={uiTokens.field.note}>
-					{upload.error}
-				</p>
-			)}
-			{upload.terrain && !upload.error && (
-				<details>
-					<summary className={uiTokens.field.disclosure}>
-						Preview · {formatWithUnit(upload.summary.landPercent, "%", 1)} land
-					</summary>
-					<div className="grid grid-cols-2 gap-2 pt-2">
+				{upload.error && (
+					<p role="alert" className={uiTokens.field.note}>
+						{upload.error}
+					</p>
+				)}
+				{upload.terrain && !upload.error && (
+					<div className="space-y-2 pt-2">
 						<TerrainPreview
-							terrain={upload.terrain}
-							boundary={null}
-							label="Terrain"
-						/>
-						<TerrainPreview
-							terrain={upload.terrain}
-							boundary={upload.boundary}
-							label={`Model · ${latitudes * 2} × ${latitudes}`}
+							readTerrain={readTerrain}
+							label={`Land mask · ${formatWithUnit(upload.summary.landPercent, "%", 1)} land`}
 						/>
 					</div>
-					<LabeledValueRow
-						label="Elevation"
-						value={`${formatElevation(upload.summary.minM / 1000, unitSystem)} to ${formatElevation(upload.summary.maxM / 1000, unitSystem)}`}
-					/>
-				</details>
-			)}
+				)}
 
-			<div className={uiTokens.field.actions}>
-				<Button
-					size="md"
-					className={cx(
-						uiTokens.uploadAction.base,
-						uiTokens.uploadAction.primary,
-					)}
-					disabled={
-						disabled || upload.busy || !upload.terrain || !!upload.error
-					}
-					onClick={() => onChange(upload.terrain)}
-				>
-					Apply terrain
-				</Button>
-				<Button
-					size="md"
-					className={cx(
-						uiTokens.uploadAction.base,
-						uiTokens.uploadAction.secondary,
-					)}
-					disabled={disabled || !terrain}
-					onClick={() => onChange(null)}
-				>
-					Use Earth
-				</Button>
-			</div>
+				<div className={cx(uiTokens.field.actions, "mt-3")}>
+					<Button
+						size="md"
+						className={cx(
+							uiTokens.uploadAction.base,
+
+							uiTokens.uploadAction.primary,
+						)}
+						disabled={
+							disabled ||
+							emptyElevation ||
+							upload.busy ||
+							upload.updating ||
+							!upload.terrain ||
+							!!upload.error
+						}
+						onClick={() => {
+							onChange(upload.terrain)
+							dialog.current?.close()
+						}}
+					>
+						Apply terrain
+					</Button>
+				</div>
+			</dialog>
 		</div>
 	)
 }

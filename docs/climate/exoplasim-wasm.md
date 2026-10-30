@@ -1,5 +1,15 @@
 # ExoPlaSim WebAssembly experiment
 
+The legacy ExoPlaSim 3.0.6 option was removed on 2026-10-30. The current pinned T21 and T42 WASM builds remain available on CPU.
+
+## Ten-year climate maps (2026-10-30)
+
+Köppen and Pasta maps now average matching calendar months across the latest ten complete years before classification, following `file_combine = data` in [koppenpasta](https://github.com/hersfeldtn/koppenpasta/blob/main/koppenpasta.py). Ten years is the user-requested sampling window. During warm-up, maps use the complete years available and show their count; partial calendar years are excluded. Both model-grid and downscaled classification use the same monthly climatology. Monthly weather maps, rolling twelve-month annual fields, yearly energy balance and temperature targeting retain their existing time windows. Applying changed climate settings starts a fresh averaging history, as before.
+
+The accumulator keeps at most 132 closed monthly snapshots: enough for ten complete calendar years plus the partial current year. Workers publish only the latest twelve months on regular updates, and the page merges those into its bounded history. Checkpoints preserve the full retained history. This increases memory and checkpoint sizes; ten-layer snapshot history alone is bounded at about 104 MiB for T21, 417 MiB for T42 and 937 MiB for T63 per accumulator, before current-month sums, derived climatology, transfer/encoding copies and the model's own memory. A save with only one year of retained history begins with a one-year climatology; missing earlier diagnostics cannot be reconstructed.
+
+`node scripts/exoplasim-wasm/verify-climatology.mjs` checks a noisy final-year Csb fixture becoming Cfb under ten-year monthly averaging, mean rainfall, rolling-window eviction, partial-year exclusion, unchanged per-year balance and annual fields, monthly-extrema averaging, worker/page history merging and checkpoint preservation. `verify-climate.mjs` checks both classification/downscaling paths and the displayed climatology count. These synthetic checks establish data handling, not a measured reduction of dry-summer area in an equilibrated Earth run.
+
 For local GPU hardware checks and native Fortran acceleration options, see [CUDA feasibility research](exoplasim-cuda.md).
 
 For the matched T21 climate comparison between the pinned source and the published 3.2.4 release, see [Native version comparisons](exoplasim-native-versions.md).

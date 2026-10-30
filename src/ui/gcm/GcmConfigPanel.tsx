@@ -1,16 +1,13 @@
 import type { ReactNode } from "react"
 import { GCM_CONTINUATION } from "@/model/climate/gcm/continuation"
-import { GCM_TARGETING } from "@/model/climate/gcm/targeting"
 import type {
 	GcmConfig,
 	GcmLayerCount,
 	GcmTruncation,
 	GcmVegetation,
 } from "@/model/climate/gcm/types"
-import { TEMPERATURE } from "@/model/shared/units/temperature"
 import { CollapsibleSection } from "@/ui/components/composites/CollapsibleSection"
 import { InputLabel } from "@/ui/components/primitives/InputLabel"
-import { LabeledNumberInput } from "@/ui/components/primitives/LabeledNumberInput"
 import { LabeledSlider } from "@/ui/components/primitives/LabeledSlider"
 import { SegmentedControl } from "@/ui/components/primitives/SegmentedControl"
 import { ToggleRow } from "@/ui/components/primitives/ToggleRow"
@@ -30,10 +27,7 @@ import type {
 	GcmSliderSpec,
 	GcmSmoothingFilter,
 } from "@/ui/gcm/types"
-import {
-	formatTemperatureDelta,
-	formatWithUnit,
-} from "@/ui/genesis/shared/ui-format"
+import { formatWithUnit } from "@/ui/genesis/shared/ui-format"
 
 const BYTES_PER_MEGABYTE = 1_000_000
 const PLANET_SLIDERS: ReadonlyArray<GcmSliderSpec> = [
@@ -192,7 +186,7 @@ function isSmoothing(filter: string): filter is GcmSmoothingFilter {
 export function GcmConfigPanel({
 	locked,
 	config,
-	terrain,
+	hasTerrain,
 	latitudes,
 	unitSystem,
 	resolutions,
@@ -296,13 +290,6 @@ export function GcmConfigPanel({
 						/>
 					</div>
 				)}
-				<ToggleRow
-					label="Storm climatology"
-					help={GCM_INPUT_HELP.stormclim}
-					checked={config.stormclim}
-					disabled={disabled}
-					onChange={(stormclim) => update({ stormclim })}
-				/>
 				<fieldset className="space-y-1" aria-label="Atmospheric layers">
 					<legend className={label}>
 						<InputLabel
@@ -322,7 +309,7 @@ export function GcmConfigPanel({
 						}
 					/>
 				</fieldset>
-				{engine === "cpu" && (
+				{engine !== "gpu" && (
 					<fieldset className="space-y-1" aria-label="Workers">
 						<legend className={label}>
 							<InputLabel label="Workers" help={GCM_INPUT_HELP.workers} />
@@ -390,13 +377,20 @@ export function GcmConfigPanel({
 					disabled={disabled}
 					onChange={(enabled) => toggleFilter({ filter: "sp", enabled })}
 				/>
+				<ToggleRow
+					label="Storm climatology"
+					help={GCM_INPUT_HELP.stormclim}
+					checked={config.stormclim}
+					disabled={disabled}
+					onChange={(stormclim) => update({ stormclim })}
+				/>
 			</>
 		),
 		planet: (
 			<>
 				{PLANET_SLIDERS.map(renderSlider)}
 				<TerrainPanel
-					terrain={terrain}
+					hasTerrain={hasTerrain}
 					latitudes={latitudes}
 					disabled={disabled}
 					unitSystem={unitSystem}
@@ -453,31 +447,6 @@ export function GcmConfigPanel({
 		),
 		atmosphere: (
 			<>
-				<LabeledNumberInput
-					label="Desired temperature"
-					help={`Enter a global mean surface temperature to automatically adjust CO₂ until the climate settles within ${formatTemperatureDelta(GCM_TARGETING.TOLERANCE_K, unitSystem)} of your goal. Leave blank to keep CO₂ fixed. Pressure and gas constant stay fixed during targeting.`}
-					unit={unitSystem === "imperial" ? "°F" : "°C"}
-					value={
-						config.targetTemperatureK === null
-							? null
-							: TEMPERATURE.toDisplay({
-									value: config.targetTemperatureK - 273.15,
-									system: unitSystem,
-								})
-					}
-					min={TEMPERATURE.toDisplay({ value: -273.15, system: unitSystem })}
-					placeholder="Off"
-					disabled={disabled}
-					onChange={(value) =>
-						update({
-							targetTemperatureK:
-								value === null
-									? null
-									: TEMPERATURE.toCelsius({ value, system: unitSystem }) +
-										273.15,
-						})
-					}
-				/>
 				<GcmAtmosphereControls
 					locked={locked}
 					config={config.atmosphere}
@@ -523,24 +492,6 @@ export function GcmConfigPanel({
 					checked={config.wetSoil}
 					disabled={disabled}
 					onChange={(wetSoil) => update({ wetSoil })}
-				/>
-				{terrain === null && (
-					<ToggleRow
-						label="Earth surface climatology"
-						help={GCM_INPUT_HELP.earthSurfaceClimatology}
-						checked={config.earthSurfaceClimatology}
-						disabled={disabled || locked}
-						onChange={(earthSurfaceClimatology) =>
-							update({ earthSurfaceClimatology })
-						}
-					/>
-				)}
-				<GcmOverrideControls
-					section="surface"
-					unitSystem={unitSystem}
-					config={config}
-					disabled={disabled}
-					onChange={onChange}
 				/>
 			</>
 		),

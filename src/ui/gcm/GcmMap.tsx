@@ -14,11 +14,12 @@ const CANVAS_HEIGHT = 720
 export function GcmMap({
 	loading,
 	readLayer,
-	coastlines,
+	readCoastlines,
 	emptyMessage,
 	onHover,
 }: GcmMapProps) {
 	const layer = loading ? null : readLayer()
+	const coastlines = readCoastlines()
 	const canvas = useRef<HTMLCanvasElement>(null)
 	const navigation = useRef<GcmMapNavigation | null>(null)
 	const hoverHandler = useRef(onHover)

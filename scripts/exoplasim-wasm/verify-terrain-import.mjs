@@ -29,30 +29,30 @@ try {
 		const read = async (extension) => GCM_TERRAIN_IMPORT.read({ name: `${name}.${extension}`, buffer: await (await fetch(`/stats/terrain-import/${name}.${extension}`)).arrayBuffer() })
 		const heightmap = await read("bin")
 		const mask = await read("land-mask.png")
-		const mapping = { blackM: -12000, whiteM: 20000, seaLevelM: 0, invertMask: false }
+		const mapping = { maxElevationM: 8000, seaLevel: 128, invertMask: false }
 		const terrain = GCM_TERRAIN_IMPORT.create({ heightmap, mask, mapping })
 		let differences = 0
-		let incorrect = 0
 		for (let i = 0; i < terrain.land.length; i++) {
-			incorrect += Number(terrain.land[i] !== Number(mask.samples[i] >= 0.5) || terrain.elevationM[i] !== heightmap.samples[i])
-			differences += Number((terrain.land[i] > 0) !== (heightmap.samples[i] > 0))
+			check(terrain.land[i] === Number(mask.samples[i] >= 0.5), "Explicit land mask changed")
+			differences += Number((terrain.land[i] > 0) !== (terrain.elevationM[i] > 0))
 		}
-		check(incorrect === 0, "Binary elevations or explicit mask changed")
-		check(differences === fixture.maskSignDifferences && differences > 0, "Explicit land labels were lost")
-		const precision = {}
-		for (const extension of ["16bit.png", "8bit.png"]) {
-			const image = await read(extension)
-			const decoded = GCM_TERRAIN_IMPORT.create({ heightmap: image, mask, mapping })
-			let maxErrorM = 0
-			for (let i = 0; i < decoded.elevationM.length; i++) maxErrorM = Math.max(maxErrorM, Math.abs(decoded.elevationM[i] - terrain.elevationM[i]))
-			check(maxErrorM < (extension === "16bit.png" ? 0.25 : 63), `${extension} lost precision: ${maxErrorM}`)
-			precision[extension] = maxErrorM
-		}
+		const sample = { name: "sample", width: 4, height: 2, encoding: "normalized", samples: new Float32Array([0, 0.25, 0.5, 0.75, 1, 0, 0.5, 1]) }
+		const sampleMapping = { ...mapping, seaLevel: 127.5 }
+		const derived = GCM_TERRAIN_IMPORT.create({ heightmap: sample, mask: null, mapping: sampleMapping })
+		check(derived.elevationM.join(",") === "0,0,0,4000,8000,0,0,8000", "Elevation scaling failed")
+		check(derived.land.join(",") === "0,0,0,1,1,0,0,1", "Land threshold failed")
+		const dim = { ...sample, samples: new Float32Array([0, 0.25, 0.5, 0.75, 0.75, 0, 0.5, 0.75]) }
+		const dimTerrain = GCM_TERRAIN_IMPORT.create({ heightmap: dim, mask: null, mapping: sampleMapping })
+		check(dimTerrain.elevationM[3] === 8000 && dimTerrain.elevationM[2] === 0, "Brightest sample must reach the maximum elevation")
+		const flooded = GCM_TERRAIN_IMPORT.create({ heightmap: dim, mask: null, mapping: { ...mapping, seaLevel: 200 } })
+		check(flooded.elevationM.every((value) => value === 0), "Cutoff above the brightest sample must flatten the terrain")
+		const white = GCM_TERRAIN_IMPORT.create({ heightmap: sample, mask: null, mapping: { ...mapping, seaLevel: 255 } })
+		check(white.land.every((value) => value === 0) && white.elevationM.every((value) => value === 0), "White cutoff failed")
 		const inverted = GCM_TERRAIN_IMPORT.create({ heightmap, mask, mapping: { ...mapping, invertMask: true } })
 		check(inverted.land.every((value, i) => value === 1 - terrain.land[i]), "Invert mask is incorrect")
 		check(rejects(() => GCM_TERRAIN_IMPORT.read({ name: "broken.bin", buffer: new ArrayBuffer(4) })), "Wrong binary length accepted")
 		check(rejects(() => GCM_TERRAIN_IMPORT.create({ heightmap, mask: { ...mask, width: 4 }, mapping })), "Mismatched mask accepted")
-		check(rejects(() => GCM_TERRAIN_IMPORT.create({ heightmap, mask, mapping: { ...mapping, whiteM: -20000 } })), "Invalid height mapping accepted")
+		check(rejects(() => GCM_TERRAIN_IMPORT.create({ heightmap, mask, mapping: { ...mapping, maxElevationM: -1 } })), "Invalid height mapping accepted")
 		const quadrants = { name: "quadrants", width: 4, height: 2, elevationM: new Float32Array([100, 100, 200, 200, 300, 300, 400, 400]), land: new Float32Array(8).fill(1) }
 		for (const latitudes of [32, 64]) {
 			const grid = GCM_GRID.forLatitudes(latitudes)
@@ -78,15 +78,15 @@ try {
 		const checkpoint = { terrain, meta, restart: new Uint8Array([1, 2, 3]).buffer, diagnostics: { averager: GCM_AVERAGES.create(), snapshot: { step: 0, date: meta.date, values: new Float32Array([1]) } } }
 		const restored = GCM_CHECKPOINT.decode(GCM_CHECKPOINT.encode(checkpoint))
 		check(restored.terrain.elevationM.every((value, i) => value === terrain.elevationM[i]) && restored.terrain.land.every((value, i) => value === terrain.land[i]), "Checkpoint lost terrain")
-		return { ...GCM_TERRAIN.summary(terrain), explicitMaskDifferences: differences, precision, checkpointFormat: GCM_CHECKPOINT.FORMATS.cpu }
+		return { ...GCM_TERRAIN.summary(terrain), explicitMaskDifferences: differences, checkpointFormat: GCM_CHECKPOINT.FORMATS.cpu }
 	}, { name, fixture })
 	console.log("Terrain core checks", core)
 	await page.goto(`${baseUrl}/gcm`)
+	await page.getByRole("button", { name: "Import terrain" }).click()
 	await page.getByLabel("Heightmap").setInputFiles(path.join(output, `${name}.bin`))
 	await page.getByRole("button", { name: "Apply terrain", exact: true }).waitFor()
 	await page.getByLabel("Land mask").setInputFiles(path.join(output, `${name}.land-mask.png`))
-	await page.locator("summary").filter({ hasText: /^Preview/ }).click()
-	await page.getByRole("img", { name: "Terrain", exact: true }).waitFor()
+	await page.getByRole("img", { name: /^Land mask/ }).waitFor()
 	await page.getByRole("button", { name: "Apply terrain", exact: true }).click()
 	assert.equal(await page.getByLabel("Earth surface climatology", { exact: true }).isChecked(), false)
 	await page.screenshot({ path: path.join(output, "terrain-import.png"), fullPage: true })
@@ -110,20 +110,17 @@ try {
 	assert((await page.locator("body").innerText()).includes(`${name}.bin`))
 	await page.screenshot({ path: path.join(output, "terrain-checkpoint-restored.png"), fullPage: true })
 	await page.getByRole("button", { name: "Clear", exact: true }).click()
-	await page.locator("summary").filter({ hasText: /^Options$/ }).click()
 	for (const extension of ["16bit.png", "8bit.png"]) {
+		await page.getByRole("button", { name: "Import terrain" }).click()
 		await page.getByLabel("Heightmap").setInputFiles(path.join(output, `${name}.${extension}`))
-		await page.getByRole("slider", { name: "Black elevation", exact: true }).press("Home")
-		await page.getByRole("slider", { name: "White elevation", exact: true }).press("End")
+		await page.getByRole("slider", { name: "Sea level", exact: true }).press("Home")
+		await page.getByRole("spinbutton", { name: "Maximum elevation", exact: true }).fill("20000")
 		await page.getByRole("button", { name: "Apply terrain", exact: true }).click()
 		await page.getByRole("heading", { name: `ExoPlaSim · ${name}.${extension}`, exact: true }).waitFor()
 	}
-	console.log("PNG upload controls passed")
+	await page.getByRole("button", { name: "Import terrain" }).click()
 	await page.getByLabel("Invert mask", { exact: true }).check()
-	await page.locator("summary").filter({ hasText: "68.4 %" }).waitFor()
 	await page.getByLabel("Invert mask", { exact: true }).uncheck()
-	await page.locator("summary").filter({ hasText: "31.6 %" }).waitFor()
-	console.log("Mask inversion controls passed")
 	const bad = path.join(output, "invalid.png")
 	await writeFile(bad, encode({ width: 4, height: 4, channels: 1, depth: 8, data: new Uint8Array(16) }))
 	await page.getByLabel("Heightmap").setInputFiles(bad)
@@ -140,6 +137,7 @@ try {
 		await route.continue()
 	})
 	await racePage.goto(`${baseUrl}/gcm`)
+	await racePage.getByRole("button", { name: "Import terrain" }).click()
 	await racePage.getByLabel("Heightmap").setInputFiles(path.join(output, `${name}.bin`))
 	await racePage.getByRole("button", { name: "Apply terrain", exact: true }).click()
 	assert(earthRequested, "Earth data request was not intercepted")

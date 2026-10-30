@@ -2,8 +2,14 @@ import { GCM_CLASSIFICATION } from "@/model/climate/gcm/classification"
 import { GCM_FIELDS } from "@/model/climate/gcm/fields"
 import { GCM_DISPLAY } from "@/ui/gcm/field-display"
 import { GCM_FIELD_SAMPLE } from "@/ui/gcm/field-sample"
-import type { GcmHoverRequest, GcmHoverRow } from "@/ui/gcm/hover/types"
+import type {
+	GcmHoverMonthlyRequest,
+	GcmHoverMonthlyValue,
+	GcmHoverRequest,
+	GcmHoverRow,
+} from "@/ui/gcm/hover/types"
 import { COORDINATES } from "@/ui/genesis/shared/coordinates"
+import { rgbToCss } from "@/ui/genesis/shared/ui-format"
 
 function rows({ point, layer, unitSystem }: GcmHoverRequest): GcmHoverRow[] {
 	const [latitude, longitude] = COORDINATES.format(point)
@@ -33,4 +39,31 @@ function rows({ point, layer, unitSystem }: GcmHoverRequest): GcmHoverRow[] {
 	]
 }
 
-export const GCM_HOVER = { rows }
+function monthly({
+	point,
+	months,
+	unitSystem,
+}: GcmHoverMonthlyRequest): GcmHoverMonthlyValue[] {
+	return months.flatMap(({ month, year, layer }) => {
+		if (layer.kind !== "field" && layer.kind !== "downscaled-field") return []
+		const value = GCM_FIELD_SAMPLE.value({ layer, point })
+		if (!Number.isFinite(value)) return []
+		const formatted = GCM_DISPLAY.format({
+			mode: layer.mode,
+			value,
+			unitSystem,
+		})
+		if (formatted === "Unavailable") return []
+		return [
+			{
+				month,
+				year,
+				value,
+				formatted,
+				color: rgbToCss(GCM_DISPLAY.color({ mode: layer.mode, value })),
+			},
+		]
+	})
+}
+
+export const GCM_HOVER = { rows, monthly }

@@ -4,6 +4,8 @@ import type { GcmLiveData, GcmLiveStore } from "@/ui/gcm/types"
 
 const NO_AVERAGES: GcmAverageState = {
 	months: [],
+	climateMonths: [],
+	climateYears: 0,
 	years: [],
 	annual: null,
 	koppen: null,

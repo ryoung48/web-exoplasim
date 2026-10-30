@@ -3,7 +3,7 @@ import type { GcmTerrain } from "@/model/climate/gcm/terrain/types"
 import type { UnitSystem } from "@/ui/genesis/shared/ui-format"
 
 export interface GcmTerrainPanelProps {
-	terrain: GcmTerrain | null
+	hasTerrain: boolean
 	latitudes: number
 	disabled: boolean
 	unitSystem: UnitSystem
@@ -16,11 +16,12 @@ export interface GcmTerrainUpload {
 }
 
 export interface GcmTerrainPreviewProps {
-	terrain: GcmTerrain
-	boundary: GcmBoundary | null
+	readTerrain: () => GcmTerrain | null
 	label: string
 }
 
-export interface GcmTerrainPaint extends GcmTerrainPreviewProps {
+export interface GcmTerrainPaint {
+	terrain: GcmTerrain
+	boundary: GcmBoundary | null
 	canvas: HTMLCanvasElement
 }

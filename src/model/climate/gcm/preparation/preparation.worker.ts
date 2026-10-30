@@ -24,13 +24,12 @@ self.onmessage = async ({ data }: MessageEvent<GcmPreparationMessage>) => {
 				...diagnostics.averager.months.map(
 					({ snapshot }) => snapshot.values.buffer,
 				),
+				...averages.climateMonths.map(({ snapshot }) => snapshot.values.buffer),
 			])
 			const current = diagnostics.averager.current
 			if (current) {
 				buffers.add(current.last.values.buffer)
 				buffers.add(current.sum.buffer)
-				buffers.add(current.minimum.buffer)
-				buffers.add(current.maximum.buffer)
 			}
 			if (averages.annual) buffers.add(averages.annual.values.buffer)
 			if (averages.koppen) buffers.add(averages.koppen.buffer)

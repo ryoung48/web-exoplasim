@@ -150,7 +150,7 @@ export function useGcmRun() {
 	// The worker averages every snapshot; the page mirrors the closed months.
 	const onAverages = useCallback(
 		({ months, years }: GcmAverageUpdate) => {
-			averager.current = { current: null, months, years }
+			GCM_AVERAGES.merge({ averager: averager.current, months, years })
 			live.update({
 				averages: GCM_AVERAGES.view({
 					averager: averager.current,

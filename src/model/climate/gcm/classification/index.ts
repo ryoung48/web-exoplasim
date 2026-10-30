@@ -99,8 +99,13 @@ function classes({
 		field: "surfaceTemperatureMin" | "surfaceTemperatureMax",
 	) =>
 		ordered.map(({ snapshot }, month) => {
+			const air = GCM_FIELDS.field({ snapshot, field: "airTemperature" })
+			const surface = GCM_FIELDS.field({
+				snapshot,
+				field: "surfaceTemperature",
+			})
 			const values = GCM_FIELDS.field({ snapshot, field }).map(
-				(value) => value - 273.15,
+				(value, point) => value - 273.15 + air[point] - surface[point],
 			)
 			return downscale
 				? GCM_DOWNSCALE.interpolate({ downscale, values }).map(

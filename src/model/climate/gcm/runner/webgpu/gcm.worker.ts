@@ -329,7 +329,10 @@ function submit(current: GcmWorkerModel) {
 				type: "progress",
 				latest: snapshots[snapshots.length - 1],
 				averages: closed
-					? { months: averager.months, years: averager.years }
+					? {
+							months: averager.months.slice(-GCM_AVERAGES.MONTHS_PER_YEAR),
+							years: averager.years,
+						}
 					: null,
 			},
 			transfer: [],

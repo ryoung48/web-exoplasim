@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react"
+import { GCM_AVERAGES } from "@/model/climate/gcm/averages"
 import { GCM_CLASSIFICATION } from "@/model/climate/gcm/classification"
 import { GCM_DOWNSCALE } from "@/model/climate/gcm/downscale"
 import { GCM_FIELDS } from "@/model/climate/gcm/fields"
@@ -21,7 +22,7 @@ import { GcmClimateLegend } from "@/ui/gcm/GcmClimateLegend"
 import { GcmConfigPanel } from "@/ui/gcm/GcmConfigPanel"
 import { GcmHoverReadout } from "@/ui/gcm/GcmHoverReadout"
 import { GcmMap } from "@/ui/gcm/GcmMap"
-import type { GcmHoverPoint } from "@/ui/gcm/hover/types"
+import type { GcmHoverMonthLayer, GcmHoverPoint } from "@/ui/gcm/hover/types"
 import { GCM_LIVE } from "@/ui/gcm/live-store"
 import { GCM_MODE_GROUPS } from "@/ui/gcm/map-mode-options"
 import { GCM_PERIOD_VIEW } from "@/ui/gcm/period-view"
@@ -138,10 +139,10 @@ export function GcmView() {
 						config: gcm.config,
 						scheme,
 						downscale: downscaled,
-						months: averages.months,
+						months: averages.climateMonths,
 					})
 				: null,
-		[downscaled, climateView, scheme, averages.months, gcm.config],
+		[downscaled, climateView, scheme, averages.climateMonths, gcm.config],
 	)
 	const layer = useMemo<GcmMapLayer | null>(() => {
 		if (terrainView)
@@ -194,6 +195,38 @@ export function GcmView() {
 	// React's development profiler traverses arrays in changed props on both
 	// entry and exit. Keep raster data behind a reader at component boundaries.
 	const readLayer = useCallback(() => layer, [layer])
+	const readCoastlines = useCallback(() => gcm.coastlines, [gcm.coastlines])
+	const calendarMonths = useMemo(
+		() =>
+			averages.months
+				.map((month, index) => ({ month, index }))
+				.toSorted((a, b) => a.month.month - b.month.month),
+		[averages.months],
+	)
+	const hovering = hover !== null
+	const monthlyLayers = useMemo<GcmHoverMonthLayer[]>(() => {
+		if (!hovering || terrainView || climateView) return []
+		return calendarMonths.map(({ month: { month, year, snapshot } }) => {
+			if (!downscaled)
+				return { month, year, layer: { kind: "field", snapshot, mode } }
+			const values = GCM_FIELDS.values({ snapshot, mode })
+			return {
+				month,
+				year,
+				layer: {
+					kind: "downscaled-field",
+					snapshot,
+					mode,
+					width: downscaled.width,
+					height: downscaled.height,
+					values: LAPSE_CORRECTED_MODES.includes(mode)
+						? GCM_DOWNSCALE.temperature({ downscale: downscaled, values })
+						: GCM_DOWNSCALE.interpolate({ downscale: downscaled, values }),
+				},
+			}
+		})
+	}, [terrainView, climateView, calendarMonths, downscaled, mode, hovering])
+	const readMonths = useCallback(() => monthlyLayers, [monthlyLayers])
 	const readClasses = useCallback(
 		() => downscaledClimate ?? climate,
 		[downscaledClimate, climate],
@@ -236,7 +269,7 @@ export function GcmView() {
 					<div className="relative text-right">
 						<div className={cx(uiTokens.type.value, uiTokens.text.primary)}>
 							{climateView && climate
-								? `${climateDefinition.label} from the ${selection.label}`
+								? `${climateDefinition.label} · ${averages.climateYears}-year monthly climatology${averages.climateYears < GCM_AVERAGES.CLIMATE_YEARS ? " (building to 10 years)" : ""}`
 								: terrainView
 									? "Terrain elevation"
 									: selection.label}
@@ -244,6 +277,7 @@ export function GcmView() {
 						<GcmHoverReadout
 							point={hover}
 							readLayer={readLayer}
+							readMonths={readMonths}
 							unitSystem={unitSystem}
 						/>
 					</div>
@@ -260,8 +294,8 @@ export function GcmView() {
 							title={
 								group.defaultView === "koppen"
 									? averages.koppen
-										? "Climate classes from the last 12 model months"
-										: "Available after 12 model months"
+										? `Climate classes averaged over ${averages.climateYears} complete years (up to 10)`
+										: "Available after the first complete model year"
 									: group.label
 							}
 							onClick={() => setView(group.defaultView)}
@@ -293,7 +327,7 @@ export function GcmView() {
 							<SegmentedControl
 								options={modeGroup.children.filter(
 									(child) =>
-										gcm.engine === "cpu" ||
+										gcm.engine !== "gpu" ||
 										child.value === "elevation" ||
 										child.value === "koppen" ||
 										child.value === "pasta" ||
@@ -323,7 +357,7 @@ export function GcmView() {
 					)}
 					{!terrainView && period === "month" && !climateView && (
 						<div className="flex flex-wrap gap-1">
-							{averages.months.map((month, index) => (
+							{calendarMonths.map(({ month, index }) => (
 								<Button
 									key={`${month.year}-${month.month}`}
 									size="sm"
@@ -347,7 +381,7 @@ export function GcmView() {
 						loading={status === "loading" || (status === "running" && !latest)}
 						onHover={setHover}
 						readLayer={readLayer}
-						coastlines={gcm.coastlines}
+						readCoastlines={readCoastlines}
 						emptyMessage={
 							terrainView
 								? "Import terrain in the settings panel to view it"
@@ -606,7 +640,7 @@ export function GcmView() {
 					)}
 					<GcmConfigPanel
 						config={gcm.config}
-						terrain={gcm.terrain}
+						hasTerrain={gcm.terrain !== null}
 						latitudes={
 							gcm.resolutions.find(
 								(entry) =>

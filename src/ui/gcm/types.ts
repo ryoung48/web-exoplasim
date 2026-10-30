@@ -95,7 +95,7 @@ export type GcmMapDetail = "model" | "downscaled"
 export interface GcmMapProps {
 	loading: boolean
 	readLayer: () => GcmMapLayer | null
-	coastlines: CoastlineLineData | null
+	readCoastlines: () => CoastlineLineData | null
 	emptyMessage: string
 	onHover: (point: GcmHoverPoint | null) => void
 }
@@ -218,8 +218,7 @@ export type GcmHelpKey =
 	| "heightmap"
 	| "landMask"
 	| "invertMask"
-	| "blackElevation"
-	| "whiteElevation"
+	| "maxElevation"
 	| "seaLevel"
 
 export type GcmSmoothingFilter = Extract<
@@ -303,7 +302,7 @@ export interface GcmConfigPanelProps {
 	gpuAvailable: boolean | null
 	onEngineChange: (engine: GcmEngine) => void
 	config: GcmConfig
-	terrain: GcmTerrain | null
+	hasTerrain: boolean
 	latitudes: number
 	unitSystem: UnitSystem
 	resolutions: ReadonlyArray<GcmResolution>

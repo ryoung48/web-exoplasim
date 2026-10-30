@@ -1,6 +1,4 @@
-import { useMemo, useRef, useState } from "react"
-import { GCM_BOUNDARY } from "@/model/climate/gcm/boundary"
-import { GCM_GRID } from "@/model/climate/gcm/grid"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { GCM_TERRAIN } from "@/model/climate/gcm/terrain"
 import { GCM_TERRAIN_IMPORT } from "@/model/climate/gcm/terrain/import"
 import type {
@@ -9,42 +7,43 @@ import type {
 } from "@/model/climate/gcm/terrain/import/types"
 import type { GcmTerrainUpload } from "@/ui/gcm/terrain/types"
 
-export function useTerrainImport(latitudes: number) {
+export function useTerrainImport() {
 	const [heightmap, setHeightmap] = useState<GcmTerrainImage | null>(null)
 	const [mask, setMask] = useState<GcmTerrainImage | null>(null)
 	const [mapping, setMapping] = useState<GcmTerrainMapping>({
-		blackM: -8000,
-		whiteM: 8000,
-		seaLevelM: 0,
+		maxElevationM: 8000,
+		seaLevel: 0,
 		invertMask: false,
 	})
+	const [previewMapping, setPreviewMapping] = useState(mapping)
+	useEffect(() => {
+		const timer = setTimeout(() => setPreviewMapping(mapping), 150)
+		return () => clearTimeout(timer)
+	}, [mapping])
 	const [fileError, setFileError] = useState("")
 	const [pending, setPending] = useState(0)
 	const versions = useRef({ heightmap: 0, mask: 0 })
 	const result = useMemo(() => {
 		try {
-			if (!heightmap)
-				return { terrain: null, summary: null, boundary: null, error: "" }
-			const terrain = GCM_TERRAIN_IMPORT.create({ heightmap, mask, mapping })
+			if (!heightmap) return { terrain: null, summary: null, error: "" }
+			const terrain = GCM_TERRAIN_IMPORT.create({
+				heightmap,
+				mask,
+				mapping: previewMapping,
+			})
 			return {
 				terrain,
 				summary: GCM_TERRAIN.summary(terrain),
-				boundary: GCM_BOUNDARY.fromTerrain({
-					gravityMs2: 9.80665,
-					grid: GCM_GRID.forLatitudes(latitudes),
-					terrain,
-				}),
 				error: "",
 			}
 		} catch (error) {
 			return {
 				terrain: null,
 				summary: null,
-				boundary: null,
 				error: String(error instanceof Error ? error.message : error),
 			}
 		}
-	}, [heightmap, mask, mapping, latitudes])
+	}, [heightmap, mask, previewMapping])
 	const read = async ({ file, kind }: GcmTerrainUpload) => {
 		const version = ++versions.current[kind]
 		setPending((value) => value + 1)
@@ -79,6 +78,7 @@ export function useTerrainImport(latitudes: number) {
 		setMapping,
 		read,
 		busy: pending > 0,
+		updating: mapping !== previewMapping,
 		removeMask: () => {
 			versions.current.mask++
 			setMask(null)

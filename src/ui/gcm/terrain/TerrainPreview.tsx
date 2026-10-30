@@ -4,21 +4,17 @@ import { uiTokens } from "@/ui/components/tokens"
 import { GCM_TERRAIN_PREVIEW } from "@/ui/gcm/terrain/preview"
 import type { GcmTerrainPreviewProps } from "@/ui/gcm/terrain/types"
 
-export function TerrainPreview({
-	terrain,
-	boundary,
-	label,
-}: GcmTerrainPreviewProps) {
+export function TerrainPreview({ readTerrain, label }: GcmTerrainPreviewProps) {
 	const canvas = useRef<HTMLCanvasElement>(null)
 	useEffect(() => {
-		if (canvas.current)
+		const terrain = readTerrain()
+		if (canvas.current && terrain)
 			GCM_TERRAIN_PREVIEW.paint({
 				terrain,
-				boundary,
-				label,
+				boundary: null,
 				canvas: canvas.current,
 			})
-	}, [terrain, boundary, label])
+	}, [readTerrain])
 	return (
 		<figure className="space-y-1">
 			<canvas
@@ -31,7 +27,12 @@ export function TerrainPreview({
 					uiTokens.radius.sm,
 				)}
 			/>
-			<figcaption className={uiTokens.type.valueSm}>{label}</figcaption>
+			<figcaption className="flex flex-wrap items-baseline justify-between gap-2">
+				<span className={uiTokens.type.valueSm}>{label}</span>
+				<span className={uiTokens.field.note}>
+					White is land; black is ocean.
+				</span>
+			</figcaption>
 		</figure>
 	)
 }

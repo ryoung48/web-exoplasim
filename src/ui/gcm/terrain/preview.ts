@@ -1,4 +1,3 @@
-import { GCM_DISPLAY } from "@/ui/gcm/field-display"
 import type { GcmTerrainPaint } from "@/ui/gcm/terrain/types"
 
 function paint({ canvas, terrain, boundary }: GcmTerrainPaint) {
@@ -9,8 +8,6 @@ function paint({ canvas, terrain, boundary }: GcmTerrainPaint) {
 	const context = canvas.getContext("2d")
 	if (!context) return
 	const image = context.createImageData(width, height)
-	let maxM = 1
-	for (const value of terrain.elevationM) maxM = Math.max(maxM, value)
 	for (let y = 0; y < height; y++) {
 		const latitude = 90 - ((y + 0.5) * 180) / height
 		let row = 0
@@ -37,17 +34,9 @@ function paint({ canvas, terrain, boundary }: GcmTerrainPaint) {
 					)
 				: 0
 			const land = boundary ? boundary.landFraction[cell] : terrain.land[i]
-			const elevation = boundary
-				? boundary.geopotential[cell] / 9.80665
-				: terrain.elevationM[i]
-			const color = GCM_DISPLAY.terrainColor({
-				value: elevation,
-				min: 0,
-				max: maxM,
-				land,
-			})
+			const shade = land >= 0.5 ? 255 : 0
 			for (let channel = 0; channel < 3; channel++) {
-				image.data[(y * width + x) * 4 + channel] = color[channel] * 255
+				image.data[(y * width + x) * 4 + channel] = shade
 			}
 			image.data[(y * width + x) * 4 + 3] = 255
 		}

@@ -44,7 +44,7 @@ Tidally locked illumination uses upstream's synchronous-illumination switch. The
 
 The ocean setting controls slab-ocean heat storage, not a dynamic deep ocean. Earth surface climatology is unchecked by default. Enabling it retains the bundled surface boundary data; leaving it off initializes those properties from model defaults.
 
-Wet soil controls moisture-dependent bare-soil albedo, independently of star temperature. Checked writes `NWETSOIL = 1`; unchecked writes `0`, for both engines. This intentionally differs from the pinned Python wrapper, which disables wet-soil albedo when a stellar temperature is supplied. It does not switch the soil water cycle on or off. Settings apply to new runs; restoring a checkpoint retains its saved configuration.
+Wet soil defaults to off and controls moisture-dependent bare-soil albedo, independently of star temperature. Checked writes `NWETSOIL = 1`; unchecked writes `0`, for both engines. This intentionally differs from the pinned Python wrapper, which disables wet-soil albedo when a stellar temperature is supplied. It does not switch the soil water cycle on or off. Settings apply to new runs; restoring a checkpoint retains its saved configuration.
 
 ## Orbital geometry and atmospheric layers
 

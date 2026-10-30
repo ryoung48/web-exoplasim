@@ -3,7 +3,7 @@ import { TEMPERATURE } from "@/model/shared/units/temperature"
 export type UnitSystem = "metric" | "imperial"
 
 const KM_TO_MI = 0.621371
-const KM_TO_FT = 3280.839895
+export const KM_TO_FT = 3280.839895
 const MM_TO_IN = 0.0393701
 const M3S_TO_FT3S = 35.314667
 const KM2_TO_MI2 = 0.386102

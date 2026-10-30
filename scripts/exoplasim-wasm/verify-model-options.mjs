@@ -56,7 +56,7 @@ try {
             check({ condition: rejected, message: `Invalid soil parameter accepted: ${key}` })
         }
         const overrides = GCM_NAMELIST.edits({ ...config, landAlbedo: 0, oceanAlbedo: 0.07, snowIceAlbedo: 0.65 })
-        check({ condition: JSON.stringify(overrides.landmod_namelist) === JSON.stringify({ NWETSOIL: "1", DSOILZ: "0.4,0.8,1.6,3.2,6.4", ALBLAND: "0", DGROUNDALB: "0,0", DSNOWALBMN: "0.65,0.65", DGLACALBMN: "0.65,0.65", DSNOWALB: "0.65,0.65" }), message: "Land/snow overrides differ from upstream" })
+        check({ condition: JSON.stringify(overrides.landmod_namelist) === JSON.stringify({ NWETSOIL: "0", DSOILZ: "0.4,0.8,1.6,3.2,6.4", ALBLAND: "0", DGROUNDALB: "0,0", DSNOWALBMN: "0.65,0.65", DGLACALBMN: "0.65,0.65", DSNOWALB: "0.65,0.65" }), message: "Land/snow overrides differ from upstream" })
         check({ condition: JSON.stringify(overrides.seamod_namelist) === JSON.stringify({ ALBSEA: "0.07", DOCEANALB: "0.07,0.07", ALBICE: "0.65", DICEALBMN: "0.65,0.65", DICEALBMX: "0.65,0.65" }), message: "Ocean/ice overrides differ from upstream" })
         for (const value of [-0.01, 1.01, NaN, Infinity]) {
             let rejected = false

@@ -1,4 +1,5 @@
 import React from "react"
+import { cx } from "@/ui/components/lib"
 import { EditableNumberValue } from "@/ui/components/primitives/EditableNumberValue"
 import { InputLabel } from "@/ui/components/primitives/InputLabel"
 import { uiTokens } from "@/ui/components/tokens"
@@ -6,6 +7,8 @@ import { uiTokens } from "@/ui/components/tokens"
 interface LabeledSliderProps {
 	// [JUSTIFICATION] Sliders outside model settings can omit contextual help.
 	help?: string
+	// [JUSTIFICATION] Some ranges have a meaningful visual scale.
+	rangeClassName?: string
 	label: string
 	value: React.ReactNode
 	min: number
@@ -21,6 +24,7 @@ interface LabeledSliderProps {
 export const LabeledSlider: React.FC<LabeledSliderProps> = ({
 	label,
 	help,
+	rangeClassName,
 	value,
 	min,
 	max,
@@ -55,7 +59,7 @@ export const LabeledSlider: React.FC<LabeledSliderProps> = ({
 				value={numericValue}
 				disabled={disabled}
 				onChange={(event) => onChange(Number(event.target.value))}
-				className={uiTokens.field.range}
+				className={cx(uiTokens.field.range, rangeClassName)}
 			/>
 		</div>
 	)
