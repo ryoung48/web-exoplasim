@@ -2,6 +2,7 @@ import { GCM_ATMOSPHERE } from "@/model/climate/gcm/atmosphere"
 import type { GcmConfig } from "@/model/climate/gcm/types"
 
 const DEFAULT_CONFIG: GcmConfig = {
+	stormclim: false,
 	atmosphere: GCM_ATMOSPHERE.DEFAULT_CONFIG,
 	layers: 10,
 	periapseLongitudeDeg: null,

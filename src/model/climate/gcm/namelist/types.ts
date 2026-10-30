@@ -4,6 +4,7 @@ export type GcmNamelistFile =
 	| "radmod_namelist"
 	| "landmod_namelist"
 	| "vegmod_namelist"
+	| "hurricane_namelist"
 	| "glacier_namelist"
 	| "oceanmod_namelist"
 	| "seamod_namelist"

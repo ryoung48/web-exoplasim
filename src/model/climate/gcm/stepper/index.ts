@@ -18,6 +18,7 @@ import { FIXER } from "@/model/climate/gcm/physics/fixer"
 import { LAND } from "@/model/climate/gcm/physics/land"
 import { PRECIPITATION } from "@/model/climate/gcm/physics/precipitation"
 import { RADIATION } from "@/model/climate/gcm/physics/radiation"
+import { STORM } from "@/model/climate/gcm/physics/storm"
 import { SURFACE } from "@/model/climate/gcm/physics/surface"
 import { SURFACE_FLUX } from "@/model/climate/gcm/physics/surface-flux"
 import { SNAPSHOT } from "@/model/climate/gcm/snapshot"
@@ -43,6 +44,7 @@ function fields(levels: number): GcmFieldSpec[] {
 		...PRECIPITATION.fields(levels),
 		...SURFACE.fields(),
 		...CARBON.fields(),
+		...STORM.fields(),
 		...SNAPSHOT.fields(levels),
 	]
 }
@@ -118,7 +120,7 @@ function context({
 
 // One model step in master's order: gridpointa, spectrala, gridpointd
 // (the frame in, miscstep's fixer, fluxstep, radstep, rainstep, surfstep,
-// carbonstep, the frame out), spectrald. Output, diagnostics and
+// carbonstep, hurricanestep, the frame out), spectrald. Output and
 // stability_check only read the state.
 async function kernels({
 	context,
@@ -132,6 +134,7 @@ async function kernels({
 		precipitation,
 		surface,
 		carbon,
+		storm,
 	] = await Promise.all([
 		DYNAMICS.kernels({ context, constants: constants.dynamics }),
 		FIXER.kernels({ context, ...constants.fixer }),
@@ -140,6 +143,7 @@ async function kernels({
 		PRECIPITATION.kernels({ context, constants: constants.precipitation }),
 		SURFACE.kernels({ context, constants: constants.surface }),
 		CARBON.kernels({ context, constants: constants.carbon }),
+		STORM.kernels({ context, constants: constants.storm }),
 	])
 	return [
 		...dynamics.gridpointa,
@@ -151,6 +155,7 @@ async function kernels({
 		...precipitation,
 		...surface,
 		...carbon,
+		...storm,
 		...dynamics.physicsOut,
 		...dynamics.spectrald,
 	]
@@ -165,8 +170,8 @@ function encode({ pass, context, kernels }: GcmStepperEncode): void {
 // the page draws, a batch takes up to ~1.7× its budget on the GPU: the
 // plan's 25 ms let Pause reach 93 ms, 20 ms kept 30 presses under 78 ms for
 // 5% less speed, and 15 ms halved speed (docs).
-// MAX_INTERVALS bounds a staging buffer (90 fields × 8192 points × 4 B ×
-// 16 = 45 MiB at T42 with ten atmospheric layers).
+// MAX_INTERVALS bounds a staging buffer (99 fields × 8192 points × 4 B ×
+// 16 = 50 MiB at T42 with ten atmospheric layers).
 const BATCH_BUDGET_MS = 20
 const IN_FLIGHT = 2
 const MAX_INTERVALS = 16

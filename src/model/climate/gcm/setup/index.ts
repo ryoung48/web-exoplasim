@@ -2,6 +2,7 @@ import { CALENDAR } from "@/model/climate/gcm/calendar"
 import { DYNAMICS_SETUP } from "@/model/climate/gcm/dynamics/setup"
 import type { GcmDynamicsSetup } from "@/model/climate/gcm/dynamics/setup/types"
 import { GCM_GRID } from "@/model/climate/gcm/grid"
+import { GCM_NAMELIST } from "@/model/climate/gcm/namelist"
 import { MODULE_SETUP } from "@/model/climate/gcm/setup/modules"
 import { PUMAMOD } from "@/model/climate/gcm/setup/pumamod"
 import { INITIAL_STATE } from "@/model/climate/gcm/setup/state"
@@ -103,6 +104,14 @@ function constants(request: GcmSetupConstantsRequest): GcmSetup {
 		pumamod,
 		co2: rad.co2,
 		stepper: {
+			storm: {
+				...GCM_NAMELIST.read({
+					text: request.namelists.hurricane_namelist,
+					defaults: { NSTORMDIAG: 0, CKCD: 0.9, VITHRESH: 0.145 },
+				}),
+				RD: gascon,
+				OMEGA: pumamod.ww,
+			},
 			dynamics: {
 				psurf,
 				ww: pumamod.ww,

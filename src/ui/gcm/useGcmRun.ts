@@ -305,10 +305,15 @@ export function useGcmRun() {
 				const { meta, restart, diagnostics, terrain } = checkpoint
 				if (currentGeneration !== generation.current) return
 				const saved = GCM_CHECKPOINT.engine(meta)
-				if (saved === "gpu" && !gpuAvailable)
+				if (
+					saved === "gpu" &&
+					!gpuAvailable &&
+					!(await GCM_RUNNER.gpuAvailable())
+				)
 					throw new Error(
 						"This checkpoint was saved by the GPU engine, and this browser has no WebGPU",
 					)
+				if (currentGeneration !== generation.current) return
 				const build = resolutions.find(
 					(entry) =>
 						entry.truncation === meta.config.truncation &&

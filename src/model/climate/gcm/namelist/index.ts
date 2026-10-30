@@ -172,6 +172,7 @@ function edits(config: GcmConfig): GcmNamelistEdits {
 			...VEGETATION_DEFAULTS,
 			RINIDAGG: String(config.initialGrowth),
 		},
+		hurricane_namelist: { NSTORMDIAG: flag(config.stormclim), HC_CAPTURE: "0" },
 		glacier_namelist: {
 			NGLACIER: flag(config.glaciers.enabled),
 			GLACELIM: String(config.glaciers.minDepthM),

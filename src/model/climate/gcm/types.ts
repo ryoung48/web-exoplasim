@@ -26,6 +26,7 @@ export interface GcmGlaciers {
 }
 
 export interface GcmConfig {
+	stormclim: boolean
 	atmosphere: GcmAtmosphereConfig
 	layers: GcmLayerCount
 	periapseLongitudeDeg: number | null

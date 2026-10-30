@@ -211,6 +211,7 @@ export type GcmHelpKey =
 	| "fixedOrbit"
 	| "ozone"
 	| "earthSurfaceClimatology"
+	| "stormclim"
 	| "wetSoil"
 	| "glaciers"
 	| "vegetation"

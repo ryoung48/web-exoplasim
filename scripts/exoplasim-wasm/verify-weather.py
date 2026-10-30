@@ -21,12 +21,18 @@ real :: dalb(NHOR)=0.,dls(NHOR)=1.,dsmelt(NHOR)=0.,dprs(NHOR)=0.
 real :: devap(NHOR)=0.,drunoff(NHOR)=0.,dforest(NHOR)=0.,diced(NHOR)=0.
 real :: dglac(NHOR)=0.,dshfl(NHOR)=0.,dlhfl(NHOR)=0.
 real :: dlwfl(NHOR,NLEP)=0.,dswfl(NHOR,NLEP)=0.
+real :: capen(NHOR)=0.,lnb(NHOR)=0.,mpoti(NHOR)=0.,chim(NHOR)=0.
+real :: laav(NHOR)=0.,venti(NHOR)=0.,vrmpi(NHOR)=0.,gpi(NHOR)=0.
 real :: ga=9.80665,gascon=287.,akap=2./7.,rdbrv=0.622
 real :: ra1=610.78,ra2=17.269,ra4=35.86,TMELT=273.16
 end module
 module landmod
 use pumamod
 real :: doro(NHOR)=0.
+end module
+module hurricanemod
+use pumamod, only: NHOR
+real :: shear(NHOR)=0.
 end module
 module vegmod
 real, allocatable :: dlai(:)
@@ -143,7 +149,7 @@ for layers in [10, 5]:
         subprocess.run(["gfortran", "-fdefault-real-8", "-fdefault-double-8", "fixture.f90", str(hook), "-o", "weather"], cwd=work, check=True)
         subprocess.run([str(work / "weather")], cwd=work, check=True)
         lines = (work / "fields.txt").read_text().splitlines()
-        assert list(map(int, lines[0].split())) == [40 + 5 * layers, 3, 8]
+        assert list(map(int, lines[0].split())) == [49 + 5 * layers, 3, 8]
         fields = [list(map(float, line.split())) for line in lines[1:]]
         reset = [list(map(float, line.split())) for line in (work / "reset.txt").read_text().splitlines()[1:]]
         assert all(row[35:37] == [260, 310] for row in fields)
@@ -154,7 +160,7 @@ for layers in [10, 5]:
         assert all(row[37:40] == [10, 0, 0] for row in held)
         assert all(row[37:40] == [0, 0, 0] for row in fields)
 
-    assert all(len(row) == 40 + 5 * layers and all(math.isfinite(value) for value in row) for row in fields)
+    assert all(len(row) == 49 + 5 * layers and all(math.isfinite(value) for value in row) for row in fields)
     pressure_errors = []
     for point, (temperature, pressure, elevation) in enumerate([
         (280, 100000, 0),
@@ -169,7 +175,7 @@ for layers in [10, 5]:
         assert error < 1, (point, error)
         pressure_errors.append(error)
         for level in range(layers):
-            assert math.isclose(fields[point][44 + 5 * level], 0.07 * (level + 1), abs_tol=1e-14)
+            assert math.isclose(fields[point][53 + 5 * level], 0.07 * (level + 1), abs_tol=1e-14)
 
     for point, expected in enumerate([(100, -50, -10, -100), (200, -70, 20, -150), (300, -90, -30, 10)]):
         assert fields[point][27:31] == list(expected)
@@ -186,7 +192,7 @@ for layers in [10, 5]:
 
     assert fields[0][26] == 100000
     assert fields[1][26] > 85000 and fields[2][26] < 101000
-    report = {"fields": 40 + 5 * layers, "layers": layers, "points": 3, "pressureErrorPaAgainstExactLapseIntegral": pressure_errors, "zeroOrographyPressureUnchanged": True, "cloudLayers": layers, "surfaceEnergyComponents": 4, "dailyRangesAcrossUnpublishedSteps": True, "partialDayExcluded": True, "energySignsAndSum": True, "precipitationAndToaComponents": True}
+    report = {"fields": 49 + 5 * layers, "layers": layers, "points": 3, "pressureErrorPaAgainstExactLapseIntegral": pressure_errors, "zeroOrographyPressureUnchanged": True, "cloudLayers": layers, "surfaceEnergyComponents": 4, "dailyRangesAcrossUnpublishedSteps": True, "partialDayExcluded": True, "energySignsAndSum": True, "precipitationAndToaComponents": True}
     output = root / f"stats/exoplasim-model-options/weather-formulas-layers-{layers}.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2) + "\n")

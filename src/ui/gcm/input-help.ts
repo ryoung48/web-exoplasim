@@ -76,6 +76,8 @@ export const GCM_INPUT_HELP: Record<GcmHelpKey, string> = {
 		"Depth of the ocean's mixed layer. Deeper water stores more heat, so temperatures change more slowly and seasons are milder. Shallower water reacts faster. This sets heat storage only; there is no deep-ocean circulation.",
 	earthSurfaceClimatology:
 		"Keeps ExoPlaSim's Earth data (sea-surface temperature, sea ice, albedo, roughness, soil, vegetation and glaciers) but replaces terrain and land fraction with yours. Turning it off uses the model's defaults instead, which may need a different spin-up time.",
+	stormclim:
+		"Compute tropical cyclone environment diagnostics every model step: CAPE, potential intensity, entropy deficit, vorticity, ventilation and genesis potential. Adds computation on CPU and GPU. Does not simulate or capture individual storms.",
 	wetSoil:
 		"Makes wetter land darker, so it absorbs more sunlight. ExoPlaSim turns this off whenever Star temperature is above zero, because it then uses two-band albedo instead.",
 	glaciers:

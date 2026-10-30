@@ -29,6 +29,7 @@ Each settings input has a question-circle icon explaining its meaning, effect on
 | Longitude of periapse override | Unset; native 102.7° | 0–360°, steps of 0.1° when enabled | `MVELP` in `planet_namelist` |
 | Generic Keplerian orbit | Off | On/off | `NGENKEPLERIAN` |
 | Initial orbital phase override | Unset; native −2.9589° | −360–360°, steps of 0.0001° when enabled; shown in Keplerian mode | `MEANANOM0` |
+| Storm climatology | Off | On/off, both engines | `NSTORMDIAG` in `hurricane_namelist`; [diagnostics and validation](exoplasim-stormclim.md) |
 | Atmospheric layers | 10 | 5 or 10 | Compiled `NLEV_ATM`; selects the matching model asset |
 | Rotation period | 1 day | 0.25–100 days, steps of 0.25 | Existing `ROTSPD` and calendar mapping |
 | Year length | 360 Earth days | 60–720 days, steps of 1 | `SIDEREAL_YEAR` and derived `N_DAYS_PER_YEAR`; exactly 365 model days selects the native Gregorian calendar |
@@ -73,7 +74,7 @@ Albedo and soil overrides reuse the same settings component, `src/ui/gcm/GcmOver
 
 ## Map fields
 
-The snapshot hook publishes 40 non-layer fields plus five fields per atmospheric layer: 90 fields at 10 layers or 65 at 5. These include the original 18; evaporation, runoff, forest cover and leaf area index; snowfall, snowmelt, sea-ice thickness and glacier cover; sea-level pressure; four surface energy components; convective and large-scale precipitation; net TOA shortwave and longwave; then temperature, eastward wind, northward wind, relative humidity and cloud cover at each actual model layer. The snapshot order is defined by `scripts/exoplasim-wasm/gcm_publish.f90` and `src/model/climate/gcm/fields/index.ts`. Workers reject a mismatched field count, rather than silently interpreting an older model's arrays.
+The snapshot hook publishes 49 non-layer fields plus five fields per atmospheric layer: 99 fields at 10 layers or 74 at 5. These include the original 18; evaporation, runoff, forest cover and leaf area index; snowfall, snowmelt, sea-ice thickness and glacier cover; sea-level pressure; four surface energy components; convective and large-scale precipitation; net TOA shortwave and longwave; nine storm-environment diagnostics (available when Storm climatology is enabled); then temperature, eastward wind, northward wind, relative humidity and cloud cover at each actual model layer. The snapshot order is defined by `scripts/exoplasim-wasm/gcm_publish.f90` and `src/model/climate/gcm/fields/index.ts`. Workers reject a mismatched field count, rather than silently interpreting an older model's arrays.
 
 | Map | Definition and units | Color range |
 | --- | --- | --- |
@@ -132,7 +133,7 @@ Climate groups Köppen and Pasta child modes. Both classify the last 12 complete
 
 ## Save format and verification
 
-Checkpoint format 12 stores the expanded snapshots, interval/monthly temperature extrema and the new settings, along with terrain, unfinished monthly accumulation, completed monthly means and the Fortran restart. Older formats, including format 9's flat atmosphere settings, are rejected because their configuration or field layout differs. Loading remains paused until Resume.
+Checkpoint formats 16 (CPU) and 17 (GPU) store the expanded snapshots, storm diagnostics and toggle, interval/monthly temperature extrema and the settings, along with terrain, unfinished monthly accumulation, completed monthly means and the Fortran restart. Older formats, including format 9's flat atmosphere settings, are rejected because their configuration or field layout differs. Loading remains paused until Resume.
 
 Rebuild all variants without `--link-only` after changing the hook:
 

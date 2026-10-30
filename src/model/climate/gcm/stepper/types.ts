@@ -14,6 +14,7 @@ import type {
 	GcmFixedSun,
 	GcmRadiationConstants,
 } from "@/model/climate/gcm/physics/radiation/types"
+import type { GcmStormConstants } from "@/model/climate/gcm/physics/storm/types"
 import type { GcmSurfaceConstants } from "@/model/climate/gcm/physics/surface/types"
 import type { GcmSurfaceFluxConstants } from "@/model/climate/gcm/physics/surface-flux/types"
 
@@ -46,6 +47,7 @@ export interface GcmStepperTablesBuild {
 }
 
 export interface GcmStepperConstants {
+	storm: GcmStormConstants
 	dynamics: GcmDynamicsConstants
 	fixer: Omit<GcmFixerRequest, "context">
 	surfaceFlux: GcmSurfaceFluxConstants

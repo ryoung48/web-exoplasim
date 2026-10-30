@@ -93,13 +93,22 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 	state[tracking + 6u * NHOR] = 0.0;
 	state[tracking + 7u * NHOR] = 0.0;
 	for (var l = 0u; l < NLEV; l++) {
-		let field = 40u + 5u * l;
+		let field = 49u + 5u * l;
 		put(field, h, state[at(DT, l, h)]);
 		put(field + 1u, h, state[at(DU, l, h)]);
 		put(field + 2u, h, state[at(DV, l, h)]);
 		put(field + 4u, h, state[at(DCC, l, h)]);
 	}
+	put(40u, h, state[CAPEN + h]);
+	put(41u, h, state[LNB + h]);
+	put(42u, h, state[MPOTI + h]);
+	put(43u, h, state[CHIM + h]);
+	put(44u, h, state[LAAV + h]);
+	put(45u, h, state[VENTI + h]);
+	put(46u, h, state[VRMPI + h]);
+	put(47u, h, state[GPI + h]);
+	put(48u, h, state[SHEAR + h]);
 	let lowest = NLEV - 1u;
 	let qsat = saturation_divided(state[at(DT, lowest, h)], state[DP + h] * SIGMA);
-	put(40u + 5u * lowest + 3u, h, max(0.0, state[at(DQ, lowest, h)]) / max(1.17549435e-38, qsat));
+	put(49u + 5u * lowest + 3u, h, max(0.0, state[at(DQ, lowest, h)]) / max(1.17549435e-38, qsat));
 }

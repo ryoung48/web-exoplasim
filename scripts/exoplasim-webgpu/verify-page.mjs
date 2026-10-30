@@ -16,6 +16,7 @@ await fs.mkdir(output, { recursive: true })
 const PUBLISH_EVERY = 4
 // ENGINE=cpu runs the Wasm model instead of the default GPU engine.
 const ENGINE = process.env.ENGINE ?? "gpu"
+const STORMCLIM = process.env.STORMCLIM === "1"
 const PAUSES = Number(process.env.PAUSES ?? 10)
 const CONTINUE_STEPS = 48
 // How far both continuations run, so they share some posted steps.
@@ -30,8 +31,8 @@ if (!process.env.PREVIEW) await server.listen()
 const browser = await chromium.launch({ executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe", headless: true, args: ["--enable-unsafe-webgpu"] })
 const snapshotRecord = (snapshot) => {
  const { step, date, values, layers } = snapshot
- const points = values.length / (40 + 5 * layers)
- return { step, date, layers, fields: 40 + 5 * layers, diagnostic: [35, 36, 37, 38, 39, 40 + 5 * (layers - 1) + 3].map((field) => values[field * points]), finite: values.every(Number.isFinite), sum: values.reduce((a, b) => a + b, 0), first: Array.from(values.subarray(0, 8)) }
+ const points = values.length / (49 + 5 * layers)
+ return { step, date, layers, fields: 49 + 5 * layers, diagnostic: [35, 36, 37, 38, 39, 49 + 5 * (layers - 1) + 3].map((field) => values[field * points]), finite: values.every(Number.isFinite), sum: values.reduce((a, b) => a + b, 0), first: Array.from(values.subarray(0, 8)) }
 }
 const report = { checks: {} }
 const errors = []
@@ -63,8 +64,9 @@ try {
 		window.Worker = class extends Original {
 			constructor(...args) {
 				super(...args)
-				window.__workers.push(this)
-				if (window.__trace) this.postMessage({ type: "test-trace" })
+				const traceable = String(args[0]).includes("/gcm.worker-")
+				if (traceable) window.__workers.push(this)
+				if (window.__trace && traceable) this.postMessage({ type: "test-trace" })
 				this.addEventListener("message", (event) => {
 					// The GPU worker posts each batch's latest snapshot; the Wasm
 					// workers post every snapshot.
@@ -90,9 +92,15 @@ try {
 	const row = (label) => page.locator(`text=${label}`).first().locator("xpath=following-sibling::*[1]").textContent()
 
 	// Start and the step sequence.
+	await button("Advanced").click()
 	await button(ENGINE.toUpperCase()).click()
 	await button(`${LAYERS} layers`).click()
 	await page.getByRole("button", { name: new RegExp(`^T${TRUNCATION} `) }).click()
+	if (STORMCLIM) {
+		assert.equal(await button("Storm environment").isEnabled(), false)
+		await page.getByRole("checkbox", { name: "Storm climatology", exact: true }).check()
+		assert.equal(await button("Storm environment").isEnabled(), true)
+	}
 	await button("Start").click()
 	await waitFor({ test: async () => (await snapshots()).length >= 100, label: "100 batches" })
 	const first = await snapshots()
@@ -140,6 +148,18 @@ try {
 	const download = await downloading
 	const file = path.join(output, download.suggestedFilename())
 	await download.saveAs(file)
+	if (STORMCLIM) {
+		const bytes = await fs.readFile(file)
+		const start = Buffer.byteLength("EXOPLASIM-CHECKPOINT\n")
+		const length = bytes.readUInt32LE(start)
+		const header = JSON.parse(bytes.subarray(start + 4, start + 4 + length).toString("utf8"))
+		assert.equal(header.meta.config.stormclim, true)
+		await button("Storm environment").click()
+		for (const label of ["CAPE", "LNB", "Intensity", "Entropy", "Vorticity", "Ventilation", "Reduced intensity", "Genesis", "Shear"]) await button(label).click()
+		await button("Intensity").click()
+		await page.screenshot({ path: path.join(output, "storm.png") })
+		report.checks.storm = { toggle: true, savedConfig: true, maps: 9 }
+	}
 	// Batch sizes follow timing, so the two continuations post different
 	// steps; they are compared at every step both posted, from saved + 48.
 	const target = saved + CONTINUE_STEPS
@@ -158,6 +178,7 @@ try {
 	await page.locator('input[type="file"][accept=".ckpt"]').setInputFiles(file)
 	await waitFor({ test: async () => (await page.getByRole("button", { name: "Resume", exact: true }).count()) > 0, label: "paused after Load" })
 	await page.waitForTimeout(500)
+	if (STORMCLIM) assert.equal(await page.getByRole("checkbox", { name: "Storm climatology", exact: true }).isChecked(), true)
 	await button("Resume").click()
 	await waitFor({ test: async () => (await snapshots()).some((s) => s.step >= horizon), label: `reloaded step ${horizon}` })
 	const reloaded = (await snapshots()).filter((s) => unsaved.has(s.step))

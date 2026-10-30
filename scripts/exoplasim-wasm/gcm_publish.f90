@@ -3,6 +3,7 @@
       use pumamod
       use vegmod, only: dlai
       use landmod, only: doro
+      use hurricanemod, only: shear
       use, intrinsic :: iso_c_binding
       interface
          integer(c_int) function gcm_should_publish(kstep)               &
@@ -22,7 +23,7 @@
          integer(c_int), dimension(*) :: kdate
          end subroutine gcm_publish
       end interface
-      integer, parameter :: NSURFACE = 40
+      integer, parameter :: NSURFACE = 49
       integer, parameter :: NFIELDS = NSURFACE + 5*NLEV
       real, parameter :: SLP_LAPSE = 0.0065, SLP_COLD = 255.0
       real, parameter :: GEOPOT_TOL = 1.0e-4, TEMP_TOL = 1.0e-6
@@ -137,6 +138,15 @@
       zl(:,38) = zdtr(:)
       zl(:,39) = zdtrsum(:)
       zl(:,40) = real(idtrdays)
+      zl(:,41) = capen(:)
+      zl(:,42) = lnb(:)
+      zl(:,43) = mpoti(:)
+      zl(:,44) = chim(:)
+      zl(:,45) = laav(:)
+      zl(:,46) = venti(:)
+      zl(:,47) = vrmpi(:)
+      zl(:,48) = gpi(:)
+      zl(:,49) = shear(:)
       zdtrsum(:) = 0.0
       idtrdays = 0
       zfirst = .true.

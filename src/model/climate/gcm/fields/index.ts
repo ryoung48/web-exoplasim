@@ -8,6 +8,7 @@ import type {
 	GcmModeDefinition,
 	GcmModeRequest,
 	GcmScaling,
+	GcmStormModeDefinition,
 	GcmVectorField,
 } from "@/model/climate/gcm/fields/types"
 import { GCM_GRID } from "@/model/climate/gcm/grid"
@@ -15,6 +16,66 @@ import type { GcmGrid } from "@/model/climate/gcm/grid/types"
 import type { GcmLayerCount, GcmSnapshot } from "@/model/climate/gcm/types"
 
 const LEVELS: ReadonlyArray<GcmLevel> = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+const STORM_MODES: ReadonlyArray<GcmStormModeDefinition> = [
+	{ mode: "cape", label: "CAPE", unit: "joulesPerKilogram", min: 0, max: 5000 },
+	{
+		mode: "neutralBuoyancyPressure",
+		label: "Neutral buoyancy pressure",
+		unit: "hectopascals",
+		min: 0,
+		max: 1000,
+	},
+	{
+		mode: "potentialIntensity",
+		label: "Maximum potential intensity",
+		unit: "metersPerSecond",
+		min: 0,
+		max: 100,
+	},
+	{
+		mode: "entropyDeficit",
+		label: "Entropy deficit",
+		unit: "dimensionless",
+		min: 0,
+		max: 2,
+	},
+	{
+		mode: "absoluteVorticity",
+		label: "Absolute vorticity",
+		unit: "perSecond",
+		min: -0.0002,
+		max: 0.0002,
+	},
+	{
+		mode: "ventilationIndex",
+		label: "Ventilation index",
+		unit: "dimensionless",
+		min: 0,
+		max: 0.3,
+	},
+	{
+		mode: "ventilationReducedIntensity",
+		label: "Ventilation-reduced intensity fraction",
+		unit: "dimensionless",
+		min: 0,
+		max: 1.2,
+	},
+	{
+		mode: "genesisPotentialIndex",
+		label: "Genesis potential index",
+		unit: "dimensionless",
+		min: 0,
+		max: 10,
+	},
+	{
+		mode: "windShear",
+		label: "Tropospheric wind shear",
+		unit: "metersPerSecond",
+		min: 0,
+		max: 50,
+	},
+]
 
 // Order written by scripts/exoplasim-wasm/gcm_publish.f90.
 const ORDER: ReadonlyArray<GcmFieldId> = [
@@ -58,6 +119,7 @@ const ORDER: ReadonlyArray<GcmFieldId> = [
 	"diurnalTemperatureRange",
 	"dailyTemperatureRangeSum",
 	"dailyTemperatureRangeDays",
+	...STORM_MODES.map(({ mode }) => mode),
 	...LEVELS.flatMap((level): GcmFieldId[] => [
 		`layerTemperature${level}`,
 		`layerWindU${level}`,
@@ -72,6 +134,8 @@ const MILLIMETERS_PER_DAY_PER_METER_PER_SECOND = 86400 * 1000
 
 // Fixed display ranges keep colors stable while the model spins up.
 const MODES: ReadonlyArray<GcmModeDefinition> = [
+	...STORM_MODES,
+
 	{
 		mode: "diurnalTemperatureRange",
 		label: "Daily temperature range · 2 m air",
@@ -447,6 +511,15 @@ function values(request: GcmModeRequest): Float32Array {
 		case "soilWater":
 		case "seaIceThickness":
 			return mapScaled({ values: read(mode), scale: 1000, offset: 0 })
+		case "cape":
+		case "neutralBuoyancyPressure":
+		case "potentialIntensity":
+		case "entropyDeficit":
+		case "absoluteVorticity":
+		case "ventilationIndex":
+		case "ventilationReducedIntensity":
+		case "genesisPotentialIndex":
+		case "windShear":
 		case "toaShortwave":
 		case "toaLongwave":
 		case "toaNetRadiation":
@@ -468,6 +541,9 @@ function gpuSupports(mode: GcmMapMode): boolean {
 }
 
 export const GCM_FIELDS = {
+	stormMode(mode: string): boolean {
+		return STORM_MODES.some((definition) => definition.mode === mode)
+	},
 	gpuSupports,
 	fieldCount,
 	levels,

@@ -288,6 +288,13 @@ export function GcmConfigPanel({
 						/>
 					</div>
 				)}
+				<ToggleRow
+					label="Storm climatology"
+					help={GCM_INPUT_HELP.stormclim}
+					checked={config.stormclim}
+					disabled={disabled}
+					onChange={(stormclim) => update({ stormclim })}
+				/>
 				{advanced && (
 					<>
 						<fieldset className="space-y-1" aria-label="Atmospheric layers">

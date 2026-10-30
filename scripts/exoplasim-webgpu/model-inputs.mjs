@@ -88,6 +88,7 @@ export function stepperConstants(dump) {
 	const upper = ({ module, names }) => Object.fromEntries(names.map((name) => [name.toUpperCase(), scalar(`${module}.${name}`)]))
 	const pair = ({ name, key }) => ({ [`${key}1`]: dump[name][0], [`${key}2`]: dump[name][1] })
 	return {
+		storm: { NSTORMDIAG: 0, RD: scalar("gascon"), OMEGA: scalar("ww"), CKCD: 0.9, VITHRESH: 0.145 },
 		dynamics: dynamicsConstants(dump),
 		fixer: { delt2: scalar("delt2"), psurf: scalar("psurf") },
 		surfaceFlux: { rdbrv: scalar("rdbrv"), gascon: scalar("gascon"), ga: scalar("ga"), acpd: scalar("acpd"), adv: scalar("adv"), deltsec: scalar("deltsec"), deltsec2: scalar("deltsec2"), ra2: scalar("ra2"), ra4: scalar("ra4"), tmelt: scalar("tmelt"), alv: scalar("alv"), als: scalar("als"), zumin: scalar("fluxmod.zumin"), vdiffB: scalar("fluxmod.vdiff_b"), vdiffC: scalar("fluxmod.vdiff_c"), vdiffD: scalar("fluxmod.vdiff_d"), ndheat: scalar("ndheat") > 0 },

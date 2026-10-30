@@ -105,6 +105,21 @@ export const GCM_MODE_GROUPS: ReadonlyArray<GcmModeGroup> = [
 		],
 	},
 	{
+		label: "Storm environment",
+		defaultView: "potentialIntensity",
+		children: [
+			{ value: "cape", label: "CAPE" },
+			{ value: "neutralBuoyancyPressure", label: "LNB" },
+			{ value: "potentialIntensity", label: "Intensity" },
+			{ value: "entropyDeficit", label: "Entropy" },
+			{ value: "absoluteVorticity", label: "Vorticity" },
+			{ value: "ventilationIndex", label: "Ventilation" },
+			{ value: "ventilationReducedIntensity", label: "Reduced intensity" },
+			{ value: "genesisPotentialIndex", label: "Genesis" },
+			{ value: "windShear", label: "Shear" },
+		],
+	},
+	{
 		label: "Climate",
 		defaultView: "koppen",
 		children: [

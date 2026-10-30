@@ -84,11 +84,12 @@ export function GcmView() {
 	const gcm = useGcmRun()
 	const [requestedView, setView] = useState<GcmViewMode>("airTemperature")
 	const supportedView: GcmViewMode =
-		gcm.engine === "gpu" &&
-		requestedView !== "elevation" &&
-		requestedView !== "koppen" &&
-		requestedView !== "pasta" &&
-		!GCM_FIELDS.gpuSupports(requestedView)
+		(!gcm.config.stormclim && GCM_FIELDS.stormMode(requestedView)) ||
+		(gcm.engine === "gpu" &&
+			requestedView !== "elevation" &&
+			requestedView !== "koppen" &&
+			requestedView !== "pasta" &&
+			!GCM_FIELDS.gpuSupports(requestedView))
 			? "surfaceTemperature"
 			: requestedView
 	const requestedLayer = GCM_FIELDS.layer(supportedView)
@@ -270,7 +271,11 @@ export function GcmView() {
 						<Button
 							key={group.defaultView}
 							selected={group === modeGroup}
-							disabled={group.defaultView === "koppen" && !averages.koppen}
+							disabled={
+								(group.defaultView === "koppen" && !averages.koppen) ||
+								(!gcm.config.stormclim &&
+									GCM_FIELDS.stormMode(group.defaultView))
+							}
 							title={
 								group.defaultView === "koppen"
 									? averages.koppen

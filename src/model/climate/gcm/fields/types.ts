@@ -13,7 +13,19 @@ export interface GcmAtmosphereSelection {
 	level: GcmLevel
 }
 
+export type GcmStormFieldId =
+	| "cape"
+	| "neutralBuoyancyPressure"
+	| "potentialIntensity"
+	| "entropyDeficit"
+	| "absoluteVorticity"
+	| "ventilationIndex"
+	| "ventilationReducedIntensity"
+	| "genesisPotentialIndex"
+	| "windShear"
+
 export type GcmFieldId =
+	| GcmStormFieldId
 	| "diurnalTemperatureRange"
 	| "dailyTemperatureRangeSum"
 	| "dailyTemperatureRangeDays"
@@ -57,6 +69,7 @@ export type GcmFieldId =
 	| "surfaceNetHeat"
 
 export type GcmMapMode =
+	| GcmStormFieldId
 	| "diurnalTemperatureRange"
 	| "convectivePrecipitation"
 	| "largeScalePrecipitation"
@@ -104,6 +117,8 @@ export type GcmDisplayUnit =
 	| "centimeters"
 	| "millimeters"
 	| "wattsPerSquareMeter"
+	| "joulesPerKilogram"
+	| "perSecond"
 	| "dimensionless"
 
 export interface GcmModeDefinition {
@@ -112,6 +127,10 @@ export interface GcmModeDefinition {
 	unit: GcmDisplayUnit
 	min: number
 	max: number
+}
+
+export type GcmStormModeDefinition = GcmModeDefinition & {
+	mode: GcmStormFieldId
 }
 
 export interface GcmModeRequest {

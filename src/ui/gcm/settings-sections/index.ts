@@ -38,7 +38,13 @@ const SECTION_KEYS: Record<
 		"soilWaterCapacityM",
 		"soilHeatCapacity",
 	],
-	model: ["truncation", "layers", "timestepMinutes", "physicsFilter"],
+	model: [
+		"truncation",
+		"layers",
+		"timestepMinutes",
+		"physicsFilter",
+		"stormclim",
+	],
 }
 
 function comparable(value: unknown): string {

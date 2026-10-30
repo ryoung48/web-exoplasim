@@ -11,7 +11,7 @@ import { GCM_TERRAIN } from "@/model/climate/gcm/terrain"
 // File layout: magic, uint32 header length, JSON header, uint32 array bytes,
 // terrain and diagnostic arrays, then the unchanged plasim_status restart file.
 const MAGIC = "EXOPLASIM-CHECKPOINT\n"
-const FORMATS: Record<GcmEngine, number> = { cpu: 14, gpu: 15 }
+const FORMATS: Record<GcmEngine, number> = { cpu: 16, gpu: 17 }
 const GPU_PRECISION_BYTES = 4
 const HEADER_LENGTH_BYTES = 4
 

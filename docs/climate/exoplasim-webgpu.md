@@ -1,5 +1,7 @@
 # ExoPlaSim on WebGPU
 
+Storm diagnostics, originally excluded from this port, are now supported by both engines. See [Storm climatology](exoplasim-stormclim.md). The historical coverage measurements below describe the original diagnostic-disabled port.
+
 For pipeline reuse, selective input loading and startup measurements, see [WebGPU startup](exoplasim-webgpu-startup.md).
 
 For the added 192 × 96 resolution, boundary-data provenance and checks, see [T63 on WebGPU](exoplasim-webgpu-t63.md).

@@ -6,7 +6,7 @@ The integration combines WebGPU commit `b0d48c5` with main at `56e5ccc`. The GPU
 
 The GPU also supports [T63 at 192 × 96](exoplasim-webgpu-t63.md), with 5 or 10 layers and a 20-minute starting timestep. Its climatologies are resampled from T42; CPU T63 assets are not built.
 
-The GPU snapshot uses main's 40 surface slots plus five slots per atmospheric layer: 65 fields at five layers and 90 at ten. Existing model arrays supply evaporation, runoff, forest cover, leaf area, snowfall, snowmelt, ice thickness, glaciers, radiation/heat fluxes, separate precipitation components, and layer temperature, winds and clouds. Copying these diagnostics does not add climate physics.
+The GPU snapshot uses 49 surface slots plus five slots per atmospheric layer: 74 fields at five layers and 99 at ten. Existing model arrays supply evaporation, runoff, forest cover, leaf area, snowfall, snowmelt, ice thickness, glaciers, radiation/heat fluxes, separate precipitation components, and layer temperature, winds and clouds. Copying these diagnostics does not add climate physics.
 
 Pasta also requires interval temperature minima/maxima and lowest-layer relative humidity. The snapshot kernel tracks actual 2 m temperature on every main-loop step, including unpublished steps. It accumulates complete native rotation-day ranges and resets publication sums/counts after publishing, matching `gcm_publish.f90`. Initial partial days are excluded. The same dispatch packs output only on publication steps. Lowest-layer relative humidity reuses the precipitation module's saturation shader and physical constants and is calculated only on publication steps.
 
@@ -16,9 +16,11 @@ The GPU engine now supports tidally locked illumination, generic Keplerian orbit
 
 Glacier formation during a continuous run is incomplete: GPU initialization and glacier removal are implemented, but native snow-persistence tracking and end-of-session promotion are missing. Continuous CPU sessions also defer the native persistence lifecycle. See the [glacier lifecycle audit](exoplasim-glaciers.md) for the reproduced behavior and checkpoint evidence.
 
+Both engines support the shared Storm climatology toggle and nine diagnostic maps. The GPU computes these every model step before physics output conversion. See [Storm climatology](exoplasim-stormclim.md) for conventions, verification and costs.
+
 ## Checkpoints
 
-CPU uses checkpoint format 14; GPU uses format 15 with main's terrain, layer metadata, climate averages and field validation. Both restarts carry glacier snow persistence ([Glacier lifecycle](exoplasim-glaciers.md)). The GPU restart includes the complete model state and temperature-tracking arrays, preserving partial days and publication intervals across save/load. Earlier formats are rejected. Loading selects the engine that saved the checkpoint.
+CPU uses checkpoint format 16; GPU uses format 17 with main's terrain, layer metadata, climate averages and field validation. Both restarts carry glacier snow persistence ([Glacier lifecycle](exoplasim-glaciers.md)). The GPU restart includes the complete model state and temperature-tracking arrays, preserving partial days and publication intervals across save/load. Earlier formats are rejected. Loading selects the engine that saved the checkpoint.
 
 ## Verification
 

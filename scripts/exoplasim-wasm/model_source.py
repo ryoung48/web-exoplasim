@@ -136,6 +136,7 @@ def patch_sources(model: ModelSource):
     coupler.write_text(coupler.read_text().replace("clsgini(kdatim,ktspd,kaomod,pslm,kxa,kya)", "clsgini(kdatim,ktspd,kaomod,klsg,kgui,pslm,kxa,kya)").replace("pheat,pfldo)", "pheat,pfldo,pextra)"))
     hurricane = model.build / "hurricanemod.f90"
     hurricane.write_text(hurricane.read_text().replace("subroutine hurricaneini(gascon)\n      use hurricanemod", "subroutine hurricaneini(gascon)\n      use hurricanemod\n      use pumamod, only: mypid,NROOT,nwritehurricane"))
+    hurricane.write_text(hurricane.read_text().replace("     SSTK=SSTC+273.15", "     CAPEA=-1.0\n     LNBA=-1.0\n     SSTK=SSTC+273.15"))
     radiation = model.build / "radmod.f90"
     radiation.write_text(radiation_interval(radiation.read_text()))
     glacier = model.build / "glaciermod.f90"

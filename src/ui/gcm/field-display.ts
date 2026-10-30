@@ -31,6 +31,15 @@ function stops(palette: readonly RgbColor[]): GcmColorScale {
 }
 
 const NORMALIZED_SCALES: Partial<Record<GcmMapMode, GcmColorScale>> = {
+	cape: stops(COLOR_PALETTES.ylOrRdStops),
+	neutralBuoyancyPressure: stops(COLOR_PALETTES.ylOrRdStops),
+	potentialIntensity: stops(COLOR_PALETTES.ylOrRdStops),
+	entropyDeficit: stops(COLOR_PALETTES.ylOrRdStops),
+	absoluteVorticity: stops(COLOR_PALETTES.spectralStops),
+	ventilationIndex: stops(COLOR_PALETTES.ylOrRdStops),
+	ventilationReducedIntensity: stops(COLOR_PALETTES.ylOrRdStops),
+	genesisPotentialIndex: stops(COLOR_PALETTES.ylOrRdStops),
+	windShear: stops(COLOR_PALETTES.ylOrRdStops),
 	diurnalTemperatureRange: stops(COLOR_PALETTES.ylOrRdStops),
 	relativeHumidity: stops(COLOR_PALETTES.bupuStops),
 	evaporation: stops(COLOR_PALETTES.spectralStops),
@@ -115,11 +124,20 @@ function terrainColor({
 }
 
 function format({ mode, value, unitSystem }: GcmFormattedValue): string {
+	if (
+		value === -1 &&
+		["cape", "neutralBuoyancyPressure", "potentialIntensity"].includes(mode)
+	)
+		return "Unavailable"
 	switch (GCM_FIELDS.definition(mode).unit) {
 		case "celsiusDelta":
 			return formatTemperatureDelta(value, unitSystem)
+		case "joulesPerKilogram":
+			return formatWithUnit(value, "J/kg", 0)
+		case "perSecond":
+			return formatWithUnit(value * 1e5, "x10^-5 s^-1", 2)
 		case "dimensionless":
-			return formatWithUnit(value, "", 1)
+			return formatWithUnit(value, "", GCM_FIELDS.stormMode(mode) ? 3 : 1)
 		case "celsius":
 			return formatTemperature(value, unitSystem)
 		case "metersPerSecond":
