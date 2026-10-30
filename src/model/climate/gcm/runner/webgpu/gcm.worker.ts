@@ -322,6 +322,8 @@ function submit(current: GcmWorkerModel) {
 			return
 		}
 		let closed = false
+		const previousMonth =
+			averager.months[averager.months.length - 1]?.snapshot.step ?? -1
 		for (const snapshot of snapshots)
 			if (GCM_AVERAGES.add({ averager, snapshot })) closed = true
 		post({
@@ -330,7 +332,9 @@ function submit(current: GcmWorkerModel) {
 				latest: snapshots[snapshots.length - 1],
 				averages: closed
 					? {
-							months: averager.months.slice(-GCM_AVERAGES.MONTHS_PER_YEAR),
+							months: averager.months.filter(
+								(month) => month.snapshot.step > previousMonth,
+							),
 							years: averager.years,
 						}
 					: null,

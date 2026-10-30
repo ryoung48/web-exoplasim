@@ -18,8 +18,7 @@ import type {
 // The WebGPU port, or ExoPlaSim on CPU workers.
 export type GcmEngine = "gpu" | "cpu"
 
-// The means the page shows: the last 12 closed months and every year's
-// balance, sent when a month closes.
+// Newly closed months and the yearly balance history.
 export interface GcmAverageUpdate {
 	months: GcmMonthlyMean[]
 	years: GcmYearlyBalance[]

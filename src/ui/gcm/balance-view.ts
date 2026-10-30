@@ -35,7 +35,7 @@ function rows({ averages, targeting }: GcmBalanceViewRequest): GcmBalanceRow[] {
 					Math.max(assessment.toaDriftPerYear, assessment.surfaceDriftPerYear) *
 						MILLIWATTS_PER_WATT,
 					"mW/m²/yr",
-					0,
+					1,
 				)}`
 	return [
 		{

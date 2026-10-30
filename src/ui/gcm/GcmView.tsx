@@ -33,6 +33,7 @@ import type {
 	GcmPeriod,
 	GcmViewMode,
 } from "@/ui/gcm/types"
+import { useGcmClimate } from "@/ui/gcm/useGcmClimate"
 import { useGcmRun } from "@/ui/gcm/useGcmRun"
 import { rgbToCss, type UnitSystem } from "@/ui/genesis/shared/ui-format"
 
@@ -132,18 +133,13 @@ export function GcmView() {
 	const { snapshot } = selection
 	const { downscale } = gcm
 	const downscaled = detail === "downscaled" && downscale
-	const downscaledClimate = useMemo(
-		() =>
-			downscaled && climateView
-				? GCM_CLASSIFICATION.classes({
-						config: gcm.config,
-						scheme,
-						downscale: downscaled,
-						months: averages.climateMonths,
-					})
-				: null,
-		[downscaled, climateView, scheme, averages.climateMonths, gcm.config],
-	)
+	const climateMap = useGcmClimate({
+		config: gcm.config,
+		scheme,
+		downscale: downscaled && climateView ? downscaled : null,
+		months: averages.climateMonths,
+	})
+	const downscaledClimate = climateMap.classes
 	const layer = useMemo<GcmMapLayer | null>(() => {
 		if (terrainView)
 			return gcm.displayTerrain
@@ -377,6 +373,11 @@ export function GcmView() {
 					)}
 				</div>
 				<div className="relative min-h-0 flex-1">
+					{climateView && (climateMap.pending || climateMap.error) && (
+						<p role="status" className={uiTokens.field.note}>
+							{climateMap.error ?? "Updating climate map…"}
+						</p>
+					)}
 					<GcmMap
 						loading={status === "loading" || (status === "running" && !latest)}
 						onHover={setHover}

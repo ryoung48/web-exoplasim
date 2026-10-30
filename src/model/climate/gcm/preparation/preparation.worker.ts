@@ -1,6 +1,7 @@
 import { GCM_AVERAGES } from "@/model/climate/gcm/averages"
 import { GCM_BOUNDARY } from "@/model/climate/gcm/boundary"
 import { GCM_CHECKPOINT } from "@/model/climate/gcm/checkpoint"
+import { GCM_CLASSIFICATION } from "@/model/climate/gcm/classification"
 import { GCM_DOWNSCALE } from "@/model/climate/gcm/downscale"
 import type {
 	GcmPreparationMessage,
@@ -46,6 +47,12 @@ self.onmessage = async ({ data }: MessageEvent<GcmPreparationMessage>) => {
 				type: "prepared",
 				result: GCM_BOUNDARY.files(GCM_BOUNDARY.fromTerrain(data.input)),
 			} satisfies GcmPreparationResponse)
+		} else if (data.kind === "classification") {
+			const result = GCM_CLASSIFICATION.classes(data.input)
+			self.postMessage(
+				{ type: "prepared", result } satisfies GcmPreparationResponse,
+				{ transfer: result ? [result.buffer] : [] },
+			)
 		} else {
 			const result = GCM_DOWNSCALE.create(data.input)
 			self.postMessage(

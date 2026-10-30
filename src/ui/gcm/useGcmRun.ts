@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { GCM } from "@/model/climate/gcm"
 import { GCM_AVERAGES } from "@/model/climate/gcm/averages"
+import { GCM_BACKGROUND_AVERAGES } from "@/model/climate/gcm/averages/background"
+import type { GcmBackgroundAnalysis } from "@/model/climate/gcm/averages/background/types"
 import { GCM_CHECKPOINT } from "@/model/climate/gcm/checkpoint"
 import { GCM_CONTINUATION } from "@/model/climate/gcm/continuation"
 import type { GcmDownscaleGrid } from "@/model/climate/gcm/downscale/types"
@@ -86,7 +88,7 @@ export function useGcmRun() {
 	const [gpuAvailable, setGpuAvailable] = useState<boolean | null>(null)
 	const [downscale, setDownscale] = useState<GcmDownscaleGrid | null>(null)
 	const [live] = useState(GCM_LIVE.create)
-	const averager = useRef(GCM_AVERAGES.create())
+	const analysis = useRef<GcmBackgroundAnalysis | null>(null)
 	const activeConfig = useRef(config)
 	const [earthCoastlines, setEarthCoastlines] =
 		useState<CoastlineLineData | null>(null)
@@ -126,6 +128,7 @@ export function useGcmRun() {
 		return () => {
 			generation.current++
 			preparation.current?.abort()
+			analysis.current?.stop()
 			run.current?.stop()
 			clearInterval(clearMeasures)
 		}
@@ -148,18 +151,9 @@ export function useGcmRun() {
 	)
 
 	// The worker averages every snapshot; the page mirrors the closed months.
-	const onAverages = useCallback(
-		({ months, years }: GcmAverageUpdate) => {
-			GCM_AVERAGES.merge({ averager: averager.current, months, years })
-			live.update({
-				averages: GCM_AVERAGES.view({
-					averager: averager.current,
-					config: activeConfig.current,
-				}),
-			})
-		},
-		[live],
-	)
+	const onAverages = useCallback(({ months, years }: GcmAverageUpdate) => {
+		analysis.current?.update({ months, years, config: activeConfig.current })
+	}, [])
 
 	const launch = useCallback(
 		async (request: GcmLaunchRequest): Promise<void> => {
@@ -173,19 +167,28 @@ export function useGcmRun() {
 			run.current?.stop()
 			run.current = null
 			rate.current = null
+			analysis.current?.stop()
+			analysis.current = GCM_BACKGROUND_AVERAGES.create({
+				averager: request.diagnostics?.averager ?? GCM_AVERAGES.create(),
+				config: request.config,
+				onUpdate: (averages) => {
+					if (currentGeneration === generation.current)
+						live.update({ averages })
+				},
+				onError: (message) => {
+					if (currentGeneration === generation.current)
+						setState((current) => ({
+							...current,
+							message: `Climate analysis failed: ${message}`,
+						}))
+				},
+			})
 			if (request.fresh) {
-				averager.current =
-					request.diagnostics?.averager ?? GCM_AVERAGES.create()
 				live.update(
 					request.diagnostics
 						? {
 								snapshot: request.diagnostics.snapshot,
-								averages:
-									request.averages ??
-									GCM_AVERAGES.view({
-										averager: averager.current,
-										config: request.config,
-									}),
+								averages: request.averages ?? GCM_LIVE.EMPTY.averages,
 							}
 						: GCM_LIVE.EMPTY,
 				)
@@ -333,6 +336,7 @@ export function useGcmRun() {
 		async (file: File) => {
 			const currentGeneration = ++generation.current
 			preparation.current?.abort()
+			analysis.current?.stop()
 			const controller = new AbortController()
 			preparation.current = controller
 			run.current?.stop()
@@ -401,10 +405,11 @@ export function useGcmRun() {
 		pendingConfig.current = null
 		generation.current++
 		preparation.current?.abort()
+		analysis.current?.stop()
+		analysis.current = null
 		run.current?.stop()
 		run.current = null
 		rate.current = null
-		averager.current = GCM_AVERAGES.create()
 		live.update(GCM_LIVE.EMPTY)
 		setDownscale(null)
 		setState(IDLE)

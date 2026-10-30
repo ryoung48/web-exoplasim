@@ -41,10 +41,23 @@ export interface GcmClimatology {
 	years: number
 }
 
+export interface GcmClimateCache {
+	climate: GcmClimatology
+	config: GcmConfig
+	koppen: Uint8Array | null
+	pasta: Uint8Array | null
+}
+
 export interface GcmAverageMerge {
 	averager: GcmAverager
 	months: GcmMonthlyMean[]
 	years: GcmYearlyBalance[]
+}
+
+export interface GcmMonthMerge {
+	months: GcmMonthlyMean[]
+	incoming: GcmMonthlyMean[]
+	limit: number
 }
 
 export interface GcmAveragesRequest {

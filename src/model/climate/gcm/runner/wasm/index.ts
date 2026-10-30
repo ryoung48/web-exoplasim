@@ -116,7 +116,7 @@ function session({
 			} else if (response.type === "snapshot") {
 				if (GCM_AVERAGES.add({ averager, snapshot: response.snapshot }))
 					request.onAverages({
-						months: averager.months.slice(-GCM_AVERAGES.MONTHS_PER_YEAR),
+						months: averager.months.slice(-1),
 						years: averager.years,
 					})
 				request.onSnapshot(response.snapshot)

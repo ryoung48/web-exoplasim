@@ -1,6 +1,7 @@
 import type { GcmAverageState } from "@/model/climate/gcm/averages/types"
 import type { GcmBoundaryRequest } from "@/model/climate/gcm/boundary/types"
 import type { GcmCheckpoint } from "@/model/climate/gcm/checkpoint/types"
+import type { GcmClassificationRequest } from "@/model/climate/gcm/classification/types"
 import type {
 	GcmDownscaleGrid,
 	GcmDownscaleRequest,
@@ -10,12 +11,14 @@ export interface GcmPreparationInputs {
 	checkpoint: File
 	boundary: GcmBoundaryRequest
 	downscale: GcmDownscaleRequest
+	classification: GcmClassificationRequest
 }
 
 export interface GcmPreparationResults {
 	checkpoint: GcmPreparedCheckpoint
 	boundary: Record<string, string>
 	downscale: GcmDownscaleGrid
+	classification: Uint8Array | null
 }
 
 export interface GcmPreparedCheckpoint {

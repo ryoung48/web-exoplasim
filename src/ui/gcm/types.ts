@@ -5,7 +5,10 @@ import type {
 } from "@/model/climate/gcm/atmosphere/types"
 import { GcmAverageState } from "@/model/climate/gcm/averages/types"
 import type { GcmCheckpointDiagnostics } from "@/model/climate/gcm/checkpoint/types"
-import type { GcmClimateScheme } from "@/model/climate/gcm/classification/types"
+import type {
+	GcmClassificationRequest,
+	GcmClimateScheme,
+} from "@/model/climate/gcm/classification/types"
 import type { GcmMapMode } from "@/model/climate/gcm/fields/types"
 import type { GcmGrid } from "@/model/climate/gcm/grid/types"
 import type {
@@ -129,6 +132,18 @@ export interface GcmClassPaint {
 export interface GcmLiveData {
 	snapshot: GcmSnapshot | null
 	averages: GcmAverageState
+}
+
+export interface GcmClimateMapResult {
+	request: GcmClassificationRequest
+	classes: Uint8Array | null
+	error: string | null
+}
+
+export interface GcmClimateMapState {
+	classes: Uint8Array | null
+	pending: boolean
+	error: string | null
 }
 
 export interface GcmLiveStore {

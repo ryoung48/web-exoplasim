@@ -4,9 +4,11 @@ import type {
 	GcmAveragerSample,
 	GcmAverageState,
 	GcmAveragesRequest,
+	GcmClimateCache,
 	GcmClimatology,
 	GcmMonthAccumulator,
 	GcmMonthlyMean,
+	GcmMonthMerge,
 } from "@/model/climate/gcm/averages/types"
 import type { GcmYearlyBalance } from "@/model/climate/gcm/balance/types"
 import { GCM_CLASSIFICATION } from "@/model/climate/gcm/classification"
@@ -18,6 +20,7 @@ import type { GcmSnapshot } from "@/model/climate/gcm/types"
 const MONTHS_PER_YEAR = 12
 const CLIMATE_YEARS = 10
 const HISTORY_MONTHS = (CLIMATE_YEARS + 1) * MONTHS_PER_YEAR
+const climateCache = new WeakMap<GcmAverager, GcmClimateCache>()
 // PlaSim divides its calendar into twelve equally weighted sampling months.
 
 function create(): GcmAverager {
@@ -144,17 +147,31 @@ export const GCM_AVERAGES = {
 	annual,
 	view: averages,
 	merge,
+	mergeMonths,
 }
 
 function merge({ averager, months, years }: GcmAverageMerge): void {
-	const history = new Map(
-		averager.months.map((month) => [`${month.year}/${month.month}`, month]),
-	)
-	for (const month of months) history.set(`${month.year}/${month.month}`, month)
-	averager.months = [...history.values()]
-		.sort((a, b) => a.year - b.year || a.month - b.month)
-		.slice(-HISTORY_MONTHS)
+	averager.months = mergeMonths({
+		months: averager.months,
+		incoming: months,
+		limit: HISTORY_MONTHS,
+	})
 	averager.years = years
+}
+
+function mergeMonths({
+	months,
+	incoming,
+	limit,
+}: GcmMonthMerge): GcmMonthlyMean[] {
+	const history = new Map(
+		months.map((month) => [`${month.year}/${month.month}`, month]),
+	)
+	for (const month of incoming)
+		history.set(`${month.year}/${month.month}`, month)
+	return [...history.values()]
+		.sort((a, b) => a.year - b.year || a.month - b.month)
+		.slice(-limit)
 }
 
 function climatology(averager: GcmAverager): GcmClimatology {
@@ -172,7 +189,20 @@ function climatology(averager: GcmAverager): GcmClimatology {
 		)
 		.sort((a, b) => a[0].year - b[0].year)
 		.slice(-CLIMATE_YEARS)
-	if (!complete.length) return { months: [], years: 0 }
+	const cached = climateCache.get(averager)?.climate
+	if (!complete.length)
+		return cached?.years === 0 ? cached : { months: [], years: 0 }
+	const lastYear = complete[complete.length - 1]
+	const lastMonth = lastYear.find(
+		(month) => month.month === MONTHS_PER_YEAR,
+	) as GcmMonthlyMean
+	if (
+		cached?.years === complete.length &&
+		cached.months[MONTHS_PER_YEAR - 1]?.snapshot.step ===
+			lastMonth.snapshot.step &&
+		cached.months[0].year === lastMonth.year
+	)
+		return cached
 	const months = [...Array(MONTHS_PER_YEAR).keys()].map((index) => {
 		const samples = complete.map(
 			(year) =>
@@ -194,23 +224,33 @@ function climatology(averager: GcmAverager): GcmClimatology {
 
 function averages({ averager, config }: GcmAveragesRequest): GcmAverageState {
 	const climate = climatology(averager)
+	let cached = climateCache.get(averager)
+	if (cached?.climate !== climate || cached.config !== config) {
+		cached = {
+			climate,
+			config,
+			pasta: GCM_CLASSIFICATION.classes({
+				config,
+				months: climate.months,
+				downscale: null,
+				scheme: "pasta",
+			}),
+			koppen: GCM_CLASSIFICATION.classes({
+				config,
+				months: climate.months,
+				downscale: null,
+				scheme: "koppen",
+			}),
+		}
+		climateCache.set(averager, cached)
+	}
 	return {
 		months: averager.months.slice(-MONTHS_PER_YEAR),
 		climateMonths: climate.months,
 		climateYears: climate.years,
 		years: averager.years,
 		annual: annual(averager),
-		pasta: GCM_CLASSIFICATION.classes({
-			config,
-			months: climate.months,
-			downscale: null,
-			scheme: "pasta",
-		}),
-		koppen: GCM_CLASSIFICATION.classes({
-			config,
-			months: climate.months,
-			downscale: null,
-			scheme: "koppen",
-		}),
+		pasta: cached.pasta,
+		koppen: cached.koppen,
 	}
 }
