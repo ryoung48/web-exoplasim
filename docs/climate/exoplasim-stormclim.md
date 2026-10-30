@@ -6,7 +6,7 @@ These fields describe conditions favorable for tropical cyclones. They do not ad
 
 ## Fields and conventions
 
-Enabling the toggle makes the Storm environment map group available on either engine. Each snapshot reserves nine fields, after the existing 40 surface fields and before atmospheric layers. Disabled runs leave these fields zero and keep the map group disabled. Monthly and annual maps use the existing snapshot averages; they are not averages of every unpublished step.
+Enabling the toggle makes the Storm environment map group available on either engine. Each snapshot reserves nine fields, after the existing 42 surface fields and before atmospheric layers. Disabled runs leave these fields zero and keep the map group disabled. Monthly and annual maps use the existing snapshot averages; they are not averages of every unpublished step.
 
 | Field | Native array | Definition | Display range |
 | --- | --- | --- | --- |
@@ -34,7 +34,7 @@ for `0 < abs(VI) < VITHRESH`. It returns zero outside that open interval, includ
 
 ## Persistence and builds
 
-Snapshots contain 49 surface fields plus five fields per atmospheric layer: 74 fields with five layers, 99 with ten. Checkpoint formats are CPU 16 and GPU 17. Earlier formats are rejected; their layouts cannot represent the new fields. Saved configuration includes the toggle, and GPU restarts include all nine diagnostic arrays. Checkpoint loading restores the saved engine and settings and remains paused.
+Snapshots contain 51 surface fields plus five fields per atmospheric layer: 76 fields with five layers, 101 with ten. Checkpoint formats are CPU 20 and GPU 21. Earlier formats are rejected; their layouts cannot represent the new fields. Saved configuration includes the toggle, and GPU restarts include all nine diagnostic arrays. Checkpoint loading restores the saved engine and settings and remains paused.
 
 The CPU snapshot hook changed, so rebuild all served variants with `pnpm build:gcm-wasm`, without `--link-only`. The normal build covers T21/T42, five/ten layers and 2/4/8 workers. GPU assets require no separate shader build beyond the normal application build.
 
@@ -42,7 +42,7 @@ The CPU snapshot hook changed, so rebuild all served variants with `pnpm build:g
 
 Run browser simulations sequentially with other `/gcm` simulations stopped or paused.
 
-1. `node scripts/exoplasim-webgpu/verify-storm-runs.mjs` runs 48 main steps at T21/T42/T63 and five/ten layers, using the deterministic custom continent in that script. It checks that enabling diagnostics changes no other model array, that complete GPU restart state round-trips exactly, and that the shared CPU/GPU runners enable and publish the fields at T21/T42 with both layer counts and 2/4/8 workers, plus T21/T42/T63 GPU runners. It records isolated GPU timestamps for three enabled/disabled repetitions and saves dimensional model columns.
+1. `node scripts/exoplasim-webgpu/verify-storm-runs.mjs` runs 48 main steps at T21/T42/T63 and five/ten layers, using the deterministic custom continent in that script. It checks that enabling diagnostics changes no other model array, that complete GPU restart state round-trips exactly, and that the shared CPU/GPU runners enable and publish the fields at T21/T42 with both layer counts and 2/4/8 workers, plus T21/T42/T63 GPU runners. Pass `--gpu-only` to run the six GPU configurations while CPU assets are rebuilding. It records isolated GPU timestamps for three enabled/disabled repetitions and saves dimensional model columns.
 2. `node scripts/exoplasim-webgpu/verify-storm.mjs --runs` compares 44 synthetic columns plus 24 saved model columns with native gfortran f64 compiled from the pinned source. Synthetic profiles cover tropical, warm, cold, hot, dry, stable, low-pressure, humid, invalid-cold, reversed-vorticity and zero-shear conditions at both layer counts and RD = 287/189 J/(kg·K). GPU snapshot packing is checked against all nine outputs. The native harness is `scripts/exoplasim-webgpu/storm-reference.py`, run in WSL Ubuntu with gfortran. Tests require finite GPU outputs and absolute-plus-relative agreement: 0.5% relative plus 5 J/kg CAPE, 1 hPa neutral-buoyancy pressure, 0.2 m/s intensity, 10⁻⁹ s⁻¹ vorticity, 0.0001 m/s shear, or 0.005 for the other indices.
 3. `wsl -d Ubuntu -- python3 scripts/exoplasim-wasm/verify-weather.py` checks native snapshot packing and existing weather formulas with both layer counts.
 4. Set `STORMCLIM=1`, `PAUSES=2`, and `ENGINE=gpu` or `ENGINE=cpu`, then run `node scripts/exoplasim-webgpu/verify-page.mjs`. It exercises the visible toggle, all nine maps, checkpoint configuration and continuation, finite snapshots, and rejection of unsupported formats. The default is T21 with ten layers; use `LAYERS` and `TRUNCATION` for other configurations. Set environment variables with `$env:NAME = 'value'` in PowerShell.

@@ -134,12 +134,15 @@ function session({
 					return
 				}
 				stop()
-				if (restart && checkpointRequested) onSaved({ restart, averager })
+				if (restart && checkpointRequested)
+					onSaved({ restart, averager, targeting: null })
 				else request.onStatus({ status: "finished", message: "Run complete" })
 			}
 		}
 		const load: GcmWasmWorkerLoad = {
 			type: "load",
+			config: request.config,
+			previousConfig: restartIn ? request.previousConfig : null,
 			layers: request.config.layers,
 			rank,
 			size: ranks,
@@ -209,9 +212,12 @@ function start(request: GcmRunRequest): GcmRun {
 	})
 		.then((files) => {
 			if (stopped) return
-			const next = (restart: ArrayBuffer | null): GcmRun =>
-				session({
-					request,
+			let previousConfig = request.previousConfig
+			const next = (restart: ArrayBuffer | null): GcmRun => {
+				const currentRequest = { ...request, previousConfig }
+				previousConfig = null
+				return session({
+					request: currentRequest,
 					files,
 					ranks,
 					averager,
@@ -223,6 +229,7 @@ function start(request: GcmRunRequest): GcmRun {
 						if (!stopped) current = next(saved.restart)
 					},
 				})
+			}
 			current = next(request.restart)
 		})
 		.catch((error: unknown) => {

@@ -1,12 +1,16 @@
 import type { ReactNode } from "react"
+import { GCM_CONTINUATION } from "@/model/climate/gcm/continuation"
+import { GCM_TARGETING } from "@/model/climate/gcm/targeting"
 import type {
 	GcmConfig,
 	GcmLayerCount,
 	GcmTruncation,
 	GcmVegetation,
 } from "@/model/climate/gcm/types"
+import { TEMPERATURE } from "@/model/shared/units/temperature"
 import { CollapsibleSection } from "@/ui/components/composites/CollapsibleSection"
 import { InputLabel } from "@/ui/components/primitives/InputLabel"
+import { LabeledNumberInput } from "@/ui/components/primitives/LabeledNumberInput"
 import { LabeledSlider } from "@/ui/components/primitives/LabeledSlider"
 import { SegmentedControl } from "@/ui/components/primitives/SegmentedControl"
 import { ToggleRow } from "@/ui/components/primitives/ToggleRow"
@@ -26,7 +30,10 @@ import type {
 	GcmSliderSpec,
 	GcmSmoothingFilter,
 } from "@/ui/gcm/types"
-import { formatWithUnit } from "@/ui/genesis/shared/ui-format"
+import {
+	formatTemperatureDelta,
+	formatWithUnit,
+} from "@/ui/genesis/shared/ui-format"
 
 const BYTES_PER_MEGABYTE = 1_000_000
 const PLANET_SLIDERS: ReadonlyArray<GcmSliderSpec> = [
@@ -183,8 +190,8 @@ function isSmoothing(filter: string): filter is GcmSmoothingFilter {
 }
 
 export function GcmConfigPanel({
+	locked,
 	config,
-	detail,
 	terrain,
 	latitudes,
 	unitSystem,
@@ -199,7 +206,6 @@ export function GcmConfigPanel({
 	onChange,
 	onTerrainChange,
 }: GcmConfigPanelProps) {
-	const advanced = detail === "advanced"
 	const update = (patch: Partial<GcmConfig>) => {
 		if (!disabled) onChange({ ...config, ...patch })
 	}
@@ -211,6 +217,8 @@ export function GcmConfigPanel({
 				...(enabled ? [filter] : []),
 			],
 		})
+	const isDisabled = (key: keyof GcmConfig) =>
+		disabled || (locked && !GCM_CONTINUATION.EDITABLE.includes(key))
 	const renderSlider = (spec: GcmSliderSpec) => (
 		<LabeledSlider
 			key={spec.key}
@@ -221,7 +229,7 @@ export function GcmConfigPanel({
 			min={spec.min}
 			max={spec.max}
 			step={spec.step}
-			disabled={disabled}
+			disabled={isDisabled(spec.key)}
 			onChange={(value) => update({ [spec.key]: value })}
 		/>
 	)
@@ -295,97 +303,93 @@ export function GcmConfigPanel({
 					disabled={disabled}
 					onChange={(stormclim) => update({ stormclim })}
 				/>
-				{advanced && (
-					<>
-						<fieldset className="space-y-1" aria-label="Atmospheric layers">
-							<legend className={label}>
-								<InputLabel
-									label="Atmospheric layers"
-									help={GCM_INPUT_HELP.layers}
-								/>
-							</legend>
-							<SegmentedControl
-								fullWidth
-								options={[
-									{ value: "5", label: "5 layers" },
-									{ value: "10", label: "10 layers" },
-								]}
-								value={String(config.layers)}
-								onChange={(value) =>
-									update({ layers: Number(value) as GcmLayerCount })
-								}
-							/>
-						</fieldset>
-						{engine === "cpu" && (
-							<fieldset className="space-y-1" aria-label="Workers">
-								<legend className={label}>
-									<InputLabel label="Workers" help={GCM_INPUT_HELP.workers} />
-								</legend>
-								<SegmentedControl
-									fullWidth
-									options={workerOptions}
-									value={workerChoice}
-									onChange={onWorkerChange}
-								/>
-							</fieldset>
-						)}
-						<div className="space-y-1">
-							<span className={label}>
-								<InputLabel
-									label="Timestep (minutes)"
-									help={GCM_INPUT_HELP.timestepMinutes}
-								/>
-							</span>
-							<SegmentedControl
-								fullWidth
-								options={TIMESTEP_OPTIONS}
-								value={
-									String(
-										config.timestepMinutes,
-									) as (typeof TIMESTEP_OPTIONS)[number]["value"]
-								}
-								onChange={(value) => update({ timestepMinutes: Number(value) })}
-							/>
-						</div>
-						<div className="space-y-1">
-							<span className={label}>
-								<InputLabel
-									label="Spectral filter"
-									help={GCM_INPUT_HELP.physicsFilter}
-								/>
-							</span>
-							<SegmentedControl
-								fullWidth
-								options={SMOOTHING_OPTIONS}
-								value={smoothing}
-								onChange={(value) =>
-									update({
-										physicsFilter: [
-											...config.physicsFilter.filter(
-												(filter) => !isSmoothing(filter),
-											),
-											value,
-										],
-									})
-								}
-							/>
-						</div>
-						<ToggleRow
-							label="Filter gridpoint tendencies"
-							help={GCM_INPUT_HELP.gridpointFilter}
-							checked={config.physicsFilter.includes("gp")}
-							disabled={disabled}
-							onChange={(enabled) => toggleFilter({ filter: "gp", enabled })}
+				<fieldset className="space-y-1" aria-label="Atmospheric layers">
+					<legend className={label}>
+						<InputLabel
+							label="Atmospheric layers"
+							help={GCM_INPUT_HELP.layers}
 						/>
-						<ToggleRow
-							label="Filter spectral tendencies"
-							help={GCM_INPUT_HELP.spectralFilter}
-							checked={config.physicsFilter.includes("sp")}
-							disabled={disabled}
-							onChange={(enabled) => toggleFilter({ filter: "sp", enabled })}
+					</legend>
+					<SegmentedControl
+						fullWidth
+						options={[
+							{ value: "5", label: "5 layers" },
+							{ value: "10", label: "10 layers" },
+						]}
+						value={String(config.layers)}
+						onChange={(value) =>
+							update({ layers: Number(value) as GcmLayerCount })
+						}
+					/>
+				</fieldset>
+				{engine === "cpu" && (
+					<fieldset className="space-y-1" aria-label="Workers">
+						<legend className={label}>
+							<InputLabel label="Workers" help={GCM_INPUT_HELP.workers} />
+						</legend>
+						<SegmentedControl
+							fullWidth
+							options={workerOptions}
+							value={workerChoice}
+							onChange={onWorkerChange}
 						/>
-					</>
+					</fieldset>
 				)}
+				<div className="space-y-1">
+					<span className={label}>
+						<InputLabel
+							label="Timestep (minutes)"
+							help={GCM_INPUT_HELP.timestepMinutes}
+						/>
+					</span>
+					<SegmentedControl
+						fullWidth
+						options={TIMESTEP_OPTIONS}
+						value={
+							String(
+								config.timestepMinutes,
+							) as (typeof TIMESTEP_OPTIONS)[number]["value"]
+						}
+						onChange={(value) => update({ timestepMinutes: Number(value) })}
+					/>
+				</div>
+				<div className="space-y-1">
+					<span className={label}>
+						<InputLabel
+							label="Spectral filter"
+							help={GCM_INPUT_HELP.physicsFilter}
+						/>
+					</span>
+					<SegmentedControl
+						fullWidth
+						options={SMOOTHING_OPTIONS}
+						value={smoothing}
+						onChange={(value) =>
+							update({
+								physicsFilter: [
+									...config.physicsFilter.filter(
+										(filter) => !isSmoothing(filter),
+									),
+									value,
+								],
+							})
+						}
+					/>
+				</div>
+				<ToggleRow
+					label="Filter gridpoint tendencies"
+					help={GCM_INPUT_HELP.gridpointFilter}
+					checked={config.physicsFilter.includes("gp")}
+					disabled={disabled}
+					onChange={(enabled) => toggleFilter({ filter: "gp", enabled })}
+				/>
+				<ToggleRow
+					label="Filter spectral tendencies"
+					help={GCM_INPUT_HELP.spectralFilter}
+					checked={config.physicsFilter.includes("sp")}
+					disabled={disabled}
+					onChange={(enabled) => toggleFilter({ filter: "sp", enabled })}
+				/>
 			</>
 		),
 		planet: (
@@ -420,49 +424,72 @@ export function GcmConfigPanel({
 					label="Tidally locked illumination"
 					help={GCM_INPUT_HELP.synchronous}
 					checked={config.synchronous}
-					disabled={disabled}
+					disabled={disabled || locked}
 					onChange={(synchronous) => update({ synchronous })}
 				/>
 				{config.synchronous && renderSlider(SUBSTELLAR_SLIDER)}
-				{advanced && (
-					<>
-						<ToggleRow
-							label="Generic Keplerian orbit"
-							help={GCM_INPUT_HELP.keplerian}
-							checked={config.keplerian}
-							disabled={disabled}
-							onChange={(keplerian) => update({ keplerian })}
-						/>
-						<GcmOverrideControls
-							section="orbit"
-							config={config}
-							unitSystem={unitSystem}
-							disabled={disabled}
-							onChange={onChange}
-						/>
-						<ToggleRow
-							label="Fixed orbit"
-							help={GCM_INPUT_HELP.fixedOrbit}
-							checked={config.fixedOrbit}
-							disabled={disabled}
-							onChange={(fixedOrbit) => update({ fixedOrbit })}
-						/>
-					</>
-				)}
+				<ToggleRow
+					label="Generic Keplerian orbit"
+					help={GCM_INPUT_HELP.keplerian}
+					checked={config.keplerian}
+					disabled={disabled || locked}
+					onChange={(keplerian) => update({ keplerian })}
+				/>
+				<GcmOverrideControls
+					section="orbit"
+					config={config}
+					unitSystem={unitSystem}
+					disabled={disabled || locked}
+					onChange={onChange}
+				/>
+				<ToggleRow
+					label="Fixed orbit"
+					help={GCM_INPUT_HELP.fixedOrbit}
+					checked={config.fixedOrbit}
+					disabled={disabled}
+					onChange={(fixedOrbit) => update({ fixedOrbit })}
+				/>
 			</>
 		),
 		atmosphere: (
-			<GcmAtmosphereControls
-				config={config.atmosphere}
-				advanced={advanced}
-				disabled={disabled}
-				onChange={(atmosphere) => update({ atmosphere })}
-			/>
+			<>
+				<LabeledNumberInput
+					label="Desired temperature"
+					help={`Enter a global mean surface temperature to automatically adjust CO₂ until the climate settles within ${formatTemperatureDelta(GCM_TARGETING.TOLERANCE_K, unitSystem)} of your goal. Leave blank to keep CO₂ fixed. Pressure and gas constant stay fixed during targeting.`}
+					unit={unitSystem === "imperial" ? "°F" : "°C"}
+					value={
+						config.targetTemperatureK === null
+							? null
+							: TEMPERATURE.toDisplay({
+									value: config.targetTemperatureK - 273.15,
+									system: unitSystem,
+								})
+					}
+					min={TEMPERATURE.toDisplay({ value: -273.15, system: unitSystem })}
+					placeholder="Off"
+					disabled={disabled}
+					onChange={(value) =>
+						update({
+							targetTemperatureK:
+								value === null
+									? null
+									: TEMPERATURE.toCelsius({ value, system: unitSystem }) +
+										273.15,
+						})
+					}
+				/>
+				<GcmAtmosphereControls
+					locked={locked}
+					config={config.atmosphere}
+					disabled={disabled}
+					onChange={(atmosphere) => update({ atmosphere })}
+				/>
+			</>
 		),
 		surface: (
 			<>
 				{renderSlider(OCEAN_DEPTH_SLIDER)}
-				<div className="space-y-1">
+				<fieldset disabled={disabled || locked} className="space-y-1">
 					<span className={label}>
 						<InputLabel label="Vegetation" help={GCM_INPUT_HELP.vegetation} />
 					</span>
@@ -478,47 +505,43 @@ export function GcmConfigPanel({
 							update({ vegetation: Number(value) as GcmVegetation })
 						}
 					/>
-				</div>
+				</fieldset>
 				<ToggleRow
 					label="Glaciers"
 					help={GCM_INPUT_HELP.glaciers}
 					checked={config.glaciers.enabled}
-					disabled={disabled}
+					disabled={disabled || locked}
 					onChange={(enabled) =>
 						update({ glaciers: { ...config.glaciers, enabled } })
 					}
 				/>
-				{advanced && (
-					<>
-						{config.vegetation > 0 && renderSlider(GROWTH_SLIDER)}
-						{renderSlider(SOIL_DEPTH_SLIDER)}
-						<ToggleRow
-							label="Wet soil"
-							help={GCM_INPUT_HELP.wetSoil}
-							checked={config.wetSoil}
-							disabled={disabled}
-							onChange={(wetSoil) => update({ wetSoil })}
-						/>
-						{terrain === null && (
-							<ToggleRow
-								label="Earth surface climatology"
-								help={GCM_INPUT_HELP.earthSurfaceClimatology}
-								checked={config.earthSurfaceClimatology}
-								disabled={disabled}
-								onChange={(earthSurfaceClimatology) =>
-									update({ earthSurfaceClimatology })
-								}
-							/>
-						)}
-						<GcmOverrideControls
-							section="surface"
-							unitSystem={unitSystem}
-							config={config}
-							disabled={disabled}
-							onChange={onChange}
-						/>
-					</>
+				{config.vegetation > 0 && renderSlider(GROWTH_SLIDER)}
+				{renderSlider(SOIL_DEPTH_SLIDER)}
+				<ToggleRow
+					label="Wet soil"
+					help={GCM_INPUT_HELP.wetSoil}
+					checked={config.wetSoil}
+					disabled={disabled}
+					onChange={(wetSoil) => update({ wetSoil })}
+				/>
+				{terrain === null && (
+					<ToggleRow
+						label="Earth surface climatology"
+						help={GCM_INPUT_HELP.earthSurfaceClimatology}
+						checked={config.earthSurfaceClimatology}
+						disabled={disabled || locked}
+						onChange={(earthSurfaceClimatology) =>
+							update({ earthSurfaceClimatology })
+						}
+					/>
 				)}
+				<GcmOverrideControls
+					section="surface"
+					unitSystem={unitSystem}
+					config={config}
+					disabled={disabled}
+					onChange={onChange}
+				/>
 			</>
 		),
 	}
@@ -531,12 +554,21 @@ export function GcmConfigPanel({
 					title={title}
 					defaultOpen={defaultOpen}
 					modified={GCM_SETTINGS_SECTIONS.modified({ config, section })}
-					resetDisabled={disabled}
+					resetDisabled={
+						disabled ||
+						(locked && (section === "model" || section === "planet"))
+					}
 					onReset={() =>
 						onChange(GCM_SETTINGS_SECTIONS.reset({ config, section }))
 					}
 				>
-					<fieldset disabled={disabled} className="min-w-0 space-y-3">
+					<fieldset
+						disabled={
+							disabled ||
+							(locked && (section === "model" || section === "planet"))
+						}
+						className="min-w-0 space-y-3"
+					>
 						{contents[section]}
 					</fieldset>
 				</CollapsibleSection>

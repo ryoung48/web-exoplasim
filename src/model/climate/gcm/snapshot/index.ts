@@ -18,7 +18,7 @@ function fields(levels: number): GcmFieldSpec[] {
 			shape: "grid",
 			count: GCM_FIELDS.fieldCount(levels as GcmLayerCount),
 		},
-		{ name: "snapshot_tracking", shape: "grid", count: 10 },
+		{ name: "snapshot_tracking", shape: "grid", count: 9 },
 		{ name: "snapshot_step", shape: "table", count: 3 },
 	]
 }

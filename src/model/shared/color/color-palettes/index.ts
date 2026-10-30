@@ -77,6 +77,19 @@ const plasmaStops = palette(
 
 const knowledgeStops = plasmaStops.slice(1).toReversed()
 
+const temperatureRangeStops = palette(
+	"#0000aa",
+	"#0050ff",
+	"#00c8c8",
+	"#28f050",
+	"#b4ff00",
+	"#ffff00",
+	"#ffb400",
+	"#ff4600",
+	"#ff0000",
+	"#aa0000",
+)
+
 const spectralStops = palette(
 	"#5e4fa2",
 	"#3288bd",
@@ -142,4 +155,5 @@ export const COLOR_PALETTES = {
 	plasmaStops,
 	knowledgeStops,
 	spectralStops,
+	temperatureRangeStops,
 }

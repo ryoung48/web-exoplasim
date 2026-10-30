@@ -23,8 +23,7 @@ override ALBGMIN1: f32;
 override ALBGMAX2: f32;
 override ALBGMIN2: f32;
 override DRHSFULL: f32;
-// nwetsoil: albedo of wet bare soil from the water bucket (page's wet
-// soil option without a stellar spectrum).
+// nwetsoil: albedo of bare soil from the water bucket.
 override NWETSOIL: bool;
 override WSMAX: f32;
 override ALBLAND: f32;

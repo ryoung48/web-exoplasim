@@ -8,8 +8,6 @@ export type GcmSettingsSection =
 	| "surface"
 	| "model"
 
-export type GcmSettingsDetail = "basic" | "advanced"
-
 export interface GcmSettingsSectionQuery {
 	config: GcmConfig
 	section: GcmSettingsSection

@@ -1,4 +1,5 @@
 import type { GcmAverager } from "@/model/climate/gcm/averages/types"
+import type { GcmTargetState } from "@/model/climate/gcm/targeting/types"
 import type { GcmTerrain } from "@/model/climate/gcm/terrain/types"
 import type { GcmConfig, GcmDate, GcmSnapshot } from "@/model/climate/gcm/types"
 
@@ -18,6 +19,7 @@ export interface GcmCheckpoint {
 }
 
 export interface GcmCheckpointDiagnostics {
+	targeting: GcmTargetState | null
 	averager: GcmAverager
 	snapshot: GcmSnapshot
 }

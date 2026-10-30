@@ -13,6 +13,7 @@ import type {
 	GcmResolution,
 	GcmRunStatus,
 } from "@/model/climate/gcm/runner/types"
+import type { GcmTargetState } from "@/model/climate/gcm/targeting/types"
 import type { GcmTerrain } from "@/model/climate/gcm/terrain/types"
 import type {
 	GcmConfig,
@@ -24,7 +25,6 @@ import type {
 import type { RgbColor } from "@/model/shared/color/color-palettes/types"
 import type { GcmHoverPoint } from "@/ui/gcm/hover/types"
 import type { GcmMapViewport } from "@/ui/gcm/map-navigation/types"
-import type { GcmSettingsDetail } from "@/ui/gcm/settings-sections/types"
 import type { CoastlineLineData } from "@/ui/genesis/shared/coastline-lines"
 import type { UnitSystem } from "@/ui/genesis/shared/ui-format"
 
@@ -270,7 +270,13 @@ export interface GcmBalanceRow {
 	value: string
 }
 
+export interface GcmBalanceViewRequest {
+	averages: GcmAverageState
+	targeting: GcmTargetState | null
+}
+
 export interface GcmLaunchRequest {
+	previousConfig: GcmConfig | null
 	terrain: GcmTerrain | null
 	engine: GcmEngine
 	config: GcmConfig
@@ -292,7 +298,7 @@ export interface GcmWorkerOption {
 }
 
 export interface GcmConfigPanelProps {
-	detail: GcmSettingsDetail
+	locked: boolean
 	engine: GcmEngine
 	gpuAvailable: boolean | null
 	onEngineChange: (engine: GcmEngine) => void
@@ -310,8 +316,8 @@ export interface GcmConfigPanelProps {
 }
 
 export interface GcmAtmosphereControlsProps {
+	locked: boolean
 	config: GcmAtmosphereConfig
-	advanced: boolean
 	disabled: boolean
 	onChange: (config: GcmAtmosphereConfig) => void
 }

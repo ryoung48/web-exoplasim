@@ -26,13 +26,13 @@ const HORIZON_STEPS = 1200
 // React's development profiling.
 const server = process.env.PREVIEW
 	? await preview({ preview: { host: "127.0.0.1", port: 0 }, logLevel: "error" })
-	: await createServer({ server: { host: "127.0.0.1", port: 0, strictPort: false }, logLevel: "error" })
+	: await createServer({ server: { host: "127.0.0.1", port: 0, strictPort: false, watch: null }, logLevel: "error" })
 if (!process.env.PREVIEW) await server.listen()
 const browser = await chromium.launch({ executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe", headless: true, args: ["--enable-unsafe-webgpu"] })
 const snapshotRecord = (snapshot) => {
  const { step, date, values, layers } = snapshot
- const points = values.length / (49 + 5 * layers)
- return { step, date, layers, fields: 49 + 5 * layers, diagnostic: [35, 36, 37, 38, 39, 49 + 5 * (layers - 1) + 3].map((field) => values[field * points]), finite: values.every(Number.isFinite), sum: values.reduce((a, b) => a + b, 0), first: Array.from(values.subarray(0, 8)) }
+ const points = values.length / (51 + 5 * layers)
+ return { step, date, layers, fields: 51 + 5 * layers, diagnostic: [35, 36, 37, 38, 39, 51 + 5 * (layers - 1) + 3].map((field) => values[field * points]), finite: values.every(Number.isFinite), sum: values.reduce((a, b) => a + b, 0), first: Array.from(values.subarray(0, 8)) }
 }
 const report = { checks: {} }
 const errors = []
@@ -92,7 +92,6 @@ try {
 	const row = (label) => page.locator(`text=${label}`).first().locator("xpath=following-sibling::*[1]").textContent()
 
 	// Start and the step sequence.
-	await button("Advanced").click()
 	await button(ENGINE.toUpperCase()).click()
 	await button(`${LAYERS} layers`).click()
 	await page.getByRole("button", { name: new RegExp(`^T${TRUNCATION} `) }).click()

@@ -12,7 +12,7 @@ const browser = await chromium.launch({ executablePath: "C:/Program Files/Google
 try {
 	const page = await browser.newPage()
 	await page.goto(server.resolvedUrls.local[0])
-	const report = await page.evaluate(async () => {
+	const report = await page.evaluate(async ({ engines }) => {
 		const { GCM_DEVICE } = await import("/src/model/climate/gcm/device/index.ts")
 		const { STEPPER } = await import("/src/model/climate/gcm/stepper/index.ts")
 		const { SETUP } = await import("/src/model/climate/gcm/setup/index.ts")
@@ -103,14 +103,14 @@ try {
 		device.destroy()
 		const resolutions = await GCM_RUNNER.resolutions()
 		const runners = []
-		for (const engine of ["gpu", "cpu"]) for (const truncation of engine === "gpu" ? [21, 42, 63] : [21, 42]) for (const layers of [5, 10]) for (const ranks of engine === "cpu" ? [2, 4, 8] : [null]) {
+		for (const engine of engines) for (const truncation of engine === "gpu" ? [21, 42, 63] : [21, 42]) for (const layers of [5, 10]) for (const ranks of engine === "cpu" ? [2, 4, 8] : [null]) {
 			const config = { ...GCM.DEFAULT_CONFIG, truncation, layers, timestepMinutes: truncation === 63 ? 20 : 45, stormclim: true }
 			const resolution = resolutions.find(entry => entry.truncation === truncation && entry.layers === layers)
 			let run
 			try {
 				const snapshot = await new Promise((resolve, reject) => {
 					const timer = setTimeout(() => { run?.stop(); reject(new Error(`${engine} runner timed out`)) }, 90000)
-					run = GCM_RUNNER.start({ engine, ranks, config, terrain, resolution, publishEvery: 4, restart: null, averager: null, startPaused: false,
+					run = GCM_RUNNER.start({ previousConfig: null, targeting: null, onTargeting() {}, engine, ranks, config, terrain, resolution, publishEvery: 4, restart: null, averager: null, startPaused: false,
 						onSnapshot(snapshot) { clearTimeout(timer); run.pause(); resolve(snapshot) },
 						onAverages() {}, onDevice() {}, onCheckpoint() {},
 						onStatus({ status, message }) { if (status === "failed") { clearTimeout(timer); reject(new Error(message)) } },
@@ -123,7 +123,7 @@ try {
 			} finally { run?.stop() }
 		}
 		return { adapter: `${adapter.vendor} ${adapter.architecture}`, rows, fixtures, runners, errors }
-	})
+	}, { engines: process.argv.includes("--gpu-only") ? ["gpu"] : ["gpu", "cpu"] })
 	await fs.writeFile(path.join(output, "runs.json"), JSON.stringify(report, null, 2))
 	assert.deepEqual(report.errors, [])
 	console.log(JSON.stringify({ rows: report.rows, runners: report.runners }, null, 2))

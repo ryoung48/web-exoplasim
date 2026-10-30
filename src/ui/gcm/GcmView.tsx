@@ -25,7 +25,7 @@ import type { GcmHoverPoint } from "@/ui/gcm/hover/types"
 import { GCM_LIVE } from "@/ui/gcm/live-store"
 import { GCM_MODE_GROUPS } from "@/ui/gcm/map-mode-options"
 import { GCM_PERIOD_VIEW } from "@/ui/gcm/period-view"
-import type { GcmSettingsDetail } from "@/ui/gcm/settings-sections/types"
+import { GCM_TARGETING_VIEW } from "@/ui/gcm/targeting-view"
 import type {
 	GcmMapDetail,
 	GcmMapLayer,
@@ -41,16 +41,9 @@ const UNIT_OPTIONS = [
 ] as const
 const SUMMARY_MODES: ReadonlyArray<GcmMapMode> = [
 	"airTemperature",
-	"relativeHumidity",
 	"precipitation",
 	"cloudCover",
 	"seaIce",
-	"albedo",
-	"toaShortwave",
-	"surfaceShortwave",
-	"surfaceLongwave",
-	"latentHeatFlux",
-	"sensibleHeatFlux",
 	"outgoingLongwave",
 ]
 
@@ -62,18 +55,6 @@ const LAPSE_CORRECTED_MODES: ReadonlyArray<GcmMapMode> = [
 	"surfaceTemperature",
 	"airTemperature",
 ]
-const SETTINGS_DETAIL_OPTIONS = [
-	{
-		value: "basic",
-		label: "Basic",
-		title: "The settings that shape a planet's climate",
-	},
-	{
-		value: "advanced",
-		label: "Advanced",
-		title: "Every ExoPlaSim option, including numerics and overrides",
-	},
-] as const
 const PERIOD_OPTIONS = [
 	{ value: "now", label: "Now" },
 	{ value: "month", label: "Monthly" },
@@ -112,8 +93,6 @@ export function GcmView() {
 	const [detail, setDetail] = useState<GcmMapDetail>("model")
 	const [hover, setHover] = useState<GcmHoverPoint | null>(null)
 	const [sidebarOpen, setSidebarOpen] = useState(true)
-	const [settingsDetail, setSettingsDetail] =
-		useState<GcmSettingsDetail>("basic")
 	const atmosphere = GCM_FIELDS.layer(view)
 	const groupView = atmosphere
 		? GCM_FIELDS.layerMode({ ...atmosphere, level: 10 })
@@ -219,7 +198,10 @@ export function GcmView() {
 		() => downscaledClimate ?? climate,
 		[downscaledClimate, climate],
 	)
-	const balance = useMemo(() => GCM_BALANCE_VIEW.rows(averages), [averages])
+	const balance = useMemo(
+		() => GCM_BALANCE_VIEW.rows({ averages, targeting: gcm.targeting }),
+		[averages, gcm.targeting],
+	)
 	const means = useMemo(
 		() =>
 			snapshot
@@ -548,6 +530,26 @@ export function GcmView() {
 								/>
 							))}
 					</div>
+					{gcm.targeting && (
+						<div
+							className="mt-3 space-y-1"
+							aria-label="Temperature targeting progress"
+							aria-live="polite"
+						>
+							{GCM_TARGETING_VIEW.rows({
+								state: gcm.targeting,
+								targetK: gcm.config.targetTemperatureK,
+								unitSystem,
+							}).map((row) => (
+								<LabeledValueRow
+									key={row.label}
+									label={row.label}
+									value={row.value}
+								/>
+							))}
+							<p className={uiTokens.field.note}>{gcm.targeting.message}</p>
+						</div>
+					)}
 					{status === "failed" && (
 						<pre
 							className={cx(
@@ -596,25 +598,15 @@ export function GcmView() {
 					</div>
 				</section>
 				<section>
-					<PanelHeader
-						title="Settings"
-						action={
-							<SegmentedControl
-								size="xs"
-								options={SETTINGS_DETAIL_OPTIONS}
-								value={settingsDetail}
-								onChange={setSettingsDetail}
-							/>
-						}
-					/>
+					<PanelHeader title="Settings" />
 					{active && (
 						<p className={cx("-mt-2 mb-3", uiTokens.field.note)}>
-							Settings are locked while a run exists. Clear it to change them.
+							Pause to edit climate settings, then resume to apply them. Model
+							and structural settings stay locked until you clear the run.
 						</p>
 					)}
 					<GcmConfigPanel
 						config={gcm.config}
-						detail={settingsDetail}
 						terrain={gcm.terrain}
 						latitudes={
 							gcm.resolutions.find(
@@ -631,7 +623,8 @@ export function GcmView() {
 						workerChoice={gcm.workerChoice}
 						workerOptions={gcm.workerOptions}
 						onWorkerChange={gcm.setWorkerChoice}
-						disabled={active}
+						locked={gcm.locked}
+						disabled={gcm.locked && status !== "paused"}
 						onChange={gcm.setConfig}
 						onTerrainChange={gcm.setTerrain}
 					/>

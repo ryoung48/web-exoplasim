@@ -170,8 +170,8 @@ function encode({ pass, context, kernels }: GcmStepperEncode): void {
 // the page draws, a batch takes up to ~1.7× its budget on the GPU: the
 // plan's 25 ms let Pause reach 93 ms, 20 ms kept 30 presses under 78 ms for
 // 5% less speed, and 15 ms halved speed (docs).
-// MAX_INTERVALS bounds a staging buffer (99 fields × 8192 points × 4 B ×
-// 16 = 50 MiB at T42 with ten atmospheric layers).
+// MAX_INTERVALS bounds a staging buffer (101 fields × 8192 points × 4 B ×
+// 16 = 51 MiB at T42 with ten atmospheric layers).
 const BATCH_BUDGET_MS = 20
 const IN_FLIGHT = 2
 const MAX_INTERVALS = 16
@@ -314,7 +314,7 @@ function values({
 	})
 	return {
 		fields: {
-			snapshot_step: Float64Array.of(step, calendar.stepsPerDay, 0),
+			snapshot_step: Float64Array.of(step, calendar.outputWindowSteps, 0),
 			radiation_step: RADIATION.step({
 				keplerian: calendar.keplerian,
 				fixedSun: calendar.fixedSun,

@@ -15,12 +15,14 @@ class ModelSource:
     ranks: int
     main_suffix: str
     step_hook: str
+    window_hook: str
     mpi_module: str
     utility_module: str
 
 
 CACHED_RADIATION = ["dfu", "dfd", "dftu", "dftd", "dswfl", "dlwfl", "dflux", "dtdtswr", "dtdtlwr", "dconv", "dalb", "dsalb", "dftue1", "dftue2", "dftu0", "dftd0"]
 STEP_END = "         call stability_check ! aborts if model tends to explode"
+OUTPUT_RESET = "          call outreset\n"
 WASM_FIELDS = """
       subroutine wasm_fields
       use pumamod
@@ -129,6 +131,10 @@ def patch_sources(model: ModelSource):
         if main.count(STEP_END) != 1:
             raise RuntimeError("Expected one stability check in the main loop")
         main = main.replace(STEP_END, f"         call {model.step_hook}\n" + STEP_END)
+    if model.window_hook:
+        if main.count(OUTPUT_RESET) != 1:
+            raise RuntimeError("Expected one output reset in the main loop")
+        main = main.replace(OUTPUT_RESET, f"          call {model.window_hook}\n" + OUTPUT_RESET)
     (model.build / "plasim.f90").write_text(main + model.main_suffix)
     stub = model.build / "mpimod_stub.f90"
     stub.write_text(stub.read_text().replace("subroutine mrdiff(p,d,n)", "subroutine mrdiff(p,d,n,k)"))

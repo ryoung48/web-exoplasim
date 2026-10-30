@@ -60,7 +60,7 @@ def build_reference():
     name = f"reference-t{args.truncation}-r{args.ranks}-p{args.precision}" + ("" if args.layers == 10 else f"-l{args.layers}") + ("-demoted" if args.demote_double else "") + ("-coverage" if args.coverage else "") + ("-probe" if args.probe else "")
     build = work / name
     model = ModelSource(source=work / "source" / "exoplasim", build=build, output=build, latitudes=latitudes, layers=args.layers, ranks=args.ranks,
-                        main_suffix=(script_directory / "gcm_reference.f90").read_text() + ((script_directory / "gcm_probe.f90").read_text() if args.probe else ""), step_hook="gcm_reference_step",
+                        main_suffix=(script_directory / "gcm_reference.f90").read_text() + ((script_directory / "gcm_probe.f90").read_text() if args.probe else ""), step_hook="gcm_reference_step", window_hook="",
                         mpi_module="mpimod" if args.ranks > 1 else "mpimod_stub", utility_module="utilities" if args.ranks > 1 else "utilities_stub")
     copy_sources(model)
     if args.demote_double:

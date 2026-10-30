@@ -1,3 +1,5 @@
+import { TEMPERATURE } from "@/model/shared/units/temperature"
+
 export type UnitSystem = "metric" | "imperial"
 
 const KM_TO_MI = 0.621371
@@ -28,7 +30,7 @@ export function formatTemperature(
 	digits = 1,
 	options?: { compact?: boolean },
 ): string {
-	const value = unitSystem === "imperial" ? valueC * (9 / 5) + 32 : valueC
+	const value = TEMPERATURE.toDisplay({ value: valueC, system: unitSystem })
 	return formatWithUnit(
 		value,
 		unitSystem === "imperial" ? "°F" : "°C",

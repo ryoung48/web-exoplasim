@@ -13,6 +13,7 @@ function fields(): GcmFieldSpec[] {
 		"dgrow",
 		"dsc",
 		"dmr",
+		"dnpp",
 	].map((name) => ({ name, shape: "grid" as const, count: 1 }))
 }
 

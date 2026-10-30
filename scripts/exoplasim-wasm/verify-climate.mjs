@@ -134,7 +134,7 @@ try {
   const averager = A.create()
   const makeSnapshot = ({ month, day, minimum, maximum }) => {
    const snapshot = { layers: 10, step: month * 48 + day, date: { year: 1, month, day, hour: 0, minute: 0 }, values: new Float32Array(grid.points * F.fieldCount(10)) }
-   for (const [field, value] of Object.entries({ airTemperature: 298.15, airTemperatureMin: minimum, airTemperatureMax: maximum, surfaceTemperature: 298.15, precipitation: 200 / 30 / 86400000, surfaceShortwave: 200, albedo: 0.2, landFraction: 1, surfacePressure: 101325, evaporation: 175 / 30 / 86400000, layerHumidity10: 0.5 })) F.field({ snapshot, field }).fill(value)
+   for (const [field, value] of Object.entries({ airTemperature: 298.15, surfaceTemperatureMin: minimum, surfaceTemperatureMax: maximum, surfaceTemperature: 298.15, precipitation: 200 / 30 / 86400000, surfaceShortwave: 200, albedo: 0.2, landFraction: 1, surfacePressure: 101325, evaporation: 175 / 30 / 86400000, layerHumidity10: 0.5 })) F.field({ snapshot, field }).fill(value)
    F.field({ snapshot, field: 'diurnalTemperatureRange' }).fill(month * 3)
    F.field({ snapshot, field: 'dailyTemperatureRangeSum' }).fill(month * (day === 1 ? 2 : 3))
    F.field({ snapshot, field: 'dailyTemperatureRangeDays' }).fill(day === 1 ? 2 : 1)
@@ -147,8 +147,8 @@ try {
   A.add({ averager, snapshot: makeSnapshot({ month: 1, day: 1, minimum: 283.15, maximum: 308.15 }) })
   check(averager.months.length === 12)
   const snapshot = averager.months[0].snapshot
-  check(Math.abs(F.field({ snapshot, field: 'airTemperatureMin' })[0] - 278.15) < 0.001)
-  check(Math.abs(F.field({ snapshot, field: 'airTemperatureMax' })[0] - 318.15) < 0.001)
+  check(Math.abs(F.field({ snapshot, field: 'surfaceTemperatureMin' })[0] - 278.15) < 0.001)
+  check(Math.abs(F.field({ snapshot, field: 'surfaceTemperatureMax' })[0] - 318.15) < 0.001)
   const dailyRange = F.values({ snapshot, mode: 'diurnalTemperatureRange' })
   check(dailyRange.every(value => Math.abs(value - 5 / 3) < 1e-5))
   check(F.values({ snapshot: A.annual(averager), mode: 'diurnalTemperatureRange' }).every(value => Math.abs(value - 65 / 6) < 1e-5))
@@ -227,7 +227,7 @@ try {
   })
   const shortRain = C.classes({ config, months: rainMonths, downscale: null, scheme: 'koppen' })
   const longRain = C.classes({ config: { ...config, yearDays: 720 }, months: rainMonths, downscale: null, scheme: 'koppen' })
-  check(C.definition('koppen').code(shortRain[0]) === 'BSh' && C.definition('koppen').code(longRain[0]) === 'Af')
+  check(C.definition('koppen').code(shortRain[0]) === 'BSh' && C.definition('koppen').code(longRain[0]) === 'Aw')
   for (let sample = 0; sample < 2000; sample++) {
    const temperature = Array.from(Array(12).keys(), month => -50 + sample % 100 + 30 * Math.sin(month * Math.PI / 6))
    const id = PASTA.classify({ ...base, temperature, minimum: temperature.map(value => value - 15), maximum: temperature.map(value => value + 15), rainfall: repeated(sample % 500), light: repeated(sample % 400) })

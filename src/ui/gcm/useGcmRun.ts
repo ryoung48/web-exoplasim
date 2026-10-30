@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { GCM } from "@/model/climate/gcm"
 import { GCM_AVERAGES } from "@/model/climate/gcm/averages"
 import { GCM_CHECKPOINT } from "@/model/climate/gcm/checkpoint"
+import { GCM_CONTINUATION } from "@/model/climate/gcm/continuation"
 import type { GcmDownscaleGrid } from "@/model/climate/gcm/downscale/types"
 import { GCM_GRID } from "@/model/climate/gcm/grid"
+import { GCM_NAMELIST } from "@/model/climate/gcm/namelist"
 import { GCM_PREPARATION } from "@/model/climate/gcm/preparation"
 import { GCM_RUNNER } from "@/model/climate/gcm/runner"
 import type {
@@ -12,6 +14,8 @@ import type {
 	GcmResolution,
 	GcmRun,
 } from "@/model/climate/gcm/runner/types"
+import { GCM_TARGETING } from "@/model/climate/gcm/targeting"
+import type { GcmTargetState } from "@/model/climate/gcm/targeting/types"
 import { GCM_TERRAIN } from "@/model/climate/gcm/terrain"
 import type { GcmTerrain } from "@/model/climate/gcm/terrain/types"
 import type { GcmConfig, GcmSnapshot } from "@/model/climate/gcm/types"
@@ -58,6 +62,7 @@ function download({ name, bytes }: GcmDownload) {
 export function useGcmRun() {
 	const [config, setConfig] = useState<GcmConfig>(GCM.DEFAULT_CONFIG)
 	const [state, setState] = useState<GcmRunState>(IDLE)
+	const [targeting, setTargeting] = useState<GcmTargetState | null>(null)
 	const [resolutions, setResolutions] = useState<GcmResolution[]>([])
 	const [requestedWorkers, setWorkerChoice] = useState("auto")
 	const availableRanks =
@@ -93,6 +98,7 @@ export function useGcmRun() {
 		[terrain, earthCoastlines],
 	)
 	const run = useRef<GcmRun | null>(null)
+	const pendingConfig = useRef<GcmConfig | null>(null)
 	const preparation = useRef<AbortController | null>(null)
 	const generation = useRef(0)
 	const rate = useRef<GcmStepSample | null>(null)
@@ -156,8 +162,10 @@ export function useGcmRun() {
 	)
 
 	const launch = useCallback(
-		async (request: GcmLaunchRequest) => {
+		async (request: GcmLaunchRequest): Promise<void> => {
+			pendingConfig.current = null
 			activeConfig.current = request.config
+			setTargeting(request.diagnostics?.targeting ?? null)
 			const currentGeneration = ++generation.current
 			preparation.current?.abort()
 			const controller = new AbortController()
@@ -222,7 +230,15 @@ export function useGcmRun() {
 				if (currentGeneration !== generation.current) return
 				setDownscale(prepared)
 				run.current = GCM_RUNNER.start({
+					targeting: request.diagnostics?.targeting ?? null,
+					onTargeting: ({ config: nextConfig, state: nextTargeting }) => {
+						if (currentGeneration !== generation.current) return
+						activeConfig.current = nextConfig
+						setConfig(nextConfig)
+						setTargeting(nextTargeting)
+					},
 					engine: request.engine,
+					previousConfig: request.previousConfig,
 					config: request.config,
 					terrain: raster,
 					resolution,
@@ -245,13 +261,39 @@ export function useGcmRun() {
 						if (currentGeneration === generation.current)
 							setState((current) => ({ ...current, device }))
 					},
-					onCheckpoint: ({ restart, averager: saved }) => {
+					onCheckpoint: ({
+						restart,
+						averager: saved,
+						targeting: savedTargeting,
+					}) => {
 						if (currentGeneration !== generation.current) return
 						const latest = live.get().snapshot
+						const next = pendingConfig.current
+						if (next) {
+							pendingConfig.current = null
+							void launch({
+								previousConfig: activeConfig.current,
+								config: next,
+								engine: request.engine,
+								terrain: raster,
+								restart,
+								fresh: true,
+								paused: false,
+								diagnostics: latest
+									? {
+											snapshot: latest,
+											averager: GCM_AVERAGES.create(),
+											targeting: null,
+										}
+									: null,
+								averages: null,
+							})
+							return
+						}
 						if (latest) {
 							const meta = {
 								format: GCM_CHECKPOINT.FORMATS[request.engine],
-								config: request.config,
+								config: activeConfig.current,
 								precisionBytes:
 									request.engine === "gpu"
 										? GCM_CHECKPOINT.GPU_PRECISION_BYTES
@@ -266,6 +308,7 @@ export function useGcmRun() {
 									meta,
 									restart,
 									diagnostics: {
+										targeting: savedTargeting,
 										averager: saved,
 										snapshot: latest,
 									},
@@ -332,6 +375,7 @@ export function useGcmRun() {
 				setTerrain(terrain)
 				setEngine(saved)
 				await launch({
+					previousConfig: null,
 					engine: saved,
 					terrain,
 					config: meta.config,
@@ -354,6 +398,7 @@ export function useGcmRun() {
 	)
 
 	const clear = () => {
+		pendingConfig.current = null
 		generation.current++
 		preparation.current?.abort()
 		run.current?.stop()
@@ -363,12 +408,15 @@ export function useGcmRun() {
 		live.update(GCM_LIVE.EMPTY)
 		setDownscale(null)
 		setState(IDLE)
+		setTargeting(null)
 	}
 
 	return {
+		targeting,
 		terrain,
 		displayTerrain: terrain ?? earthTerrain,
 		setTerrain: (next: GcmTerrain | null) => {
+			if (state.status !== "idle") return
 			clear()
 			setTerrain(next)
 			setConfig((current) => ({
@@ -377,22 +425,33 @@ export function useGcmRun() {
 			}))
 		},
 		config,
-		setConfig: (next: GcmConfig) =>
-			setConfig((current) =>
-				next.truncation === 63 && current.truncation !== 63
+		locked: state.status !== "idle",
+		setConfig: (next: GcmConfig) => {
+			if (state.status !== "idle" && state.status !== "paused") return
+			setConfig((current) => {
+				if (state.status === "paused")
+					return GCM_CONTINUATION.restrict({
+						config: next,
+						previousConfig: activeConfig.current,
+					})
+				return next.truncation === 63 && current.truncation !== 63
 					? { ...next, timestepMinutes: Math.min(next.timestepMinutes, 20) }
-					: next,
-			),
+					: next
+			})
+		},
 		state,
 		resolutions,
 		workerChoice,
 		workerOptions,
-		setWorkerChoice,
+		setWorkerChoice: (next: string) => {
+			if (state.status === "idle") setWorkerChoice(next)
+		},
 		downscale,
 		live,
 		coastlines,
 		engine,
 		setEngine: (next: GcmEngine) => {
+			if (state.status !== "idle") return
 			if (next === "cpu" && config.truncation === 63) {
 				const fallback = resolutions.find(
 					(entry) => entry.layers === config.layers && entry.cpu,
@@ -404,6 +463,7 @@ export function useGcmRun() {
 		gpuAvailable,
 		start: () =>
 			launch({
+				previousConfig: null,
 				terrain,
 				engine,
 				config,
@@ -416,7 +476,39 @@ export function useGcmRun() {
 		load: loadFromFile,
 		clear,
 		pause: () => run.current?.pause(),
-		resume: () => run.current?.resume(),
+		resume: () => {
+			if (state.status !== "paused" || !run.current) return
+			if (
+				!GCM_CONTINUATION.changed({
+					config,
+					previousConfig: activeConfig.current,
+				})
+			) {
+				run.current.resume()
+				return
+			}
+			try {
+				const next = GCM_CONTINUATION.restrict({
+					config,
+					previousConfig: activeConfig.current,
+				})
+				GCM_NAMELIST.edits(next)
+				if (next.targetTemperatureK !== null) GCM_TARGETING.create(next)
+				pendingConfig.current = next
+				setState((current) => ({
+					...current,
+					status: "checkpointing",
+					message: "Applying climate settings",
+					stepsPerSecond: 0,
+				}))
+				run.current.checkpoint()
+			} catch (error) {
+				setState((current) => ({
+					...current,
+					message: error instanceof Error ? error.message : String(error),
+				}))
+			}
+		},
 		save: () => run.current?.checkpoint(),
 	}
 }

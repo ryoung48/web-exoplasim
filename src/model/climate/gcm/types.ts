@@ -26,6 +26,7 @@ export interface GcmGlaciers {
 }
 
 export interface GcmConfig {
+	targetTemperatureK: number | null
 	stormclim: boolean
 	atmosphere: GcmAtmosphereConfig
 	layers: GcmLayerCount

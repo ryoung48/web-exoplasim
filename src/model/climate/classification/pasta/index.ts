@@ -272,12 +272,16 @@ function classify(cell: PastaCell): number {
 									: "Ot"
 		return ids.get(code) as number
 	}
-	const potential =
+	const estimatedPotential =
 		cell.hydrology?.potential ??
 		temperature.map((t) => (Math.max(0, t) * 7 * monthDays) / 30)
 	const actual =
 		cell.hydrology?.actual ??
-		PASTA_HYDROLOGY.evaporation({ rainfall, potential })
+		PASTA_HYDROLOGY.evaporation({ rainfall, potential: estimatedPotential })
+	// koppenpasta's Biome_Data raises PET to at least the evaporation.
+	const potential = estimatedPotential.map((value, month) =>
+		Math.max(value, actual[month]),
+	)
 	const sum = (values: number[]) =>
 		values.reduce((total, value) => total + value, 0)
 	const weighted = (values: number[]) =>

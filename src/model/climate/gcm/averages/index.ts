@@ -47,10 +47,10 @@ function close(accumulator: GcmMonthAccumulator): GcmMonthlyMean {
 		values[index] = accumulator.sum[index] / accumulator.samples
 	}
 	const snapshot = { ...accumulator.last, values }
-	GCM_FIELDS.field({ snapshot, field: "airTemperatureMin" }).set(
+	GCM_FIELDS.field({ snapshot, field: "surfaceTemperatureMin" }).set(
 		accumulator.minimum,
 	)
-	GCM_FIELDS.field({ snapshot, field: "airTemperatureMax" }).set(
+	GCM_FIELDS.field({ snapshot, field: "surfaceTemperatureMax" }).set(
 		accumulator.maximum,
 	)
 	return {
@@ -74,10 +74,10 @@ function close(accumulator: GcmMonthAccumulator): GcmMonthlyMean {
 function open(snapshot: GcmSnapshot): GcmMonthAccumulator {
 	return {
 		minimum: new Float32Array(
-			GCM_FIELDS.field({ snapshot, field: "airTemperatureMin" }),
+			GCM_FIELDS.field({ snapshot, field: "surfaceTemperatureMin" }),
 		),
 		maximum: new Float32Array(
-			GCM_FIELDS.field({ snapshot, field: "airTemperatureMax" }),
+			GCM_FIELDS.field({ snapshot, field: "surfaceTemperatureMax" }),
 		),
 		year: snapshot.date.year,
 		month: snapshot.date.month,
@@ -95,8 +95,14 @@ function add({ averager, snapshot }: GcmAveragerSample): boolean {
 		current.month === snapshot.date.month &&
 		current.year === snapshot.date.year
 	) {
-		const minimum = GCM_FIELDS.field({ snapshot, field: "airTemperatureMin" })
-		const maximum = GCM_FIELDS.field({ snapshot, field: "airTemperatureMax" })
+		const minimum = GCM_FIELDS.field({
+			snapshot,
+			field: "surfaceTemperatureMin",
+		})
+		const maximum = GCM_FIELDS.field({
+			snapshot,
+			field: "surfaceTemperatureMax",
+		})
 		for (let point = 0; point < minimum.length; point++) {
 			current.minimum[point] = Math.min(current.minimum[point], minimum[point])
 			current.maximum[point] = Math.max(current.maximum[point], maximum[point])

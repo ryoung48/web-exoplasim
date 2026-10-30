@@ -67,6 +67,8 @@ Below 0.1 bar or above 10 bar, the panel displays the requested pressure-range g
 
 ## Modules, saves and verification
 
+Entering Desired temperature enables [automatic temperature targeting](exoplasim-targeting.md). The controller holds resolved pressure and gas constant fixed and adjusts radiative CO₂. In direct mode, setting Model CO₂ also scales specified background gas shares with the remaining non-CO₂ fraction, so a complete initial gas list remains valid at the selected fixed total pressure.
+
 `src/model/climate/gcm/atmosphere/{index.ts,types.ts}` owns preset masses, native defaults, mode resolution and validation through `GCM_ATMOSPHERE`. Both namelist preparation and `GcmAtmosphereControls.tsx` use it, so preview and execution share one calculation. All atmospheric fields are stored together in `GcmConfig.atmosphere`. The shared `LabeledNumberInput` primitive provides precise numeric entry and the existing question-circle help behavior with centralized styling.
 
 Checkpoint format 12 stores mode, all nine nullable pressures, direct bulk inputs and ozone, together with the current temperature-extrema and daily-range snapshot layout. Older formats are rejected; a fresh run is required. The atmosphere inputs themselves use existing namelist parameters; see [Climate classifications](exoplasim-controls.md#climate-classifications) for the snapshot additions.

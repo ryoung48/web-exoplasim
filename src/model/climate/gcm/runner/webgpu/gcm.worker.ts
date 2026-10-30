@@ -2,6 +2,7 @@ import { GCM_AVERAGES } from "@/model/climate/gcm/averages"
 import type { GcmAverager } from "@/model/climate/gcm/averages/types"
 import { CALENDAR } from "@/model/climate/gcm/calendar"
 import { RESTART } from "@/model/climate/gcm/checkpoint/restart"
+import { GCM_CONTINUATION } from "@/model/climate/gcm/continuation"
 import { GCM_DEVICE } from "@/model/climate/gcm/device"
 import { LAYOUT } from "@/model/climate/gcm/layout"
 import type {
@@ -113,6 +114,18 @@ async function start(request: GcmWorkerStart) {
 		})
 		for (const [name, values] of Object.entries(saved.values))
 			write({ name, values })
+		for (const [name, values] of Object.entries(
+			GCM_CONTINUATION.fields({
+				config: request.config,
+				previousConfig: request.previousConfig,
+				initial: initial.fields,
+			}),
+		))
+			write({ name, values })
+		if (request.restoreCo2) {
+			write({ name: "co2", values: initial.fields.co2 })
+			write({ name: "dqco2", values: initial.fields.dqco2 })
+		}
 		step = saved.step
 		carbonStep = saved.carbonStep
 	} else {

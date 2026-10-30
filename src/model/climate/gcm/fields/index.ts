@@ -114,11 +114,13 @@ const ORDER: ReadonlyArray<GcmFieldId> = [
 	"largeScalePrecipitation",
 	"toaShortwave",
 	"toaLongwave",
-	"airTemperatureMin",
-	"airTemperatureMax",
+	"surfaceTemperatureMin",
+	"surfaceTemperatureMax",
 	"diurnalTemperatureRange",
 	"dailyTemperatureRangeSum",
 	"dailyTemperatureRangeDays",
+	"netPrimaryProduction",
+	"solarZenithCosine",
 	...STORM_MODES.map(({ mode }) => mode),
 	...LEVELS.flatMap((level): GcmFieldId[] => [
 		`layerTemperature${level}`,
@@ -131,17 +133,32 @@ const ORDER: ReadonlyArray<GcmFieldId> = [
 
 const KELVIN_OFFSET = 273.15
 const MILLIMETERS_PER_DAY_PER_METER_PER_SECOND = 86400 * 1000
+const GRAMS_PER_DAY_PER_KILOGRAM_PER_SECOND = 86400 * 1000
 
 // Fixed display ranges keep colors stable while the model spins up.
 const MODES: ReadonlyArray<GcmModeDefinition> = [
 	...STORM_MODES,
 
 	{
+		mode: "netPrimaryProduction",
+		label: "Vegetation net primary production",
+		unit: "gramsCarbonPerSquareMeterPerDay",
+		min: 0,
+		max: 10,
+	},
+	{
+		mode: "solarZenithCosine",
+		label: "Solar zenith cosine",
+		unit: "dimensionless",
+		min: 0,
+		max: 1,
+	},
+	{
 		mode: "diurnalTemperatureRange",
-		label: "Daily temperature range · 2 m air",
+		label: "Daily temperature range · surface",
 		unit: "celsiusDelta",
 		min: 0,
-		max: 30,
+		max: 40,
 	},
 	{
 		mode: "convectivePrecipitation",
@@ -466,6 +483,12 @@ function values(request: GcmModeRequest): Float32Array {
 		})
 	}
 	switch (mode) {
+		case "netPrimaryProduction":
+			return mapScaled({
+				values: read(mode),
+				scale: GRAMS_PER_DAY_PER_KILOGRAM_PER_SECOND,
+				offset: 0,
+			})
 		case "diurnalTemperatureRange": {
 			const sum = read("dailyTemperatureRangeSum")
 			const days = read("dailyTemperatureRangeDays")
@@ -529,6 +552,7 @@ function values(request: GcmModeRequest): Float32Array {
 		case "latentHeatFlux":
 		case "surfaceNetHeat":
 		case "leafAreaIndex":
+		case "solarZenithCosine":
 		case "waterVapor":
 		case "outgoingLongwave":
 			return read(mode)

@@ -42,6 +42,10 @@ try {
         }
         check({ condition: [GCM.DEFAULT_CONFIG.landAlbedo, GCM.DEFAULT_CONFIG.oceanAlbedo, GCM.DEFAULT_CONFIG.snowIceAlbedo].every((value) => value === null), message: "Albedo defaults must remain native" })
         check({ condition: !defaults.seamod_namelist && !Object.keys(defaults.landmod_namelist).some((key) => !["NWETSOIL", "DSOILZ"].includes(key)), message: "Default albedo namelists changed" })
+        for (const starTemperatureK of [0, 5780]) for (const wetSoil of [false, true]) {
+            const wetSoilEdits = GCM_NAMELIST.edits({ ...config, starTemperatureK, wetSoil })
+            check({ condition: wetSoilEdits.landmod_namelist.NWETSOIL === (wetSoil ? "1" : "0"), message: "Stellar temperature overrides the wet-soil setting" })
+        }
         check({ condition: GCM.DEFAULT_CONFIG.soilWaterCapacityM === null && GCM.DEFAULT_CONFIG.soilHeatCapacity === null && GCM.DEFAULT_CONFIG.soilDepthScale === 1, message: "Soil controls do not preserve upstream defaults" })
         check({ condition: defaults.landmod_namelist.DSOILZ === "0.4,0.8,1.6,3.2,6.4" && !("WSMAX" in defaults.landmod_namelist) && !("SOILCAP" in defaults.landmod_namelist), message: "Native soil namelists changed" })
         const soilEdits = GCM_NAMELIST.edits({ ...config, soilWaterCapacityM: 0.25, soilHeatCapacity: 3000000, soilDepthScale: 2 }).landmod_namelist
@@ -52,7 +56,7 @@ try {
             check({ condition: rejected, message: `Invalid soil parameter accepted: ${key}` })
         }
         const overrides = GCM_NAMELIST.edits({ ...config, landAlbedo: 0, oceanAlbedo: 0.07, snowIceAlbedo: 0.65 })
-        check({ condition: JSON.stringify(overrides.landmod_namelist) === JSON.stringify({ NWETSOIL: "0", DSOILZ: "0.4,0.8,1.6,3.2,6.4", ALBLAND: "0", DGROUNDALB: "0,0", DSNOWALBMN: "0.65,0.65", DGLACALBMN: "0.65,0.65", DSNOWALB: "0.65,0.65" }), message: "Land/snow overrides differ from upstream" })
+        check({ condition: JSON.stringify(overrides.landmod_namelist) === JSON.stringify({ NWETSOIL: "1", DSOILZ: "0.4,0.8,1.6,3.2,6.4", ALBLAND: "0", DGROUNDALB: "0,0", DSNOWALBMN: "0.65,0.65", DGLACALBMN: "0.65,0.65", DSNOWALB: "0.65,0.65" }), message: "Land/snow overrides differ from upstream" })
         check({ condition: JSON.stringify(overrides.seamod_namelist) === JSON.stringify({ ALBSEA: "0.07", DOCEANALB: "0.07,0.07", ALBICE: "0.65", DICEALBMN: "0.65,0.65", DICEALBMX: "0.65,0.65" }), message: "Ocean/ice overrides differ from upstream" })
         for (const value of [-0.01, 1.01, NaN, Infinity]) {
             let rejected = false
@@ -104,6 +108,8 @@ try {
             fill({ field: "seaLevelPressure", value: 101325 })
 			fill({ field: "evaporation", value: 1 / 86400000 })
 			fill({ field: "runoff", value: 2 / 86400000 })
+            fill({ field: "netPrimaryProduction", value: 2.7 / 86400000 })
+            fill({ field: "solarZenithCosine", value: 0.5 })
             fill({ field: "snowfall", value: 3 / 86400000 })
             fill({ field: "snowmelt", value: 4 / 86400000 })
             fill({ field: "seaIceThickness", value: 2 })
@@ -151,7 +157,7 @@ try {
 			GCM_AVERAGES.add({ averager, snapshot: { ...snapshot, date: { ...snapshot.date, year: 2 } } })
 			const annual = GCM_AVERAGES.annual(averager)
 			check({ condition: annual && Math.abs(GCM_FIELDS.values({ snapshot: annual, mode: "layerHumidity5" })[0] - 50) < 1e-4, message: "Layer averages lost" })
-			for (const [mode, expected] of [["convectivePrecipitation", 2], ["largeScalePrecipitation", 3], ["toaShortwave", 700], ["toaLongwave", -250], ["surfaceShortwave", 200], ["surfaceLongwave", -60], ["sensibleHeatFlux", -20], ["latentHeatFlux", -100], ["snowfall", 3], ["snowmelt", 4], ["seaIceThickness", 2000], ["glacierCover", 25], ["seaLevelPressure", 1013.25], ["layerCloud5", 25]]) {
+			for (const [mode, expected] of [["netPrimaryProduction", 2.7], ["solarZenithCosine", 0.5], ["convectivePrecipitation", 2], ["largeScalePrecipitation", 3], ["toaShortwave", 700], ["toaLongwave", -250], ["surfaceShortwave", 200], ["surfaceLongwave", -60], ["sensibleHeatFlux", -20], ["latentHeatFlux", -100], ["snowfall", 3], ["snowmelt", 4], ["seaIceThickness", 2000], ["glacierCover", 25], ["seaLevelPressure", 1013.25], ["layerCloud5", 25]]) {
                 check({ condition: Math.abs(GCM_FIELDS.values({ snapshot: annual, mode })[0] - expected) < 0.001, message: `Annual ${mode} lost or mis-scaled` })
             }
             const checkpoint = GCM_CHECKPOINT.encode({ terrain, meta: { format: GCM_CHECKPOINT.FORMATS.cpu, config: { ...config, truncation: latitudes === 32 ? 21 : 42 }, precisionBytes: 8, date: snapshot.date, step: snapshot.step }, diagnostics: { snapshot, averager }, restart: new Uint8Array([1, 2, 3]).buffer })
@@ -204,8 +210,8 @@ try {
 								try {
 									check({ condition: snapshot.values.length === resolution.latitudes ** 2 * 2 * GCM_FIELDS.fieldCount(layers), message: "Snapshot size mismatch" })
 									check({ condition: snapshot.values.every(Number.isFinite), message: "Nonfinite model diagnostic" })
- const minimum = GCM_FIELDS.field({ snapshot, field: "airTemperatureMin" })
- const maximum = GCM_FIELDS.field({ snapshot, field: "airTemperatureMax" })
+ const minimum = GCM_FIELDS.field({ snapshot, field: "surfaceTemperatureMin" })
+ const maximum = GCM_FIELDS.field({ snapshot, field: "surfaceTemperatureMax" })
  const air = GCM_FIELDS.field({ snapshot, field: "airTemperature" })
  check({ condition: air.every((value, index) => minimum[index] <= value && value <= maximum[index]), message: "Actual air-temperature extrema do not bracket the published temperature" })
  const rangeDays = GCM_FIELDS.field({ snapshot, field: "dailyTemperatureRangeDays" })
@@ -236,11 +242,13 @@ try {
                         check({ condition: totalValues.every((value, index) => Math.abs(value - leftValues[index] - rightValues[index]) < 0.001), message: `Native component sum incorrect: ${total}` })
                     }
                     check({ condition: restored.meta.config.layers === layers && restored.meta.config.keplerian === config.keplerian && restored.meta.config.periapseLongitudeDeg === config.periapseLongitudeDeg && restored.meta.config.initialMeanAnomalyDeg === config.initialMeanAnomalyDeg && restored.diagnostics.snapshot.layers === layers, message: "Orbit/layers lost in checkpoint" })
-                    const maps = Object.fromEntries(["convectivePrecipitation", "largeScalePrecipitation", "toaShortwave", "toaLongwave", "surfaceShortwave", "surfaceLongwave", "sensibleHeatFlux", "latentHeatFlux", "seaLevelPressure", "layerCloud1", `layerCloud${layers}`, "snowfall", "snowmelt", "seaIceThickness", "glacierCover", "evaporation", "runoff", "forestCover", "leafAreaIndex", "relativeHumidity", "toaNetRadiation", "surfaceNetHeat", "layerTemperature1", `layerTemperature${layers}`, "layerWind5"].map((mode) => {
+                    const maps = Object.fromEntries(["netPrimaryProduction", "solarZenithCosine", "convectivePrecipitation", "largeScalePrecipitation", "toaShortwave", "toaLongwave", "surfaceShortwave", "surfaceLongwave", "sensibleHeatFlux", "latentHeatFlux", "seaLevelPressure", "layerCloud1", `layerCloud${layers}`, "snowfall", "snowmelt", "seaIceThickness", "glacierCover", "evaporation", "runoff", "forestCover", "leafAreaIndex", "relativeHumidity", "toaNetRadiation", "surfaceNetHeat", "layerTemperature1", `layerTemperature${layers}`, "layerWind5"].map((mode) => {
 						const values = GCM_FIELDS.values({ snapshot: latest, mode })
 						return [mode, { min: Math.min(...values), max: Math.max(...values) }]
 					}))
-					if (config.vegetation === 0) check({ condition: maps.leafAreaIndex.max === 0, message: "Disabled vegetation has leaf area" })
+					if (config.vegetation === 0) check({ condition: maps.leafAreaIndex.max === 0 && maps.netPrimaryProduction.max === 0, message: "Disabled vegetation has leaf area or NPP" })
+                    else check({ condition: maps.netPrimaryProduction.max > 0, message: "Native vegetation production was not published" })
+                    check({ condition: maps.solarZenithCosine.min >= 0 && maps.solarZenithCosine.max <= 1 && maps.solarZenithCosine.max > 0, message: "Native illumination is invalid" })
 					let resumedSnapshots = 0
 					await new Promise((resolve, reject) => {
 						const timeout = setTimeout(() => { run?.stop(); reject(new Error("Paused restart timed out")) }, 120000)
@@ -262,6 +270,12 @@ try {
 		}
 	}
     }
+    if (process.env.GCM_TEST_DIAGNOSTICS_ONLY === "1") {
+        for (const [group, view] of [["Radiation", "Solar zenith cosine"], ["Vegetation", "Net primary production"]]) {
+            await page.getByRole("button", { name: group, exact: true }).click()
+            await page.getByRole("button", { name: view, exact: true }).click()
+        }
+    } else {
     await page.getByRole("checkbox", { name: "Generic Keplerian orbit", exact: true }).waitFor()
     assert.equal(await page.getByRole("checkbox", { name: "Generic Keplerian orbit", exact: true }).isChecked(), false)
     assert.equal(await page.getByRole("checkbox", { name: "Longitude of periapse override", exact: true }).isChecked(), false)
@@ -362,8 +376,13 @@ try {
     await page.getByRole("button", { name: "Convective", exact: true }).click()
     await page.screenshot({ path: path.join(output, "convective-precipitation.png"), animations: "disabled" })
     await page.getByRole("button", { name: "Radiation", exact: true }).click()
+    await page.getByRole("button", { name: "Solar zenith cosine", exact: true }).click()
+    await page.screenshot({ path: path.join(output, "solar-zenith-cosine.png"), animations: "disabled" })
     await page.getByRole("button", { name: "TOA thermal", exact: true }).click()
     await page.screenshot({ path: path.join(output, "toa-thermal.png"), animations: "disabled" })
+    await page.getByRole("button", { name: "Vegetation", exact: true }).click()
+    await page.getByRole("button", { name: "Net primary production", exact: true }).click()
+    await page.screenshot({ path: path.join(output, "net-primary-production.png"), animations: "disabled" })
     await page.getByRole("button", { name: "Ice & snow", exact: true }).click()
     await page.getByRole("button", { name: "Ice thickness", exact: true }).click()
     await page.screenshot({ path: path.join(output, "ice.png"), animations: "disabled" })
@@ -375,8 +394,9 @@ try {
     await page.getByRole("button", { name: "Sea level", exact: true }).click()
     await page.screenshot({ path: path.join(output, "sea-level-pressure.png"), animations: "disabled" })
     await page.getByRole("button", { name: "Clear", exact: true }).click()
+    }
 	assert.deepEqual(errors, [])
-	await writeFile(path.join(output, `report-atmosphere-${truncations.join("-")}-${layerCounts.join("-")}.json`), JSON.stringify({ cores, simulations, errors }, null, 2))
+	await writeFile(path.join(output, `report-atmosphere-${truncations.join("-")}-${layerCounts.join("-")}.json`), JSON.stringify({ cores, simulations, errors, diagnosticsOnly: process.env.GCM_TEST_DIAGNOSTICS_ONLY === "1" }, null, 2))
 	console.log("Model options, requested variants, all map palettes, averages and checkpoint checks passed")
 } finally {
 	await browser.close()
