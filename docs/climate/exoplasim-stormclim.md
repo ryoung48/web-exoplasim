@@ -6,7 +6,7 @@ These fields describe conditions favorable for tropical cyclones. They do not ad
 
 ## Fields and conventions
 
-Enabling the toggle makes the Storms map group available on either engine. Each snapshot reserves nine fields, after the existing 42 surface fields and before atmospheric layers. Disabled runs leave these fields zero and keep the map group disabled. Monthly and annual maps use the existing snapshot averages; they are not averages of every unpublished step.
+Enabling the toggle makes the Storms map group available on either engine. Each snapshot reserves nine fields, after the existing 42 surface fields and before atmospheric layers. Disabled runs leave these fields zero and hide the map group. Monthly and annual maps use the existing snapshot averages; they are not averages of every unpublished step.
 
 | Field | Native array | Definition | Display range |
 | --- | --- | --- | --- |

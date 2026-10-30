@@ -96,7 +96,7 @@ try {
 	await button(`${LAYERS} layers`).click()
 	await page.getByRole("button", { name: new RegExp(`^T${TRUNCATION} `) }).click()
 	if (STORMCLIM) {
-		assert.equal(await button("Storms").isEnabled(), false)
+		assert.equal(await button("Storms").count(), 0)
 		await page.getByRole("checkbox", { name: "Storm climatology", exact: true }).check()
 		assert.equal(await button("Storms").isEnabled(), true)
 	}

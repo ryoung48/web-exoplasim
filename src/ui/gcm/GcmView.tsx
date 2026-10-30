@@ -249,15 +249,14 @@ export function GcmView() {
 					</div>
 				</header>
 				<div className="flex flex-wrap gap-1">
-					{GCM_MODE_GROUPS.map((group) => (
+					{GCM_MODE_GROUPS.filter(
+						(group) =>
+							gcm.config.stormclim || !GCM_FIELDS.stormMode(group.defaultView),
+					).map((group) => (
 						<Button
 							key={group.defaultView}
 							selected={group === modeGroup}
-							disabled={
-								(group.defaultView === "koppen" && !averages.koppen) ||
-								(!gcm.config.stormclim &&
-									GCM_FIELDS.stormMode(group.defaultView))
-							}
+							disabled={group.defaultView === "koppen" && !averages.koppen}
 							title={
 								group.defaultView === "koppen"
 									? averages.koppen
