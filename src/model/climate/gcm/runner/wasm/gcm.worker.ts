@@ -1,3 +1,5 @@
+import { NATIVE_RESTART } from "@/model/climate/gcm/checkpoint/native"
+import { GCM_CONTINUATION } from "@/model/climate/gcm/continuation"
 import { GCM_FIELDS } from "@/model/climate/gcm/fields"
 import { GCM_NAMELIST } from "@/model/climate/gcm/namelist"
 import type { GcmNamelistFile } from "@/model/climate/gcm/namelist/types"
@@ -10,6 +12,7 @@ import type {
 	GcmWasmWorkerRequest,
 	GcmWasmWorkerResponse,
 } from "@/model/climate/gcm/runner/wasm/types"
+import { SETUP } from "@/model/climate/gcm/setup"
 
 import type { GcmLayerCount } from "@/model/climate/gcm/types"
 
@@ -75,7 +78,7 @@ function prepareFiles(request: GcmWasmWorkerLoad) {
 	for (const [name, text] of Object.entries(request.files)) {
 		fs.writeFile(`/${name}`, text)
 	}
-	if (request.restart) fs.writeFile(RESTART_IN, new Uint8Array(request.restart))
+
 	for (const [file, values] of Object.entries(request.namelistEdits)) {
 		const path = `/${file as GcmNamelistFile}`
 		fs.writeFile(
@@ -85,6 +88,37 @@ function prepareFiles(request: GcmWasmWorkerLoad) {
 				values,
 			}),
 		)
+	}
+	if (request.restart) {
+		let restart = request.restart
+		if (request.previousConfig) {
+			const namelists = Object.fromEntries(
+				fs
+					.readdir("/")
+					.filter((name) => name.endsWith("_namelist") || name.endsWith(".sra"))
+					.map((name) => [name, fs.readFile(`/${name}`, { encoding: "utf8" })]),
+			)
+			const initial = SETUP.state({
+				truncation: request.previousConfig.truncation,
+				levels: request.layers,
+				namelists,
+				clock: 0,
+			})
+			const fields = GCM_CONTINUATION.fields({
+				config: request.config,
+				previousConfig: request.previousConfig,
+				initial: initial.fields,
+			})
+			restart = NATIVE_RESTART.patch({
+				buffer: restart,
+				fields: Object.fromEntries(
+					Object.entries(fields).filter(([name]) =>
+						["dwmax", "dalbcl", "dalbcl1", "dalbcl2"].includes(name),
+					),
+				),
+			})
+		}
+		fs.writeFile(RESTART_IN, new Uint8Array(restart))
 	}
 }
 

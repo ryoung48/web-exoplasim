@@ -179,16 +179,39 @@ function setCo2Ppm({ config, co2Ppm }: GcmCo2Change): GcmAtmosphereConfig {
 			},
 		}
 	}
+	const partialPressures = { ...config.partialPressures }
+	const previousBackground = 1 - result.values.co2Ppm / 1e6
+	const backgroundScale =
+		previousBackground > 0 ? (1 - fraction) / previousBackground : 0
+	for (const gas of GASES) {
+		const pressure = partialPressures[gas.id]
+		if (gas.id !== "CO2" && pressure !== null)
+			partialPressures[gas.id] = pressure * backgroundScale
+	}
 	return {
 		...config,
 		mode: "pressureAndGasConstant",
 		pressureBar: result.values.pressureBar,
 		gasConstant: result.values.gasConstant,
 		partialPressures: {
-			...config.partialPressures,
+			...partialPressures,
 			CO2: result.values.pressureBar * fraction,
 		},
 	}
+}
+
+function setFixedCo2Ppm({ config, co2Ppm }: GcmCo2Change): GcmAtmosphereConfig {
+	const result = resolve(config)
+	if (result.ok === false) throw new Error(result.message)
+	return setCo2Ppm({
+		config: {
+			...config,
+			mode: "pressureAndGasConstant",
+			pressureBar: result.values.pressureBar,
+			gasConstant: result.values.gasConstant,
+		},
+		co2Ppm,
+	})
 }
 
 export const GCM_ATMOSPHERE = {
@@ -198,4 +221,5 @@ export const GCM_ATMOSPHERE = {
 	NATIVE_GAS_CONSTANT,
 	resolve,
 	setCo2Ppm,
+	setFixedCo2Ppm,
 }

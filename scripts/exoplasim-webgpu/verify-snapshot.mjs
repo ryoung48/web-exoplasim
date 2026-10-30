@@ -42,7 +42,7 @@ try {
 			const kernel = await SNAPSHOT.kernel({ context, sigma: schedule.tables.dynamics.sigma, humidity: schedule.main.stepper.precipitation })
 			const write = ({ name, values }) => LAYOUT.write({ device, buffer: context.stateBuffer, layout: context.state, name, values: Float32Array.from(values) })
 			const fill = ({ name, value }) => write({ name, values: new Float32Array(context.state.slots[name].floats).fill(value) })
-			for (const [name, value] of Object.entries({ dt: 288, du: 3, dv: 4, dcc: 0.5, dq: 0.005, dp: 100000, devap: -2, drunoff: 3, dforest: 0.25, dlai: 2, dprs: 4, dsmelt: 5, diced: 6, dglac: 0.75, dswfl: 100, dlwfl: -50, dshfl: 10, dlhfl: 20 })) fill({ name, value })
+			for (const [name, value] of Object.entries({ dt: 288, du: 3, dv: 4, dcc: 0.5, dq: 0.005, dp: 100000, devap: -2, drunoff: 3, dforest: 0.25, dlai: 2, dnpp: 0.00000003125, gmu0: 0.5, dprs: 4, dsmelt: 5, diced: 6, dglac: 0.75, dswfl: 100, dlwfl: -50, dshfl: 10, dlhfl: 20 })) fill({ name, value })
 			const runStep = async (step) => {
 				fill({ name: "dtsa", value: temperatures[step - 1] })
 				write({ name: "snapshot_step", values: [step, 4, step % 3 === 0 ? 1 : 0] })
@@ -59,7 +59,7 @@ try {
 			for (let step = 1; step <= 12; step++) {
 				last = await runStep(step)
 				if (step % 3 === 0) {
-					const actual = ["airTemperatureMin", "airTemperatureMax", "diurnalTemperatureRange", "dailyTemperatureRangeSum", "dailyTemperatureRangeDays"].map((field) => GCM_FIELDS.field({ snapshot: last, field })[0])
+					const actual = ["surfaceTemperatureMin", "surfaceTemperatureMax", "diurnalTemperatureRange", "dailyTemperatureRangeSum", "dailyTemperatureRangeDays"].map((field) => GCM_FIELDS.field({ snapshot: last, field })[0])
 					if (JSON.stringify(actual) !== JSON.stringify(expected[step / 3 - 1])) throw new Error(`Extrema/DTR at step ${step}: ${actual}`)
 				}
 				if (step === 6) {
@@ -67,9 +67,10 @@ try {
 					saved = RESTART.encode({ layout: context.state, values, step: 7, carbonStep: 0 })
 				}
 			}
-			const expectedFields = { evaporation: 2, runoff: 3, forestCover: 0.25, leafAreaIndex: 2, snowfall: 4, snowmelt: 5, seaIceThickness: 6, glacierCover: 0.75, surfaceShortwave: 100, surfaceLongwave: -50, sensibleHeatFlux: 10, latentHeatFlux: 20, convectivePrecipitation: 0, largeScalePrecipitation: 0, toaShortwave: 100, toaLongwave: -50 }
+			const expectedFields = { evaporation: 2, runoff: 3, forestCover: 0.25, leafAreaIndex: 2, netPrimaryProduction: 0.00000003125, solarZenithCosine: 0.5, snowfall: 4, snowmelt: 5, seaIceThickness: 6, glacierCover: 0.75, surfaceShortwave: 100, surfaceLongwave: -50, sensibleHeatFlux: 10, latentHeatFlux: 20, convectivePrecipitation: 0, largeScalePrecipitation: 0, toaShortwave: 100, toaLongwave: -50 }
 			for (let level = 1; level <= layers; level++) Object.assign(expectedFields, { [`layerTemperature${level}`]: 288, [`layerWindU${level}`]: 3, [`layerWindV${level}`]: 4, [`layerCloud${level}`]: 0.5 })
-			for (const [field, value] of Object.entries(expectedFields)) if (!GCM_FIELDS.field({ snapshot: last, field }).every((actual) => actual === value)) throw new Error(`Packing ${field} failed`)
+			for (const [field, value] of Object.entries(expectedFields)) if (!GCM_FIELDS.field({ snapshot: last, field }).every((actual) => actual === Math.fround(value))) throw new Error(`Packing ${field} failed`)
+			if (Math.abs(GCM_FIELDS.values({ snapshot: last, mode: "netPrimaryProduction" })[0] - 2.7) > 1e-6) throw new Error("NPP display units differ")
 			const humidity = schedule.main.stepper.precipitation
 			let qsat = humidity.rdbrv * humidity.ra1 * Math.exp(humidity.ra2 * (288 - humidity.tmelt) / (288 - humidity.ra4)) / (100000 * schedule.tables.dynamics.sigma.at(-1))
 			qsat = Math.min(qsat, humidity.rdbrv)
@@ -95,7 +96,7 @@ try {
         const terrain = { name: "GPU integration continent", width: 4, height: 2, elevationM: new Float32Array([1000, 1000, 0, 0, 1000, 1000, 0, 0]), land: new Float32Array([1, 1, 0, 0, 1, 1, 0, 0]) }
         const runnerRows = []
         for (const truncation of [21, 42]) for (const layers of [5, 10]) {
-            const config = { ...GCM.DEFAULT_CONFIG, truncation, layers, earthSurfaceClimatology: false, vegetation: 0, gravityMs2: 12, radiusEarth: 1.2, landAlbedo: 0.3, oceanAlbedo: 0.1, soilWaterCapacityM: 0.25, soilHeatCapacity: 3000000, soilDepthScale: 2 }
+            const config = { ...GCM.DEFAULT_CONFIG, truncation, layers, earthSurfaceClimatology: false, vegetation: truncation === 21 ? (layers === 5 ? 1 : 2) : 0, gravityMs2: 12, radiusEarth: 1.2, landAlbedo: 0.3, oceanAlbedo: 0.1, soilWaterCapacityM: 0.25, soilHeatCapacity: 3000000, soilDepthScale: 2 }
             const resolution = resolutions.find((entry) => entry.truncation === truncation && entry.layers === layers)
             let run
             let first
@@ -115,11 +116,15 @@ try {
                 })
                 const mask = GCM_FIELDS.field({ snapshot, field: "landFraction" })
                 if (snapshot.layers !== layers || !snapshot.values.every(Number.isFinite) || !mask.some((value) => value === 0) || !mask.some((value) => value === 1)) throw new Error("Custom terrain or snapshot layout was lost")
+                const npp = GCM_FIELDS.field({ snapshot, field: "netPrimaryProduction" })
+                const czen = GCM_FIELDS.field({ snapshot, field: "solarZenithCosine" })
+                if (!czen.every((value) => value >= 0 && value <= 1) || !czen.some((value) => value > 0)) throw new Error("GPU illumination is invalid")
+                if (config.vegetation === 0 ? !npp.every((value) => value === 0) : !npp.some((value) => value > 0)) throw new Error("GPU vegetation production was not retained")
                 const air = GCM_FIELDS.field({ snapshot, field: "airTemperature" })
-                const minimum = GCM_FIELDS.field({ snapshot, field: "airTemperatureMin" })
-                const maximum = GCM_FIELDS.field({ snapshot, field: "airTemperatureMax" })
+                const minimum = GCM_FIELDS.field({ snapshot, field: "surfaceTemperatureMin" })
+                const maximum = GCM_FIELDS.field({ snapshot, field: "surfaceTemperatureMax" })
                 if (!air.every((value, index) => minimum[index] <= value && value <= maximum[index])) throw new Error("GPU extrema do not bracket temperature")
-                runnerRows.push({ truncation, layers, steps: snapshot.step - first, customTerrain: true, overrides: true, finite: true, extrema: true })
+                runnerRows.push({ truncation, layers, steps: snapshot.step - first, customTerrain: true, overrides: true, finite: true, extrema: true, vegetation: config.vegetation, nppMax: Math.max(...npp), czenMax: Math.max(...czen) })
             } finally { run?.stop() }
         }
         device.destroy()

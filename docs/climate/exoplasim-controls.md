@@ -4,7 +4,7 @@ The `/gcm` page exposes the controls below from ExoPlaSim commit `5f8dff4aaa8d6c
 
 ## Planet, atmosphere and illumination
 
-Settings apply when starting a new run. A checkpoint restores its saved settings. Radiation is calculated every model step in both engines (`NRADINT = 1`); the page no longer offers a radiation-cadence control.
+Settings apply when starting a new run. A checkpoint restores its saved settings. Entering Desired temperature in Atmosphere enables automatic CO₂ adjustment on CPU or GPU, with progress and signed CO₂ changes in the run panel; blank keeps CO₂ fixed. See [Automatic temperature targeting](exoplasim-targeting.md) for settling checks, bounds and restart behavior. Radiation is calculated every model step in both engines (`NRADINT = 1`); the page no longer offers a radiation-cadence control.
 
 Fresh runs start at displayed Year 1, January 1. The shared namelist sets `N_START_YEAR = 0` for the model's 360-day-style calendars, whose date conversion adds one, and `N_START_YEAR = 1` for the 365-day calendar. This choice follows the effective year length after rotation adjustments. Checkpoints retain their saved calendar position.
 
@@ -43,6 +43,8 @@ Tidally locked illumination uses upstream's synchronous-illumination switch. The
 
 The ocean setting controls slab-ocean heat storage, not a dynamic deep ocean. Earth surface climatology is unchecked by default. Enabling it retains the bundled surface boundary data; leaving it off initializes those properties from model defaults.
 
+Wet soil controls moisture-dependent bare-soil albedo, independently of star temperature. Checked writes `NWETSOIL = 1`; unchecked writes `0`, for both engines. This intentionally differs from the pinned Python wrapper, which disables wet-soil albedo when a stellar temperature is supplied. It does not switch the soil water cycle on or off. Settings apply to new runs; restoring a checkpoint retains its saved configuration.
+
 ## Orbital geometry and atmospheric layers
 
 Orbital defaults mirror the pinned wrapper's `lonvernaleq=None`, `keplerian=False` and `meananomaly0=None`. The browser writes `NGENKEPLERIAN=0` by default and omits `MVELP` and `MEANANOM0`, preserving the native `p_earth.f90` values 102.7° and −2.9589°. Enabling either override starts from that native value. Angular bounds cover a full turn; periapse uses nonnegative longitude, while mean anomaly accepts signed angles so the exact native phase can be displayed. The phase slider's 0.0001° step retains the native −2.9589° value without rounding it on activation. Input validation rejects nonfinite/out-of-range angles and unsupported layer counts.
@@ -55,7 +57,7 @@ The layer selector shows 1 through the active count, labels the actual bottom la
 
 ## Albedo defaults and overrides
 
-All three new albedo controls start at `null`, matching `Model.configure(soilalbedo=None, oceanalbedo=None, snowicealbedo=None)` in the pinned upstream `exoplasim/__init__.py`. The panel displays “ExoPlaSim default” and writes no albedo namelist entries until an override is enabled. This preserves upstream surface maps, spectral bands and temperature-dependent behavior; the effective default is not a single constant. Turning an override off restores this behavior on the next new run.
+All three new albedo controls start at `null`, matching `Model.configure(soilalbedo=None, oceanalbedo=None, snowicealbedo=None)` in the pinned upstream `exoplasim/__init__.py`. The panel displays “ExoPlaSim default” and writes no albedo namelist entries until an override is enabled. This preserves upstream surface maps, spectral bands and temperature-dependent behavior; the effective default is not a single constant. Turning an override off restores this behavior on the next new run or when applying paused edits with Resume.
 
 Enabling an override offers a starting value from the upstream scalar declarations: land 0.22 (`landmod.f90`), ocean 0.069 and ice 0.7 (`seamod.f90`). These are explicit override starting points, not claims about spatially varying native reflectivity. Sliders cover the physical reflectivity interval 0–1 in 0.001 increments (0.1 percentage points), with finite-value validation and zero supported.
 
@@ -73,7 +75,7 @@ Albedo and soil overrides reuse the same settings component, `src/ui/gcm/GcmOver
 
 ## Map fields
 
-The snapshot hook publishes 40 non-layer fields plus five fields per atmospheric layer: 90 fields at 10 layers or 65 at 5. These include the original 18; evaporation, runoff, forest cover and leaf area index; snowfall, snowmelt, sea-ice thickness and glacier cover; sea-level pressure; four surface energy components; convective and large-scale precipitation; net TOA shortwave and longwave; then temperature, eastward wind, northward wind, relative humidity and cloud cover at each actual model layer. The snapshot order is defined by `scripts/exoplasim-wasm/gcm_publish.f90` and `src/model/climate/gcm/fields/index.ts`. Workers reject a mismatched field count, rather than silently interpreting an older model's arrays.
+The snapshot hook publishes 42 non-layer fields plus five fields per atmospheric layer: 92 fields at 10 layers or 67 at 5. These include the original 18; evaporation, runoff, forest cover and leaf area index; snowfall, snowmelt, sea-ice thickness and glacier cover; sea-level pressure; four surface energy components; convective and large-scale precipitation; net TOA shortwave and longwave; vegetation net primary production and solar zenith cosine; then temperature, eastward wind, northward wind, relative humidity and cloud cover at each actual model layer. The snapshot order is defined by `scripts/exoplasim-wasm/gcm_publish.f90` and `src/model/climate/gcm/fields/index.ts`. Workers reject a mismatched field count, rather than silently interpreting an older model's arrays.
 
 | Map | Definition and units | Color range |
 | --- | --- | --- |
@@ -91,8 +93,10 @@ The snapshot hook publishes 40 non-layer fields plus five fields per atmospheric
 | Evaporation | Negative of Fortran's `devap`, converted to mm per 24-hour day; positive for evaporation, negative for condensation | −15 to +15 |
 | Runoff | `drunoff`, converted to mm per 24-hour day | 0–15 |
 | Forest cover | Surface forest fraction `dforest`, % | 0–100 |
+| Net primary production | SimBA `dnpp` (`vegnpp`), raw kg C/m²/s; displayed as g C/m²/day; zero with vegetation disabled | 0–10 |
+| Solar zenith cosine | Radiation `gmu0` (`czen`), dimensionless; latest radiation-step value | 0–1 |
 | Leaf area | SimBA leaf area index `dlai`, dimensionless | 0–10 |
-| DTR | Daily maximum minus minimum 2 m air temperature, °C difference | 0–30 |
+| DTR | Daily maximum minus minimum surface temperature, °C difference | 0–40 |
 | Atmospheric temperature | Air temperature on the selected model layer, °C | −90 to +40 |
 | Atmospheric wind | Magnitude of the selected layer's vector wind, m/s, with arrows | 0–60 |
 | Atmospheric humidity | Relative humidity on the selected model layer, % | 0–100 |
@@ -111,7 +115,7 @@ These are fixed display ranges chosen for legible terrestrial-climate maps. Humi
 
 Relative humidity reuses `pumamod`'s thermodynamic constants and the saturation relation used by `rainmod.f90`'s `mkclouds`, evaluated at the snapshot's temperature and pressure. It is computed at publication time. This is lowest-layer humidity, not a reconstructed 2 m humidity diagnostic. The previous “surface wind” label now says “lowest layer” for the same reason. The precipitation map remains the sum of convective and large-scale precipitation, and is labeled precipitation rather than rain.
 
-Temperature also includes DTR. The hook tracks actual 2 m air temperature at every timestep and forms a range over each complete native rotation day (`ntspd` timesteps), independently of the 360-day display calendar. With the default rotation this is approximately a 24-hour day; changing rotation changes this diagnostic window. Publication carries the latest daily range plus the sum and count of days completed since the previous publication. Now uses their mean when any days completed and otherwise holds the last completed value. Monthly values divide accumulated daily ranges by their completed-day count; annual values average the twelve monthly DTR means. Daily completions are assigned to the month of their publication, following the existing snapshot-based monthly accumulation. This avoids treating seasonal changes as a daily range. Before the first complete day the diagnostic is zero. Native daily buffers restart on load, so a partial first day is excluded; saved completed-month values remain available. Downscaling interpolates the range without a lapse offset, since a common offset cancels in maximum minus minimum. The sequential 0–30 °C palette emphasizes terrestrial ranges while hover preserves larger values. Imperial readouts multiply differences by 9/5 without adding 32.
+Temperature also includes DTR, from ExoPlaSim's own `mint`/`maxt` output (codes 320/321, `tempmin`/`tempmax` in `outmod.f90`). These are the extrema of the skin surface temperature `dt(:,NLEP)` that `outaccu` accumulates every timestep and `outreset` clears every `nafter` steps, which is one 24-hour day (`mtspd`) with the default `nwpd = 0`. The hook captures the extrema just before `outreset` and range = `maxt` - `mint`, independently of the 360-day display calendar and of publication cadence; the GPU engine reproduces the same windows in `snapshot/wgsl/pack.wgsl`. Publication carries the latest daily range plus the sum and count of days completed since the previous publication. Now uses their mean when any days completed and otherwise holds the last completed value. Monthly values divide accumulated daily ranges by their completed-day count; annual values average the twelve monthly DTR means. Daily completions are assigned to the month of their publication, following the existing snapshot-based monthly accumulation. This avoids treating seasonal changes as a daily range. Before a window completes the diagnostic shows the window so far. Downscaling interpolates the range without a lapse offset, since a common offset cancels in maximum minus minimum. The 0–40 °C blue-to-dark-red scale clamps at its ends while hover preserves larger values. Imperial readouts multiply differences by 9/5 without adding 32.
 
 Temperature, Wind, Moisture and Clouds each include an Atmosphere view with a layer selector. Layer 1 is highest; layer 5 or 10 is lowest according to the selected count. These are terrain-following sigma layers, not constant altitudes or fixed pressure surfaces. Their physical pressure depends on local surface pressure. The jet map retains the existing layer nearest sigma 0.25.
 
@@ -132,7 +136,7 @@ Climate groups Köppen and Pasta child modes. Both classify the last 12 complete
 
 ## Save format and verification
 
-Checkpoint format 12 stores the expanded snapshots, interval/monthly temperature extrema and the new settings, along with terrain, unfinished monthly accumulation, completed monthly means and the Fortran restart. Older formats, including format 9's flat atmosphere settings, are rejected because their configuration or field layout differs. Loading remains paused until Resume.
+Checkpoint formats 18 (CPU) and 19 (GPU) store snapshots, interval/monthly temperature extrema, settings, terrain, unfinished monthly accumulation, completed monthly means, the engine restart and automatic temperature-targeting progress/history. Older formats are rejected because their configuration or field layout differs. Loading remains paused until Resume.
 
 Rebuild all variants without `--link-only` after changing the hook:
 
@@ -153,3 +157,13 @@ The verifier requires a development server at `GCM_TEST_URL` and installed Chrom
 `verify-weather.py` compiles the actual snapshot hook with controlled native Fortran fixtures. It checks flat, elevated and below-sea-level cells, upstream's cold-temperature branch, all actual cloud slots, and the four surface energy slots with signed fixtures whose sum must match net surface heat when snowmelt is zero. It also checks the separate precipitation and TOA radiation slots and their sums against the existing total fields. Its independent pressure reference is the exact hydrostatic integral with the same lapse rate and temperature adjustment; the upstream polynomial approximation must stay within 1 Pa for these fixtures. This is a deliberately looser bound than the observed 0.054 Pa maximum, to check signs, units and calculation structure without demanding that a polynomial approximation equal the exact integral. The report is `stats/exoplasim-model-options/weather-formulas-layers-10.json` and `stats/exoplasim-model-options/weather-formulas-layers-5.json`.
 
 These are short functional checks, not equilibrium or long-term stability validation. Their elapsed times include startup, field transfer and checkpoint shutdown and are not directly comparable with the non-app `run-browser.mjs` throughput benchmark.
+
+## Editing a paused run
+
+Pause unlocks stellar flux and temperature; obliquity, eccentricity, periapsis longitude and fixed orbit; desired temperature, model CO₂ concentration and ozone; ocean depth, the three albedo overrides, wet soil, soil depth, water capacity and heat capacity. Resume checkpoints the current climate and starts a new session from that state with the edited settings. Resuming without edits keeps the existing session and averages. Applying edits clears monthly/annual averages and restarts temperature targeting, so statistics from different settings are not combined. The first month after an edit may cover only its remaining portion.
+
+Model settings remain locked until Clear, including engine, resolution, layers, workers, timestep and filters. Radius, gravity, terrain, Earth surface climatology, rotation period, year length, tidal illumination, substellar longitude, Keplerian mode, initial orbital phase, vegetation and glacier settings also remain locked. Section resets respect the same restrictions. While a run exists, use the editable Model CO₂ value in the Atmosphere section; bulk gas inputs remain locked. CO₂ changes retain the resolved total pressure and gas constant. Save exports the applied configuration and climate, excluding pending edits; Resume applies those edits first if they should be included in a save.
+
+The continuation policy lives in `src/model/climate/gcm/continuation/`. GPU restoration replaces the changed configuration-derived ocean-depth, land-albedo and soil-capacity fields after loading the evolved state, and reapplies CO₂. CPU workers reread the new namelists; land albedo climatologies and soil water capacity also require replacing named fields in the native restart. `src/model/climate/gcm/checkpoint/native/` validates the native 16-byte field names and paired unformatted record markers and preserves all other bytes. It derives four- or eight-byte real precision from each replacement's expected shape. Restoring an override to default regenerates the appropriate native surface inputs rather than treating the former override as the default. Atmospheric, ocean, soil, vegetation and ice prognostic fields retain their evolved values. Ocean-depth and soil-property changes retain temperatures; they do not conserve the former heat inventory by rescaling temperatures.
+
+`node scripts/exoplasim-webgpu/verify-continuation.mjs` checks locked-setting enforcement, restored surface fields, finite advancing trajectories and save/reload on both engines at T21 with 5 and 10 layers. It also exercises paused UI editing, fixed pressure/gas constant during CO₂ edits, enabling/disabling targeting, and reset averages. Reports and UI captures are written under `stats/exoplasim-continuation/`. These functional checks do not establish long-term stability for arbitrary parameter jumps.

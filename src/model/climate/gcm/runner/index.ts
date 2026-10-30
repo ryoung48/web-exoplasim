@@ -1,3 +1,4 @@
+import { GCM_TARGETING_RUNNER } from "@/model/climate/gcm/runner/targeting"
 import type {
 	GcmResolution,
 	GcmRun,
@@ -69,6 +70,8 @@ function start(request: GcmRunRequest): GcmRun {
 		throw new Error(
 			`T${request.resolution.truncation} is not built for the ${request.engine.toUpperCase()} engine`,
 		)
+	if (request.config.targetTemperatureK !== null)
+		return GCM_TARGETING_RUNNER.start(request)
 	return request.engine === "gpu"
 		? GCM_WEBGPU_RUNNER.start(request)
 		: GCM_WASM_RUNNER.start(request)

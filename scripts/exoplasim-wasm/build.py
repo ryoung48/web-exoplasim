@@ -94,7 +94,7 @@ mpi_module = "mpimod_stub" if args.ranks == 1 else "mpimod_shm"
 utility_module = "utilities_stub" if args.ranks == 1 else "utilities"
 model = ModelSource(source=source, build=build, output=output, latitudes=latitudes, layers=args.layers, ranks=args.ranks,
                     main_suffix=(script_directory / "gcm_publish.f90").read_text() if args.app else "",
-                    step_hook="gcm_publish_step" if args.app else "", mpi_module=mpi_module, utility_module=utility_module)
+                    step_hook="gcm_publish_step" if args.app else "", window_hook="gcm_capture_window" if args.app else "", mpi_module=mpi_module, utility_module=utility_module)
 copy_sources(model)
 if args.ranks > 1:
     shutil.copy2(script_directory / "mpimod_shm.f90", build / "mpimod_shm.f90")

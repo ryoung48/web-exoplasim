@@ -30,8 +30,8 @@ if (!process.env.PREVIEW) await server.listen()
 const browser = await chromium.launch({ executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe", headless: true, args: ["--enable-unsafe-webgpu"] })
 const snapshotRecord = (snapshot) => {
  const { step, date, values, layers } = snapshot
- const points = values.length / (40 + 5 * layers)
- return { step, date, layers, fields: 40 + 5 * layers, diagnostic: [35, 36, 37, 38, 39, 40 + 5 * (layers - 1) + 3].map((field) => values[field * points]), finite: values.every(Number.isFinite), sum: values.reduce((a, b) => a + b, 0), first: Array.from(values.subarray(0, 8)) }
+ const points = values.length / (42 + 5 * layers)
+ return { step, date, layers, fields: 42 + 5 * layers, diagnostic: [35, 36, 37, 38, 39, 42 + 5 * (layers - 1) + 3].map((field) => values[field * points]), finite: values.every(Number.isFinite), sum: values.reduce((a, b) => a + b, 0), first: Array.from(values.subarray(0, 8)) }
 }
 const report = { checks: {} }
 const errors = []

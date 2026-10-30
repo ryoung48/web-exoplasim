@@ -95,7 +95,9 @@ function classes({
 				return temperatures[month].map((value, point) => value - smooth[point])
 			})
 		: null
-	const readExtreme = (field: "airTemperatureMin" | "airTemperatureMax") =>
+	const readExtreme = (
+		field: "surfaceTemperatureMin" | "surfaceTemperatureMax",
+	) =>
 		ordered.map(({ snapshot }, month) => {
 			const values = GCM_FIELDS.field({ snapshot, field }).map(
 				(value) => value - 273.15,
@@ -106,8 +108,8 @@ function classes({
 					)
 				: values
 		})
-	const minimum = readExtreme("airTemperatureMin")
-	const maximum = readExtreme("airTemperatureMax")
+	const minimum = readExtreme("surfaceTemperatureMin")
+	const maximum = readExtreme("surfaceTemperatureMax")
 	const surface = read("surfaceTemperature")
 	const solar = read("surfaceShortwave")
 	const albedo = read("albedo")

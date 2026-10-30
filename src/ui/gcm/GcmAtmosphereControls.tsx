@@ -21,8 +21,8 @@ const MODE_OPTIONS: ReadonlyArray<GcmAtmosphereModeOption> = [
 ]
 
 export function GcmAtmosphereControls({
+	locked,
 	config,
-	advanced,
 	disabled,
 	onChange,
 }: GcmAtmosphereControlsProps) {
@@ -33,10 +33,9 @@ export function GcmAtmosphereControls({
 		update({ partialPressures: { ...config.partialPressures, [gas]: value } })
 	const result = GCM_ATMOSPHERE.resolve(config)
 	const note = uiTokens.field.note
-	const showMode = advanced || config.mode !== "partialPressures"
 	return (
 		<div className="space-y-3">
-			{showMode && (
+			<fieldset disabled={disabled || locked} className="min-w-0 space-y-3">
 				<div className="space-y-1">
 					<span className={uiTokens.field.label}>
 						<InputLabel
@@ -51,78 +50,84 @@ export function GcmAtmosphereControls({
 						onChange={(mode) => update({ mode })}
 					/>
 				</div>
-			)}
-			{config.mode === "pressureAndGasConstant" ? (
-				<>
-					<LabeledNumberInput
-						label="Total surface pressure"
-						help={GCM_INPUT_HELP.totalPressure}
-						unit="bar"
-						value={config.pressureBar}
-						min={0}
-						placeholder={formatWithUnit(
-							GCM_ATMOSPHERE.NATIVE_PRESSURE_BAR,
-							"",
-							3,
-						)}
-						disabled={disabled}
-						onChange={(pressureBar) => update({ pressureBar })}
-					/>
-					<LabeledNumberInput
-						label="Effective gas constant"
-						help={GCM_INPUT_HELP.gasConstant}
-						unit="J/(kg·K)"
-						value={config.gasConstant}
-						min={0}
-						placeholder={formatWithUnit(
-							GCM_ATMOSPHERE.NATIVE_GAS_CONSTANT,
-							"",
-							3,
-						)}
-						disabled={disabled}
-						onChange={(gasConstant) => update({ gasConstant })}
-					/>
+				{config.mode === "pressureAndGasConstant" ? (
+					<>
+						<LabeledNumberInput
+							label="Total surface pressure"
+							help={GCM_INPUT_HELP.totalPressure}
+							unit="bar"
+							value={config.pressureBar}
+							min={0}
+							placeholder={formatWithUnit(
+								GCM_ATMOSPHERE.NATIVE_PRESSURE_BAR,
+								"",
+								3,
+							)}
+							disabled={disabled}
+							onChange={(pressureBar) => update({ pressureBar })}
+						/>
+						<LabeledNumberInput
+							label="Effective gas constant"
+							help={GCM_INPUT_HELP.gasConstant}
+							unit="J/(kg·K)"
+							value={config.gasConstant}
+							min={0}
+							placeholder={formatWithUnit(
+								GCM_ATMOSPHERE.NATIVE_GAS_CONSTANT,
+								"",
+								3,
+							)}
+							disabled={disabled}
+							onChange={(gasConstant) => update({ gasConstant })}
+						/>
+						<p className={note}>
+							Blank fields use ExoPlaSim’s Earth values. The gas pressures below
+							are optional shares of this total, and the gas constant describes
+							the whole atmosphere.
+						</p>
+					</>
+				) : (
 					<p className={note}>
-						Blank fields use ExoPlaSim’s Earth values. The gas pressures below
-						are optional shares of this total, and the gas constant describes
-						the whole atmosphere.
+						Enter the pressure of each gas and the total pressure and gas
+						constant are calculated for you. Leave every gas blank to keep
+						ExoPlaSim’s Earth atmosphere.
 					</p>
-				</>
-			) : (
+				)}
+				{GCM_ATMOSPHERE.GASES.map((gas) => (
+					<LabeledNumberInput
+						key={gas.id}
+						label={gas.label}
+						help={GCM_INPUT_HELP[gas.id]}
+						unit="bar"
+						value={config.partialPressures[gas.id]}
+						min={0}
+						placeholder={formatWithUnit(
+							(result.ok
+								? result.values.pressureBar
+								: GCM_ATMOSPHERE.NATIVE_PRESSURE_BAR) * gas.nativeFraction,
+							"",
+							7,
+						)}
+						disabled={disabled}
+						onChange={(value) => updateGas({ gas: gas.id, value })}
+					/>
+				))}
 				<p className={note}>
-					Enter the pressure of each gas and the total pressure and gas constant
-					are calculated for you. Leave every gas blank to keep ExoPlaSim’s
-					Earth atmosphere.
+					Greyed values show Earth-like dry air at the current pressure. A blank
+					CO₂ field uses 300 ppm; other blank gases are left out of the mix.
+					Enter gases in bar, not ppm: for 550 ppm CO₂ at 1 bar, enter 0.00055.
+					In Gas mixture mode, also enter the background gases, because entering
+					only CO₂ gives a pure CO₂ atmosphere. To change CO₂ but keep Earth’s
+					pressure and gas constant, choose Pressure + gas constant, leave those
+					two blank, and enter only CO₂.
+				</p>
+			</fieldset>
+			{locked && (
+				<p className={note}>
+					Pressure and gas constant stay fixed. Edit Model CO₂ below to change
+					its concentration.
 				</p>
 			)}
-			{GCM_ATMOSPHERE.GASES.map((gas) => (
-				<LabeledNumberInput
-					key={gas.id}
-					label={gas.label}
-					help={GCM_INPUT_HELP[gas.id]}
-					unit="bar"
-					value={config.partialPressures[gas.id]}
-					min={0}
-					placeholder={formatWithUnit(
-						(result.ok
-							? result.values.pressureBar
-							: GCM_ATMOSPHERE.NATIVE_PRESSURE_BAR) * gas.nativeFraction,
-						"",
-						7,
-					)}
-					disabled={disabled}
-					onChange={(value) => updateGas({ gas: gas.id, value })}
-				/>
-			))}
-			<p className={note}>
-				Greyed values show Earth-like dry air at the current pressure. A blank
-				CO₂ field uses 300 ppm; other blank gases are left out of the mix. Enter
-				gases in bar, not ppm: for 550 ppm CO₂ at 1 bar, enter 0.00055. In Gas
-				mixture mode, also enter the background gases, because entering only CO₂
-				gives a pure CO₂ atmosphere. To change CO₂ but keep Earth’s pressure and
-				gas constant, open Advanced, choose Pressure + gas constant, leave those
-				two blank, and enter only CO₂.
-			</p>
 			{result.ok === true ? (
 				<div className="space-y-1" aria-label="Resolved atmosphere">
 					<LabeledValueRow
@@ -146,7 +151,11 @@ export function GcmAtmosphereControls({
 								valueClassName=""
 								onChange={(co2Ppm) => {
 									if (!disabled)
-										onChange(GCM_ATMOSPHERE.setCo2Ppm({ config, co2Ppm }))
+										onChange(
+											(locked
+												? GCM_ATMOSPHERE.setFixedCo2Ppm
+												: GCM_ATMOSPHERE.setCo2Ppm)({ config, co2Ppm }),
+										)
 								}}
 							/>
 						}
@@ -169,13 +178,11 @@ export function GcmAtmosphereControls({
 				disabled={disabled}
 				onChange={(ozone) => update({ ozone })}
 			/>
-			{advanced && (
-				<p className={note}>
-					Gas settings only change the bulk mix; they add no new absorption
-					physics. The model assumes Earth-like air, so be cautious with moist
-					atmospheres dominated by hydrogen or helium.
-				</p>
-			)}
+			<p className={note}>
+				Gas settings only change the bulk mix; they add no new absorption
+				physics. The model assumes Earth-like air, so be cautious with moist
+				atmospheres dominated by hydrogen or helium.
+			</p>
 		</div>
 	)
 }

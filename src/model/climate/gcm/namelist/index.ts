@@ -102,7 +102,7 @@ function edits(config: GcmConfig): GcmNamelistEdits {
 		plasim[key] = value
 	}
 	const land: Record<string, string> = {
-		NWETSOIL: flag(config.wetSoil && !stellarAlbedo),
+		NWETSOIL: flag(config.wetSoil),
 	}
 	for (const value of [
 		config.soilDepthScale,

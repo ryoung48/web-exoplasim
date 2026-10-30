@@ -18,8 +18,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 		return;
 	}
 	let step = u32(state[SNAPSHOT_STEP]);
-	let steps_per_day = u32(state[SNAPSHOT_STEP + 1u]);
-	let t = state[DTSA + h];
+	let window = u32(state[SNAPSHOT_STEP + 1u]);
+	let t = state[at(DT, NLEV, h)];
 	let tracking = SNAPSHOT_TRACKING + h;
 	if (state[tracking + 7u * NHOR] == 0.0) {
 		state[tracking] = t;
@@ -28,24 +28,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 	}
 	state[tracking] = min(state[tracking], t);
 	state[tracking + NHOR] = max(state[tracking + NHOR], t);
-	if (step > 0u) {
-		if (state[tracking + 8u * NHOR] == 0.0) {
-			state[tracking + 2u * NHOR] = t;
-			state[tracking + 3u * NHOR] = t;
-			state[tracking + 8u * NHOR] = 1.0;
-			state[tracking + 9u * NHOR] = select(0.0, 1.0, (step - 1u) % steps_per_day == 0u);
-		}
-		state[tracking + 2u * NHOR] = min(state[tracking + 2u * NHOR], t);
-		state[tracking + 3u * NHOR] = max(state[tracking + 3u * NHOR], t);
-		if (step % steps_per_day == 0u) {
-			if (state[tracking + 9u * NHOR] != 0.0) {
-				let range = state[tracking + 3u * NHOR] - state[tracking + 2u * NHOR];
-				state[tracking + 4u * NHOR] = range;
-				state[tracking + 5u * NHOR] += range;
-				state[tracking + 6u * NHOR] += 1.0;
-			}
-			state[tracking + 8u * NHOR] = 0.0;
-		}
+	if (step > 0u && step % window == 0u) {
+		let range = state[tracking + NHOR] - state[tracking];
+		state[tracking + 2u * NHOR] = state[tracking];
+		state[tracking + 3u * NHOR] = state[tracking + NHOR];
+		state[tracking + 4u * NHOR] = range;
+		state[tracking + 5u * NHOR] += range;
+		state[tracking + 6u * NHOR] += 1.0;
+		state[tracking + 7u * NHOR] = 0.0;
+		state[tracking + 8u * NHOR] = 1.0;
 	}
 	if (state[SNAPSHOT_STEP + 2u] == 0.0) {
 		return;
@@ -84,16 +75,18 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 	put(32u, h, state[DPRL + h]);
 	put(33u, h, state[DSWFL + h]);
 	put(34u, h, state[DLWFL + h]);
-	put(35u, h, state[tracking]);
-	put(36u, h, state[tracking + NHOR]);
-	put(37u, h, state[tracking + 4u * NHOR]);
+	let windowed = state[tracking + 8u * NHOR] != 0.0;
+	put(35u, h, select(state[tracking], state[tracking + 2u * NHOR], windowed));
+	put(36u, h, select(state[tracking + NHOR], state[tracking + 3u * NHOR], windowed));
+	put(37u, h, select(state[tracking + NHOR] - state[tracking], state[tracking + 4u * NHOR], windowed));
 	put(38u, h, state[tracking + 5u * NHOR]);
 	put(39u, h, state[tracking + 6u * NHOR]);
+	put(40u, h, state[DNPP + h]);
+	put(41u, h, state[GMU0 + h]);
 	state[tracking + 5u * NHOR] = 0.0;
 	state[tracking + 6u * NHOR] = 0.0;
-	state[tracking + 7u * NHOR] = 0.0;
 	for (var l = 0u; l < NLEV; l++) {
-		let field = 40u + 5u * l;
+		let field = 42u + 5u * l;
 		put(field, h, state[at(DT, l, h)]);
 		put(field + 1u, h, state[at(DU, l, h)]);
 		put(field + 2u, h, state[at(DV, l, h)]);
@@ -101,5 +94,5 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 	}
 	let lowest = NLEV - 1u;
 	let qsat = saturation_divided(state[at(DT, lowest, h)], state[DP + h] * SIGMA);
-	put(40u + 5u * lowest + 3u, h, max(0.0, state[at(DQ, lowest, h)]) / max(1.17549435e-38, qsat));
+	put(42u + 5u * lowest + 3u, h, max(0.0, state[at(DQ, lowest, h)]) / max(1.17549435e-38, qsat));
 }

@@ -6,7 +6,11 @@ The integration combines WebGPU commit `b0d48c5` with main at `56e5ccc`. The GPU
 
 The GPU also supports [T63 at 192 × 96](exoplasim-webgpu-t63.md), with 5 or 10 layers and a 20-minute starting timestep. Its climatologies are resampled from T42; CPU T63 assets are not built.
 
-The GPU snapshot uses main's 40 surface slots plus five slots per atmospheric layer: 65 fields at five layers and 90 at ten. Existing model arrays supply evaporation, runoff, forest cover, leaf area, snowfall, snowmelt, ice thickness, glaciers, radiation/heat fluxes, separate precipitation components, and layer temperature, winds and clouds. Copying these diagnostics does not add climate physics.
+The GPU snapshot uses 42 surface slots plus five slots per atmospheric layer: 67 fields at five layers and 92 at ten. Existing model arrays supply evaporation, runoff, forest cover, leaf area, snowfall, snowmelt, ice thickness, glaciers, radiation/heat fluxes, separate precipitation components, and layer temperature, winds and clouds. Copying these diagnostics does not add climate physics.
+
+`netPrimaryProduction` (`vegnpp`, native code 301) publishes the existing vegetation calculation in kg C/m²/s. The GPU retains `znpp` as `dnpp`; disabled vegetation leaves this diagnostic zero. The map displays g C/m²/day, converting by 86,400 seconds/day × 1,000 grams/kg. Its fixed 0–10 display range covers daily carbon production of order a few grams per square meter; it clips colors only, not stored or hover values.
+
+`solarZenithCosine` (`czen`, native code 318) publishes the radiation module's `gmu0` without recomputing orbital geometry. The fixed display range is 0–1, the daylight cosine range. These are the latest model diagnostics at publication time (illumination follows the radiation update cadence). Monthly and annual views average published samples through the existing averager; they are not native every-step output accumulations. Both maps use the same raw field layout in CPU and GPU engines.
 
 Pasta also requires interval temperature minima/maxima and lowest-layer relative humidity. The snapshot kernel tracks actual 2 m temperature on every main-loop step, including unpublished steps. It accumulates complete native rotation-day ranges and resets publication sums/counts after publishing, matching `gcm_publish.f90`. Initial partial days are excluded. The same dispatch packs output only on publication steps. Lowest-layer relative humidity reuses the precipitation module's saturation shader and physical constants and is calculated only on publication steps.
 
@@ -18,7 +22,7 @@ Glacier formation during a continuous run is incomplete: GPU initialization and 
 
 ## Checkpoints
 
-CPU uses checkpoint format 14; GPU uses format 15 with main's terrain, layer metadata, climate averages and field validation. Both restarts carry glacier snow persistence ([Glacier lifecycle](exoplasim-glaciers.md)). The GPU restart includes the complete model state and temperature-tracking arrays, preserving partial days and publication intervals across save/load. Earlier formats are rejected. Loading selects the engine that saved the checkpoint.
+CPU uses checkpoint format 18; GPU uses format 19 with main's terrain, layer metadata, climate averages and field validation. Both restarts carry glacier snow persistence ([Glacier lifecycle](exoplasim-glaciers.md)). The GPU restart includes the complete model state and temperature-tracking arrays, preserving partial days and publication intervals across save/load. Earlier formats are rejected. Loading selects the engine that saved the checkpoint.
 
 ## Verification
 

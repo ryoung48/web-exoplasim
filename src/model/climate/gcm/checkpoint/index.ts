@@ -6,12 +6,13 @@ import type {
 import { GCM_FIELDS } from "@/model/climate/gcm/fields"
 import { GCM_GRID } from "@/model/climate/gcm/grid"
 import type { GcmEngine } from "@/model/climate/gcm/runner/types"
+import { GCM_TARGETING } from "@/model/climate/gcm/targeting"
 import { GCM_TERRAIN } from "@/model/climate/gcm/terrain"
 
 // File layout: magic, uint32 header length, JSON header, uint32 array bytes,
 // terrain and diagnostic arrays, then the unchanged plasim_status restart file.
 const MAGIC = "EXOPLASIM-CHECKPOINT\n"
-const FORMATS: Record<GcmEngine, number> = { cpu: 14, gpu: 15 }
+const FORMATS: Record<GcmEngine, number> = { cpu: 18, gpu: 19 }
 const GPU_PRECISION_BYTES = 4
 const HEADER_LENGTH_BYTES = 4
 
@@ -117,6 +118,11 @@ function decode(buffer: ArrayBuffer): GcmCheckpoint {
 	}) as GcmCheckpoint
 	if (meta.config.layers !== 5 && meta.config.layers !== 10)
 		throw new Error("Invalid checkpoint atmospheric layer count")
+	if (meta.config.targetTemperatureK !== null)
+		GCM_TARGETING.validate({
+			config: meta.config,
+			state: diagnostics.targeting,
+		})
 	const snapshots = [
 		diagnostics.snapshot,
 		...diagnostics.averager.months.map((month) => month.snapshot),

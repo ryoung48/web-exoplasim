@@ -12,8 +12,8 @@ export const GCM_MODE_GROUPS: ReadonlyArray<GcmModeGroup> = [
 		children: [
 			{ value: "surfaceTemperature", label: "Surface" },
 			{ value: "airTemperature", label: "2 m air" },
-			{ value: "diurnalTemperatureRange", label: "DTR" },
 			{ value: "layerTemperature10", label: "Atmosphere" },
+			{ value: "diurnalTemperatureRange", label: "DTR" },
 		],
 	},
 	{
@@ -78,6 +78,7 @@ export const GCM_MODE_GROUPS: ReadonlyArray<GcmModeGroup> = [
 		label: "Radiation",
 		defaultView: "albedo",
 		children: [
+			{ value: "solarZenithCosine", label: "Solar zenith cosine" },
 			{ value: "albedo", label: "Albedo" },
 			{ value: "outgoingLongwave", label: "Outgoing IR" },
 			{ value: "toaNetRadiation", label: "TOA net" },
@@ -102,6 +103,7 @@ export const GCM_MODE_GROUPS: ReadonlyArray<GcmModeGroup> = [
 		children: [
 			{ value: "forestCover", label: "Forest cover" },
 			{ value: "leafAreaIndex", label: "Leaf area" },
+			{ value: "netPrimaryProduction", label: "Net primary production" },
 		],
 	},
 	{

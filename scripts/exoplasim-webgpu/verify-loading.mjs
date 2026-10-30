@@ -73,7 +73,7 @@ try {
 	assert(interactionMs < 500, `Loading blocked the controls for ${interactionMs} ms`)
 	await page.waitForFunction(() => window.latestSnapshot !== null, {}, { timeout: 90000 })
 	await skeleton.waitFor({ state: "hidden" })
-	const startup = await page.evaluate(() => ({ finite: window.latestSnapshot.values.every(Number.isFinite), longTasks: window.startupLongTasks, points: window.latestSnapshot.values.length / (40 + 5 * window.latestSnapshot.layers) }))
+	const startup = await page.evaluate(() => ({ finite: window.latestSnapshot.values.every(Number.isFinite), longTasks: window.startupLongTasks, points: window.latestSnapshot.values.length / (42 + 5 * window.latestSnapshot.layers) }))
 	assert(startup.finite && startup.points === 18432)
 	assert(startup.longTasks.every(task => task.duration < 500), "A startup task blocked the page for 500 ms")
 	await page.getByRole("button", { name: "Show settings panel", exact: true }).click()

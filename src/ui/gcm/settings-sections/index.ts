@@ -23,7 +23,7 @@ const SECTION_KEYS: Record<
 		"initialMeanAnomalyDeg",
 		"fixedOrbit",
 	],
-	atmosphere: ["atmosphere"],
+	atmosphere: ["atmosphere", "targetTemperatureK"],
 	surface: [
 		"oceanDepthM",
 		"vegetation",

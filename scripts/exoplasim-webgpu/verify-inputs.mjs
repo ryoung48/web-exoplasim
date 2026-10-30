@@ -136,8 +136,8 @@ try {
     await wait(() => failure || latest && latest.step >= first + 48)
     if(failure) throw new Error(`${name} T${truncation} L${layers}: ${failure}`)
     if(!latest.values.every(Number.isFinite)) throw new Error('Nonfinite model state')
-    const minimum=GCM_FIELDS.field({snapshot:latest,field:'airTemperatureMin'})
-    const maximum=GCM_FIELDS.field({snapshot:latest,field:'airTemperatureMax'})
+    const minimum=GCM_FIELDS.field({snapshot:latest,field:'surfaceTemperatureMin'})
+    const maximum=GCM_FIELDS.field({snapshot:latest,field:'surfaceTemperatureMax'})
     if(!GCM_FIELDS.field({snapshot:latest,field:'airTemperature'}).every((value,index)=>minimum[index]<=value && value<=maximum[index])) throw new Error('Invalid extrema')
     rows.push({ name, truncation, layers, steps:latest.step-first, date:latest.date, finite:true })
    } finally { run?.stop() }

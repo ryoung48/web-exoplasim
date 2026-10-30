@@ -114,6 +114,7 @@ function start(request: GcmRunRequest): GcmRun {
 			request.onSnapshot(response.latest)
 		} else if (response.type === "checkpoint") {
 			request.onCheckpoint({
+				targeting: null,
 				restart: response.restart,
 				averager: response.averager,
 			})
@@ -128,6 +129,8 @@ function start(request: GcmRunRequest): GcmRun {
 			worker.postMessage(
 				{
 					type: "start",
+					config: request.config,
+					previousConfig: request.previousConfig,
 					truncation: request.resolution.truncation,
 					layers: request.config.layers,
 					files: inputs,
@@ -135,6 +138,7 @@ function start(request: GcmRunRequest): GcmRun {
 					averager: request.averager,
 					publishEvery: request.publishEvery,
 					startPaused: request.startPaused,
+					restoreCo2: request.config.targetTemperatureK !== null,
 				} satisfies GcmWorkerRequest,
 				restart ? [restart] : [],
 			)

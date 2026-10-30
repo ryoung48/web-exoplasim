@@ -333,6 +333,7 @@ function constants(request: GcmSetupConstantsRequest): GcmSetup {
 					: null,
 			stepsPerYear: pumamod.n_steps_per_year,
 			stepsPerDay: pumamod.ntspd,
+			outputWindowSteps: pumamod.nafter,
 			stepMinutes: pumamod.mpstep,
 			daysPerYear: pumamod.n_days_per_year,
 			daysPerMonth: pumamod.n_days_per_month,

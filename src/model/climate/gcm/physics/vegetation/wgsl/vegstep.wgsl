@@ -31,8 +31,7 @@ override NCVEG: f32;
 
 // simba's vegstep for one land column below 90% glacier: light- and
 // water-limited GPP, vegetation and soil carbon, forest and soil cover.
-// rnbiocats = 0; the a* output accumulators and d* diagnostics are not
-// ported (noutput = 0).
+// rnbiocats = 0; file-output accumulators are not ported (noutput = 0).
 fn vegstep(h: u32) {
 	if (!(state[DLS + h] > 0.0 && state[DGLAC + h] < 0.90)) {
 		return;
@@ -67,6 +66,7 @@ fn vegstep(h: u32) {
 	zgppw = min(1.0, max(0.0, zgppw));
 	let zgpp = min(zgppl, zgppw);
 	let znpp = state[DGROW + h] * 0.5 * zgpp * zglacfree;
+	state[DNPP + h] = znpp;
 	let zlitter = dcveg / TAU_VEG;
 	let zres = precise_pow(Q10, (ts - TMELT - 10.0) / 10.0) * dcsoil / TAU_SOIL;
 	dcveg = dcveg + (znpp - zlitter) * DELTSEC * NCVEG;

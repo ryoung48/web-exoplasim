@@ -86,7 +86,7 @@
        else
         do jlev=1,NLEV
          zsk=REAL(jlev)/REAL(NLEV)
-@@ -4154,3 +4122,178 @@
+@@ -4154,3 +4122,182 @@
  !
        return
        end subroutine mkdheat
@@ -105,7 +105,8 @@
 +
 +      subroutine gcm_publish_step
 +      use pumamod
-+      use vegmod, only: dlai
++      use vegmod, only: dlai, dnpp
++      use radmod, only: gmu0
 +      use landmod, only: doro
 +      use, intrinsic :: iso_c_binding
 +      interface
@@ -126,7 +127,7 @@
 +         integer(c_int), dimension(*) :: kdate
 +         end subroutine gcm_publish
 +      end interface
-+      integer, parameter :: NSURFACE = 40
++      integer, parameter :: NSURFACE = 42
 +      integer, parameter :: NFIELDS = NSURFACE + 5*NLEV
 +      real, parameter :: SLP_LAPSE = 0.0065, SLP_COLD = 255.0
 +      real, parameter :: GEOPOT_TOL = 1.0e-4, TEMP_TOL = 1.0e-6
@@ -241,6 +242,9 @@
 +      zl(:,38) = zdtr(:)
 +      zl(:,39) = zdtrsum(:)
 +      zl(:,40) = real(idtrdays)
++      zl(:,41) = 0.0
++      if (nveg > 0 .and. allocated(dnpp)) zl(:,41) = dnpp(:)
++      zl(:,42) = gmu0(:)
 +      zdtrsum(:) = 0.0
 +      idtrdays = 0
 +      zfirst = .true.

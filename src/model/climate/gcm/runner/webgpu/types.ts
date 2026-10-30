@@ -12,6 +12,7 @@ import type {
 	GcmStepCalendar,
 } from "@/model/climate/gcm/stepper/types"
 import type {
+	GcmConfig,
 	GcmLayerCount,
 	GcmSnapshot,
 	GcmTruncation,
@@ -20,6 +21,9 @@ import type {
 // The worker's model inputs: every namelist and .sra file by name, as
 // SETUP reads them, and the WebGPU state to continue from (or none).
 export interface GcmWorkerStart {
+	config: GcmConfig
+	previousConfig: GcmConfig | null
+	restoreCo2: boolean
 	layers: GcmLayerCount
 	type: "start"
 	truncation: GcmTruncation

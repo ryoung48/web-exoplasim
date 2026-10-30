@@ -15,6 +15,7 @@ integer :: mypid=0,nstep=48,nshutdown=0,nveg=0,ntspd=4
 integer :: ndatim(5)=[1,1,2,0,0]
 real :: dt(NHOR,NLEP)=280.,du(NHOR,NLEP)=0.,dv(NHOR,NLEP)=0.
 real :: dq(NHOR,NLEP)=0.,dcc(NHOR,NLEP)=0.,sigma(NLEV)
+real :: tempmin(NHOR)=250.,tempmax(NHOR)=290.
 real :: dtsa(NHOR)=284.,dprc(NHOR)=0.,dprl(NHOR)=0.,dp(NHOR)=100000.
 real :: dqvi(NHOR)=0.,dicec(NHOR)=0.,dsnow(NHOR)=0.,dwatc(NHOR)=0.
 real :: dalb(NHOR)=0.,dls(NHOR)=1.,dsmelt(NHOR)=0.,dprs(NHOR)=0.
@@ -29,7 +30,11 @@ use pumamod
 real :: doro(NHOR)=0.
 end module
 module vegmod
-real, allocatable :: dlai(:)
+real, allocatable :: dlai(:),dnpp(:)
+end module
+module radmod
+use pumamod, only: NHOR
+real :: gmu0(NHOR)=[0.,0.5,1.]
 end module
 subroutine mpbci(values)
 integer :: values(*)
@@ -79,6 +84,7 @@ end subroutine
 program weather
 use pumamod
 use landmod, only: doro
+use vegmod, only: dnpp
 integer :: level
 do level=1,NLEV
 sigma(level)=(real(level)-0.5)/real(NLEV)
@@ -97,41 +103,28 @@ dprc=[1.,2.,3.]/86400000.
 dprl=[4.,5.,6.]/86400000.
 dswfl(:,1)=[900.,800.,700.]
 dlwfl(:,1)=[-200.,-250.,-300.]
-nstep=-1
-dtsa=260.
-call gcm_publish_step
-nstep=-2
-dtsa=310.
-call gcm_publish_step
 nstep=48
-dtsa=284.
 call gcm_publish_step
+tempmin=260.
+call gcm_capture_window
+allocate(dnpp(NHOR))
+dnpp=[1.,2.,3.]*1.e-8
+nveg=1
 nstep=49
-dtsa=290.
-call gcm_publish_step
-nstep=50
-dtsa=280.
-call gcm_publish_step
-nstep=51
-dtsa=300.
 call gcm_publish_step
 nstep=52
-dtsa=285.
-call gcm_publish_step
-nstep=53
-dtsa=100.
+tempmin=270.
+tempmax=280.
+call gcm_capture_window
 call gcm_publish_step
 nstep=54
-dtsa=110.
-call gcm_publish_step
-nstep=55
-dtsa=105.
+tempmin=265.
+tempmax=285.
+call gcm_capture_window
 call gcm_publish_step
 nstep=56
-dtsa=107.
 call gcm_publish_step
 nstep=57
-dtsa=500.
 call gcm_publish_step
 end program
 """
@@ -143,18 +136,22 @@ for layers in [10, 5]:
         subprocess.run(["gfortran", "-fdefault-real-8", "-fdefault-double-8", "fixture.f90", str(hook), "-o", "weather"], cwd=work, check=True)
         subprocess.run([str(work / "weather")], cwd=work, check=True)
         lines = (work / "fields.txt").read_text().splitlines()
-        assert list(map(int, lines[0].split())) == [40 + 5 * layers, 3, 8]
+        assert list(map(int, lines[0].split())) == [42 + 5 * layers, 3, 8]
         fields = [list(map(float, line.split())) for line in lines[1:]]
         reset = [list(map(float, line.split())) for line in (work / "reset.txt").read_text().splitlines()[1:]]
-        assert all(row[35:37] == [260, 310] for row in fields)
-        assert all(row[35:37] == [290, 290] for row in reset)
+        assert all(row[35:37] == [250, 290] for row in fields)
+        assert all(row[35:37] == [260, 290] for row in reset)
+        assert all(row[40] == 0 for row in fields)
+        for point in range(3):
+            assert math.isclose(reset[point][40], (point + 1) * 1e-8, rel_tol=1e-14)
+            assert fields[point][41] == point * 0.5
         daily = [list(map(float, line.split())) for line in (work / "daily.txt").read_text().splitlines()[1:]]
         held = [list(map(float, line.split())) for line in (work / "held.txt").read_text().splitlines()[1:]]
-        assert all(row[37:40] == [10, 30, 2] for row in daily)
-        assert all(row[37:40] == [10, 0, 0] for row in held)
-        assert all(row[37:40] == [0, 0, 0] for row in fields)
+        assert all(row[37:40] == [20, 30, 2] for row in daily)
+        assert all(row[37:40] == [20, 0, 0] for row in held)
+        assert all(row[37:40] == [40, 0, 0] for row in fields)
 
-    assert all(len(row) == 40 + 5 * layers and all(math.isfinite(value) for value in row) for row in fields)
+    assert all(len(row) == 42 + 5 * layers and all(math.isfinite(value) for value in row) for row in fields)
     pressure_errors = []
     for point, (temperature, pressure, elevation) in enumerate([
         (280, 100000, 0),
@@ -169,7 +166,7 @@ for layers in [10, 5]:
         assert error < 1, (point, error)
         pressure_errors.append(error)
         for level in range(layers):
-            assert math.isclose(fields[point][44 + 5 * level], 0.07 * (level + 1), abs_tol=1e-14)
+            assert math.isclose(fields[point][46 + 5 * level], 0.07 * (level + 1), abs_tol=1e-14)
 
     for point, expected in enumerate([(100, -50, -10, -100), (200, -70, 20, -150), (300, -90, -30, 10)]):
         assert fields[point][27:31] == list(expected)
@@ -186,7 +183,7 @@ for layers in [10, 5]:
 
     assert fields[0][26] == 100000
     assert fields[1][26] > 85000 and fields[2][26] < 101000
-    report = {"fields": 40 + 5 * layers, "layers": layers, "points": 3, "pressureErrorPaAgainstExactLapseIntegral": pressure_errors, "zeroOrographyPressureUnchanged": True, "cloudLayers": layers, "surfaceEnergyComponents": 4, "dailyRangesAcrossUnpublishedSteps": True, "partialDayExcluded": True, "energySignsAndSum": True, "precipitationAndToaComponents": True}
+    report = {"fields": 42 + 5 * layers, "layers": layers, "points": 3, "pressureErrorPaAgainstExactLapseIntegral": pressure_errors, "zeroOrographyPressureUnchanged": True, "cloudLayers": layers, "surfaceEnergyComponents": 4, "dailyRangesAcrossUnpublishedSteps": True, "nativeWindowExtrema": True, "energySignsAndSum": True, "precipitationAndToaComponents": True, "vegetationNppEnabledAndDisabled": True, "solarZenithCosine": True}
     output = root / f"stats/exoplasim-model-options/weather-formulas-layers-{layers}.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2) + "\n")

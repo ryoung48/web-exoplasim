@@ -309,7 +309,7 @@ function values({
 	})
 	return {
 		fields: {
-			snapshot_step: Float64Array.of(step, calendar.stepsPerDay, 0),
+			snapshot_step: Float64Array.of(step, calendar.outputWindowSteps, 0),
 			radiation_step: RADIATION.step({
 				keplerian: calendar.keplerian,
 				fixedSun: calendar.fixedSun,

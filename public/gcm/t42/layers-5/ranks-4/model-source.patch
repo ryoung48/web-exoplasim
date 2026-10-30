@@ -1,0 +1,469 @@
+--- a/exoplasim/plasim/src/plasim.f90
++++ b/exoplasim/plasim/src/plasim.f90
+@@ -52,6 +52,7 @@
+       call allocate_arrays
+       call prolog
+       call master
++      call wasm_fields
+       call epilog
+       call mpstop
+ 
+@@ -357,7 +358,7 @@
+ !     Copy some calendar variables to calmod
+ 
+       call calini(n_days_per_month,n_days_per_year,n_start_step,ntspd &
+-                  ,solar_day,-1,mcal_days_per_year)
++                  ,solar_day,-1,nint(mpstep),mcal_days_per_year)
+ !                  ,day_24hr,-1)
+ 
+       call mpbci(mcal_days_per_year)
+@@ -710,6 +711,7 @@
+             endif
+             mstep = 0
+          endif
++         call gcm_publish_step
+          call stability_check ! aborts if model tends to explode
+          if (nshutdown   > 0) return
+          if (nscd  > 0) then
+@@ -1258,18 +1260,7 @@
+       open(11,file=plasim_namelist,form='formatted')
+       read (11,plasim_nl)
+       
+-      if ((NLEV==20) .and. (nrdrag==1) .and. (neqsig.ne.5)) then
+-         tfrc(1)      =  20.0 * day_24hr !day_24hr
+-         tfrc(2)      =  30.0 * day_24hr
+-         tfrc(3)      = 100.0 * day_24hr !day_24hr
+-         tfrc(4)      = 100.0 * day_24hr !day_24hr
+-         tfrc(5:NLEV) =   0.0 * day_24hr !day_24hr
+-      else if ((NLEV==20) .and. (nrdrag==1) .and. (neqsig==5)) then
+-         tfrc(1:NLEV-10) = 0.0 * day_24hr
+-         tfrc(NLEV-9)  =  20.0 * day_24hr
+-         tfrc(NLEV-8)  = 100.0 * day_24hr
+-         tfrc(NLEV-7:NLEV) =   0.0 * day_24hr
+-      endif
++
+ 
+       if ((ndesert == 1) .and. (naqua == 1)) then !If both toggled, turn off both
+         naqua = 0
+@@ -1381,7 +1372,7 @@
+ !     Convert start date to timesteps since 1-Jan-0000
+ 
+       call calini(n_days_per_month,n_days_per_year,n_start_step,ntspd &
+-                   ,solar_day,0,mcal_days_per_year)
++                   ,solar_day,0,nint(mpstep),mcal_days_per_year)
+ !                  ,day_24hr,0)
+       
+       call cal2step(n_start_step,mtspd,n_start_year,n_start_month,1,0,0)
+@@ -1526,30 +1517,7 @@
+        sigmah(:) = sigmah(:)/sigmah(NLEV)
+        sigmah(:) = sigmah(:)*(1.0-zsk) + zsk
+        
+-      elseif ((neqsig==5) .and. (NLEV .gt. 10)) then
+-       
+-       !Bottom atmosphere (PlaSim's normal domain)
+-       do jlev=NLEV-10,NLEV
+-         zsk=REAL(jlev-(NLEV-9+1))/10.0  !As if it was a 10-layer atmosphere
+-         sigmah(jlev)=0.75*zsk+1.75*zsk**3-1.5*zsk**4
+-       enddo
+-       zsk = ptop/psurf
+-       sigmah(NLEV-9:) = sigmah(NLEV-9:) - sigmah(NLEV-9)
+-       sigmah(NLEV-9:) = sigmah(NLEV-9:)/sigmah(NLEV)
+-       sigmah(NLEV-9:) = sigmah(NLEV-9:)*(1.0-zsk) + zsk
+-       
+-       !Upper atmosphere (stratosphere)
+-       zsk0 = log10(ptop2/psurf) + 1 !Top at 1 hPa
+-       zskf = sigmah(max(NLEV-10,1)) !Have to add this max statement so it'll compile with debug flag
+-       dzsk = (zskf - zsk0) / REAL(NLEV-8)
+-       do jlev = 2 , NLEV-8
+-          zsk = zsk0 + (jlev-1)*dzsk - 1
+-          sigma(jlev) = 10**zsk
+-       enddo
+-       sigma(NLEV-8) = 0.5*(sigmah(NLEV-9)+sigmah(NLEV-8))
+-       sigma(1) = 0.5*sigma(2)
+-       sigmah(1:NLEV-9) = 0.5*(sigma(1:NLEV-9)+sigma(2:NLEV-8))
+-         
++
+       else
+        do jlev=1,NLEV
+         zsk=REAL(jlev)/REAL(NLEV)
+@@ -4154,3 +4122,182 @@
+ !
+       return
+       end subroutine mkdheat
++
++      subroutine wasm_fields
++      use pumamod
++      integer i
++      open(97,file='wasm-fields.txt',status='replace')
++      write(97,*) nstep,NLON,NLAT,NLEV
++      do i=1,NHOR
++         write(97,'(6(es25.16,1x))') dt(i,NLEP),dtsa(i), &
++     &      du(i,NLEV),dv(i,NLEV),dp(i),dq(i,NLEV)
++      enddo
++      close(97)
++      end subroutine wasm_fields
++
++      subroutine gcm_publish_step
++      use pumamod
++      use vegmod, only: dlai, dnpp
++      use radmod, only: gmu0
++      use landmod, only: doro
++      use, intrinsic :: iso_c_binding
++      interface
++         integer(c_int) function gcm_should_publish(kstep)               &
++     &      bind(c, name='gcm_should_publish')
++         import :: c_int
++         integer(c_int), value :: kstep
++         end function gcm_should_publish
++         integer(c_int) function gcm_should_stop()                       &
++     &      bind(c, name='gcm_should_stop')
++         import :: c_int
++         end function gcm_should_stop
++         subroutine gcm_publish(pf, kfields, kpoints, kbytes, kstep,      &
++     &      kdate) bind(c, name='gcm_publish')
++         import :: c_int
++         type(*), dimension(*) :: pf
++         integer(c_int), value :: kfields, kpoints, kbytes, kstep
++         integer(c_int), dimension(*) :: kdate
++         end subroutine gcm_publish
++      end interface
++      integer, parameter :: NSURFACE = 42
++      integer, parameter :: NFIELDS = NSURFACE + 5*NLEV
++      real, parameter :: SLP_LAPSE = 0.0065, SLP_COLD = 255.0
++      real, parameter :: GEOPOT_TOL = 1.0e-4, TEMP_TOL = 1.0e-6
++!     ExoPlaSim's postprocessor: hfns = snow melt * L_TIMES_RHOH2O + rss
++!     + rls + hfss + hfls (pyburn.py, L_TIMES_RHOH2O = -333700000)
++      real, parameter :: L_TIMES_RHOH2O = -333700000.0
++      real :: zl(NHOR,NFIELDS)
++      real :: zg(NUGP,NFIELDS)
++      real :: zqsat(NHOR)
++      real :: zstar, zmsl, zprt, zprtal
++      integer(c_int) :: idate(5)
++      integer :: jjet, jlevel, jfield, jpoint
++      integer :: istop(1)
++      integer(c_int) :: ipublish
++      real, save :: zminimum(NHOR), zmaximum(NHOR)
++      logical, save :: zfirst = .true.
++      real, save :: zdaymin(NHOR), zdaymax(NHOR), zdtr(NHOR) = 0.0
++      real, save :: zdtrsum(NHOR) = 0.0
++      integer, save :: idtrdays = 0
++      logical, save :: zdayfirst = .true., zdayfull = .false.
++!     Track 2 m extrema at every model step, including unpublished steps.
++      if (zfirst) then
++         zminimum(:) = dtsa(:)
++         zmaximum(:) = dtsa(:)
++         zfirst = .false.
++      endif
++      zminimum(:) = min(zminimum(:),dtsa(:))
++      zmaximum(:) = max(zmaximum(:),dtsa(:))
++!     Daily ranges use complete native rotation days, independent of
++!     publication cadence. Skip the initial partial day after a restart.
++      if (nstep > 0) then
++         if (zdayfirst) then
++            zdaymin(:) = dtsa(:)
++            zdaymax(:) = dtsa(:)
++            zdayfull = mod(nstep-1,ntspd) == 0
++            zdayfirst = .false.
++         endif
++         zdaymin(:) = min(zdaymin(:),dtsa(:))
++         zdaymax(:) = max(zdaymax(:),dtsa(:))
++         if (mod(nstep,ntspd) == 0) then
++            if (zdayfull) then
++               zdtr(:) = zdaymax(:)-zdaymin(:)
++               zdtrsum(:) = zdtrsum(:)+zdtr(:)
++               idtrdays = idtrdays+1
++            endif
++            zdayfirst = .true.
++         endif
++      endif
++      ipublish = gcm_should_publish(int(nstep, c_int))
++!     Rank 0 decides and broadcasts, so every rank shuts down on the same
++!     step and the epilog writes plasim_status as at the end of a run.
++      istop(1) = 0
++      if (mypid == NROOT) istop(1) = gcm_should_stop()
++      call mpbci(istop)
++      if (istop(1) /= 0) nshutdown = 1
++      if (ipublish == 0) return
++      jjet = minloc(abs(sigma(1:NLEV) - 0.25), 1)
++      zl(:,1)  = dt(:,NLEP)
++      zl(:,2)  = dtsa(:)
++      zl(:,3)  = du(:,NLEV)
++      zl(:,4)  = dv(:,NLEV)
++      zl(:,5)  = dcc(:,NLEP)
++      zl(:,6)  = dprc(:) + dprl(:)
++      zl(:,7)  = dp(:)
++      zl(:,8)  = dqvi(:)
++      zl(:,9)  = dicec(:)
++      zl(:,10) = dsnow(:)
++      zl(:,11) = dwatc(:)
++      zl(:,12) = dalb(:)
++      zl(:,13) = du(:,jjet)
++      zl(:,14) = dv(:,jjet)
++      zl(:,15) = -dlwfl(:,1)
++      zl(:,16) = dls(:)
++      zl(:,17) = dswfl(:,1) + dlwfl(:,1)
++      zl(:,18) = dsmelt(:) * L_TIMES_RHOH2O + dswfl(:,NLEP)              &
++     &         + dlwfl(:,NLEP) + dshfl(:) + dlhfl(:)
++      zl(:,19) = -devap(:)
++      zl(:,20) = drunoff(:)
++      zl(:,21) = dforest(:)
++      zl(:,22) = 0.0
++      if (nveg > 0 .and. allocated(dlai)) zl(:,22) = dlai(:)
++      zl(:,23) = dprs(:)
++      zl(:,24) = dsmelt(:)
++      zl(:,25) = diced(:)
++      zl(:,26) = dglac(:)
++!     Same sea-level reduction as ExoPlaSim pyburn's slpcode branch.
++      zl(:,27) = dp(:)
++      do jpoint=1,NHOR
++         if (abs(doro(jpoint)) < GEOPOT_TOL) cycle
++         zstar = (1.0+gascon*SLP_LAPSE/ga                             &
++     &      *(1.0/sigma(NLEV)-1.0))*dt(jpoint,NLEV)
++         if (zstar < SLP_COLD) zstar = 0.5*(SLP_COLD+zstar)
++         zmsl = zstar+doro(jpoint)*SLP_LAPSE/ga
++         zprt = doro(jpoint)/(gascon*zstar)
++         zprtal = 0.0
++         if (abs(zmsl-zstar) >= TEMP_TOL) then
++            zprtal = zprt*gascon*(zmsl-zstar)/doro(jpoint)
++         endif
++         zl(jpoint,27) = dp(jpoint)                                  &
++     &      *exp(zprt*(1.0-zprtal*(0.5-zprtal/3.0)))
++      enddo
++      zl(:,28) = dswfl(:,NLEP)
++      zl(:,29) = dlwfl(:,NLEP)
++      zl(:,30) = dshfl(:)
++      zl(:,31) = dlhfl(:)
++      zl(:,32) = dprc(:)
++      zl(:,33) = dprl(:)
++      zl(:,34) = dswfl(:,1)
++      zl(:,35) = dlwfl(:,1)
++      zl(:,36) = zminimum(:)
++      zl(:,37) = zmaximum(:)
++      zl(:,38) = zdtr(:)
++      zl(:,39) = zdtrsum(:)
++      zl(:,40) = real(idtrdays)
++      zl(:,41) = 0.0
++      if (nveg > 0 .and. allocated(dnpp)) zl(:,41) = dnpp(:)
++      zl(:,42) = gmu0(:)
++      zdtrsum(:) = 0.0
++      idtrdays = 0
++      zfirst = .true.
++      do jlevel=1,NLEV
++         jfield = NSURFACE + 5*(jlevel-1)
++         zl(:,jfield+1) = dt(:,jlevel)
++         zl(:,jfield+2) = du(:,jlevel)
++         zl(:,jfield+3) = dv(:,jlevel)
++!        Same saturation relation and constants as rainmod's mkclouds.
++         zqsat(:) = rdbrv*ra1*exp(ra2*(dt(:,jlevel)-TMELT)              &
++     &      /(dt(:,jlevel)-ra4))/(dp(:)*sigma(jlevel))
++         zqsat(:) = min(zqsat(:),rdbrv)
++         zqsat(:) = zqsat(:)/(1.-(1./rdbrv-1.)*zqsat(:))
++         zl(:,jfield+4) = max(0.0,dq(:,jlevel))                        &
++     &      /max(tiny(1.0),zqsat(:))
++         zl(:,jfield+5) = dcc(:,jlevel)
++      enddo
++      call mpgagp(zg, zl, NFIELDS)
++      if (mypid == NROOT) then
++         idate(:) = ndatim(1:5)
++         call gcm_publish(zg, NFIELDS, NUGP, storage_size(zg(1,1)) / 8,     &
++     &                    int(nstep, c_int), idate)
++      endif
++      end subroutine gcm_publish_step
+--- a/exoplasim/plasim/src/mpimod_stub.f90
++++ b/exoplasim/plasim/src/mpimod_stub.f90
+@@ -286,7 +286,7 @@
+       return
+       end 
+ 
+-      subroutine mrdiff(p,d,n)
++      subroutine mrdiff(p,d,n,k)
+       real :: p(n)
+       real :: d(n)
+       return
+--- a/exoplasim/plasim/src/cpl_stub.f90
++++ b/exoplasim/plasim/src/cpl_stub.f90
+@@ -2,7 +2,7 @@
+ !     subroutine CLSGINI
+ !     ==================
+ !
+-      subroutine clsgini(kdatim,ktspd,kaomod,pslm,kxa,kya)
++      subroutine clsgini(kdatim,ktspd,kaomod,klsg,kgui,pslm,kxa,kya)
+ !
+       real :: pslm(kxa,kya)
+       integer :: kdatim(7)
+@@ -18,7 +18,7 @@
+ !     ===================
+ !
+       subroutine clsgstep(kdatim,kstep,psst,ptaux,ptauy,pfresh,pice     &
+-     &                   ,pheat,pfldo)
++     &                   ,pheat,pfldo,pextra)
+ !
+       real :: psst(*)      ! atm sst (input)
+       real :: ptaux(*)     ! atm u-stress (input)
+--- a/exoplasim/plasim/src/hurricanemod.f90
++++ b/exoplasim/plasim/src/hurricanemod.f90
+@@ -148,6 +148,7 @@
+ 
+       subroutine hurricaneini(gascon)
+       use hurricanemod
++      use pumamod, only: mypid,NROOT,nwritehurricane
+       
+       real, intent(in) :: gascon
+       integer (kind=4) :: ihead(8) ! Dataset header
+--- a/exoplasim/plasim/src/radmod.f90
++++ b/exoplasim/plasim/src/radmod.f90
+@@ -51,6 +51,24 @@
+       integer :: no3     = 1      ! switch for ozon (0=no,1=yes,2=datafile)
+       integer :: nsol    = 1      ! switch for solang (1/0=yes/no)
+       integer :: nswr    = 1      ! switch for swr (1/0=yes/no)
++      integer :: nradint = 1      ! compute radiation every nradint steps
++      real, allocatable :: rc_dfu(:,:)
++      real, allocatable :: rc_dfd(:,:)
++      real, allocatable :: rc_dftu(:,:)
++      real, allocatable :: rc_dftd(:,:)
++      real, allocatable :: rc_dswfl(:,:)
++      real, allocatable :: rc_dlwfl(:,:)
++      real, allocatable :: rc_dflux(:,:)
++      real, allocatable :: rc_dtdtswr(:,:)
++      real, allocatable :: rc_dtdtlwr(:,:)
++      real, allocatable :: rc_dconv(:,:)
++      real, allocatable :: rc_dsalb(:,:)
++      real, allocatable :: rc_dftue1(:,:)
++      real, allocatable :: rc_dftue2(:,:)
++      real, allocatable :: rc_dftu0(:,:)
++      real, allocatable :: rc_dftd0(:,:)
++      real, allocatable :: rc_dalb(:)
++      real, allocatable :: rc_dtdt(:,:)
+       integer :: nlwr    = 1      ! switch for lwr (1/0=yes/no)
+       integer :: necham  = 1      ! switch for using ECHAM-3 solar zenith angle 
+                                   ! dependence for ocean albedo (1/0=yes/no)
+@@ -603,7 +621,7 @@
+ !
+ !**   0) define namelist
+ !
+-      namelist/radmod_nl/ndcycle,ncstsol,solclat,solcdec,no3,co2        &
++      namelist/radmod_nl/nradint,ndcycle,ncstsol,solclat,solcdec,no3,co2        &
+      &               ,iyrbp,nswr,nlwr,nfixed,slowdown,nradice,npbroaden,desync    &
+      &               ,a0o3,a1o3,aco3,bo3,co3,toffo3,o3scale,newrsc,necham,necham6   &
+      &               ,nsol,nclouds,nswrcl,nrscat,rcl1,rcl2,acl2,clgray,tpofmt   &
+@@ -777,6 +795,7 @@
+       call mpbcrn(acl2,3)
+       call mpbci(iyrbp)
+       call mpbci(nswr)
++      call mpbci(nradint)
+       call mpbci(nlwr)
+       call mpbci(nsol)
+       call mpbci(nrscat)
+@@ -986,6 +1005,28 @@
+ !
+ !     cpu time estimates
+ !
++      if (nradint > 1 .and. allocated(rc_dtdt)) then
++       if (mod(nstep, nradint) /= 0) then
++        dfu = rc_dfu
++        dfd = rc_dfd
++        dftu = rc_dftu
++        dftd = rc_dftd
++        dswfl = rc_dswfl
++        dlwfl = rc_dlwfl
++        dflux = rc_dflux
++        dtdtswr = rc_dtdtswr
++        dtdtlwr = rc_dtdtlwr
++        dconv = rc_dconv
++        dalb = rc_dalb
++        dsalb = rc_dsalb
++        dftue1 = rc_dftue1
++        dftue2 = rc_dftue2
++        dftu0 = rc_dftu0
++        dftd0 = rc_dftd0
++        dtdt(:,:) = dtdt(:,:) + rc_dtdt(:,:)
++        return
++       endif
++      endif
+       if(ntime == 1) call mksecond(zsec,0.)
+ !
+ !**   1) set all fluxes to zero
+@@ -1113,6 +1154,25 @@
+ !**   7a) Restore sea ice distribution if applicable
+ !
+       if (nradice==0) dicec(:) = zfice(:)
++      if (nradint > 1) then
++       rc_dfu = dfu
++       rc_dfd = dfd
++       rc_dftu = dftu
++       rc_dftd = dftd
++       rc_dswfl = dswfl
++       rc_dlwfl = dlwfl
++       rc_dflux = dflux
++       rc_dtdtswr = dtdtswr
++       rc_dtdtlwr = dtdtlwr
++       rc_dconv = dconv
++       rc_dalb = dalb
++       rc_dsalb = dsalb
++       rc_dftue1 = dftue1
++       rc_dftue2 = dftue2
++       rc_dftu0 = dftu0
++       rc_dftd0 = dftd0
++       rc_dtdt = zdtdt
++      endif
+         
+ 
+ !
+--- a/exoplasim/plasim/src/glaciermod.f90
++++ b/exoplasim/plasim/src/glaciermod.f90
+@@ -93,12 +93,15 @@
+       real :: zsnow(NUGP) = 0.0
+       
+       integer noromax
++      real :: rpersist(NHOR)
+       
+       if (nrestart > 0.) then
+         call mpgetgp('dglac',dglac,NHOR,1)
+         call mpgetgp('groundsg',groundoro ,NHOR,1)
+         call mpgetgp('dglacsg' ,glacieroro,NHOR,1)
+         call mpgetgp('doro'    ,doro      ,NHOR,1)
++        call mpgetgp('persist' ,rpersist  ,NHOR,1)
++        persistflag(:) = rpersist(:) > 0.5
+       else
+         call mpsurfgp('doro'    ,doro    ,NHOR,1)
+         groundoro(:) = doro(:)
+@@ -567,6 +570,7 @@
+ !
+       subroutine glacierstep
+       use glaciermod
++      integer :: idatim(7)
+       
+       if (nglacier .eq. 1) then
+       
+@@ -576,6 +580,15 @@
+             if (dsnowz(jhor) < 0.1) dglac(jhor) = 0.0 !If the snow/ice is basically gone, so is the glacier
+          endif
+       enddo
++      if (n_days_per_year == 365) then
++         call step2cal(nstep+1,ntspd,idatim)
++      else
++         call step2cal30(nstep+1,idatim)
++      endif
++      if (idatim(1) /= ndatim(1)) then
++         where (persistflag(:)) dglac = 1.0
++         persistflag(:) = dls(:) >= 0.5
++      endif
+       
+       endif
+       
+@@ -596,7 +609,6 @@
+       call finishup(dsnowz,'newdsnow')
+       call finishup(asndch,'restart_snow')
+       
+-      where (persistflag(:)) dglac = 1.0
+       where (persistflag(:)) rpersist = 1.0
+       
+       endif
+@@ -611,6 +623,7 @@
+ !       endif
+       
+       call mpputgp('dglac'   ,dglac     ,NHOR,1)
++      call mpputgp('persist' ,rpersist  ,NHOR,1)
+ 
+       return
+       end subroutine glacierstop

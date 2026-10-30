@@ -6,6 +6,7 @@ import type {
 	GcmRunRequest,
 } from "@/model/climate/gcm/runner/types"
 import type {
+	GcmConfig,
 	GcmLayerCount,
 	GcmSnapshot,
 	GcmTruncation,
@@ -66,6 +67,8 @@ export type ExoplasimFactory = (
 ) => Promise<ExoplasimModule>
 
 export interface GcmWasmWorkerLoad {
+	config: GcmConfig
+	previousConfig: GcmConfig | null
 	layers: GcmLayerCount
 	type: "load"
 	rank: number

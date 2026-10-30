@@ -1,7 +1,28 @@
+      module gcmwindow
+      use pumamod, only: NHOR
+      real, save :: zwinmin(NHOR) = 0.0, zwinmax(NHOR) = 0.0
+      real, save :: zwindtr(NHOR) = 0.0, zwindtrsum(NHOR) = 0.0
+      integer, save :: iwindays = 0
+      logical, save :: lwindow = .false.
+      end module gcmwindow
+
+      subroutine gcm_capture_window
+      use pumamod
+      use gcmwindow
+      zwinmin(:) = tempmin(:)
+      zwinmax(:) = tempmax(:)
+      zwindtr(:) = tempmax(:)-tempmin(:)
+      zwindtrsum(:) = zwindtrsum(:)+zwindtr(:)
+      iwindays = iwindays+1
+      lwindow = .true.
+      end subroutine gcm_capture_window
+
 
       subroutine gcm_publish_step
       use pumamod
-      use vegmod, only: dlai
+      use gcmwindow
+      use vegmod, only: dlai, dnpp
+      use radmod, only: gmu0
       use landmod, only: doro
       use, intrinsic :: iso_c_binding
       interface
@@ -22,7 +43,7 @@
          integer(c_int), dimension(*) :: kdate
          end subroutine gcm_publish
       end interface
-      integer, parameter :: NSURFACE = 40
+      integer, parameter :: NSURFACE = 42
       integer, parameter :: NFIELDS = NSURFACE + 5*NLEV
       real, parameter :: SLP_LAPSE = 0.0065, SLP_COLD = 255.0
       real, parameter :: GEOPOT_TOL = 1.0e-4, TEMP_TOL = 1.0e-6
@@ -37,40 +58,6 @@
       integer :: jjet, jlevel, jfield, jpoint
       integer :: istop(1)
       integer(c_int) :: ipublish
-      real, save :: zminimum(NHOR), zmaximum(NHOR)
-      logical, save :: zfirst = .true.
-      real, save :: zdaymin(NHOR), zdaymax(NHOR), zdtr(NHOR) = 0.0
-      real, save :: zdtrsum(NHOR) = 0.0
-      integer, save :: idtrdays = 0
-      logical, save :: zdayfirst = .true., zdayfull = .false.
-!     Track 2 m extrema at every model step, including unpublished steps.
-      if (zfirst) then
-         zminimum(:) = dtsa(:)
-         zmaximum(:) = dtsa(:)
-         zfirst = .false.
-      endif
-      zminimum(:) = min(zminimum(:),dtsa(:))
-      zmaximum(:) = max(zmaximum(:),dtsa(:))
-!     Daily ranges use complete native rotation days, independent of
-!     publication cadence. Skip the initial partial day after a restart.
-      if (nstep > 0) then
-         if (zdayfirst) then
-            zdaymin(:) = dtsa(:)
-            zdaymax(:) = dtsa(:)
-            zdayfull = mod(nstep-1,ntspd) == 0
-            zdayfirst = .false.
-         endif
-         zdaymin(:) = min(zdaymin(:),dtsa(:))
-         zdaymax(:) = max(zdaymax(:),dtsa(:))
-         if (mod(nstep,ntspd) == 0) then
-            if (zdayfull) then
-               zdtr(:) = zdaymax(:)-zdaymin(:)
-               zdtrsum(:) = zdtrsum(:)+zdtr(:)
-               idtrdays = idtrdays+1
-            endif
-            zdayfirst = .true.
-         endif
-      endif
       ipublish = gcm_should_publish(int(nstep, c_int))
 !     Rank 0 decides and broadcasts, so every rank shuts down on the same
 !     step and the epilog writes plasim_status as at the end of a run.
@@ -132,14 +119,24 @@
       zl(:,33) = dprl(:)
       zl(:,34) = dswfl(:,1)
       zl(:,35) = dlwfl(:,1)
-      zl(:,36) = zminimum(:)
-      zl(:,37) = zmaximum(:)
-      zl(:,38) = zdtr(:)
-      zl(:,39) = zdtrsum(:)
-      zl(:,40) = real(idtrdays)
-      zdtrsum(:) = 0.0
-      idtrdays = 0
-      zfirst = .true.
+!     Native mint/maxt (outmod codes 320/321) of the last completed
+!     output window; before one completes, the window so far.
+      if (lwindow) then
+         zl(:,36) = zwinmin(:)
+         zl(:,37) = zwinmax(:)
+         zl(:,38) = zwindtr(:)
+      else
+         zl(:,36) = tempmin(:)
+         zl(:,37) = tempmax(:)
+         zl(:,38) = tempmax(:)-tempmin(:)
+      endif
+      zl(:,39) = zwindtrsum(:)
+      zl(:,40) = real(iwindays)
+      zl(:,41) = 0.0
+      if (nveg > 0 .and. allocated(dnpp)) zl(:,41) = dnpp(:)
+      zl(:,42) = gmu0(:)
+      zwindtrsum(:) = 0.0
+      iwindays = 0
       do jlevel=1,NLEV
          jfield = NSURFACE + 5*(jlevel-1)
          zl(:,jfield+1) = dt(:,jlevel)

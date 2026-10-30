@@ -73,6 +73,7 @@ export interface GcmStepCalendar {
 	fixedSun: GcmFixedSun | null
 	stepsPerYear: number
 	stepsPerDay: number
+	outputWindowSteps: number
 	stepMinutes: number
 	daysPerYear: number
 	daysPerMonth: number

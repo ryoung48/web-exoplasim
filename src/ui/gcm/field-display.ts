@@ -31,7 +31,9 @@ function stops(palette: readonly RgbColor[]): GcmColorScale {
 }
 
 const NORMALIZED_SCALES: Partial<Record<GcmMapMode, GcmColorScale>> = {
-	diurnalTemperatureRange: stops(COLOR_PALETTES.ylOrRdStops),
+	netPrimaryProduction: stops(COLOR_PALETTES.greensStops),
+	solarZenithCosine: stops(COLOR_PALETTES.ylOrRdStops),
+	diurnalTemperatureRange: stops(COLOR_PALETTES.temperatureRangeStops),
 	relativeHumidity: stops(COLOR_PALETTES.bupuStops),
 	evaporation: stops(COLOR_PALETTES.spectralStops),
 	runoff: stops(COLOR_PALETTES.bupuStops),
@@ -116,6 +118,8 @@ function terrainColor({
 
 function format({ mode, value, unitSystem }: GcmFormattedValue): string {
 	switch (GCM_FIELDS.definition(mode).unit) {
+		case "gramsCarbonPerSquareMeterPerDay":
+			return formatWithUnit(value, "g C/m²/day", 2)
 		case "celsiusDelta":
 			return formatTemperatureDelta(value, unitSystem)
 		case "dimensionless":

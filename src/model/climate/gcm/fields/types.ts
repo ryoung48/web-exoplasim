@@ -14,11 +14,13 @@ export interface GcmAtmosphereSelection {
 }
 
 export type GcmFieldId =
+	| "netPrimaryProduction"
+	| "solarZenithCosine"
 	| "diurnalTemperatureRange"
 	| "dailyTemperatureRangeSum"
 	| "dailyTemperatureRangeDays"
-	| "airTemperatureMin"
-	| "airTemperatureMax"
+	| "surfaceTemperatureMin"
+	| "surfaceTemperatureMax"
 	| "convectivePrecipitation"
 	| "largeScalePrecipitation"
 	| "toaShortwave"
@@ -57,6 +59,8 @@ export type GcmFieldId =
 	| "surfaceNetHeat"
 
 export type GcmMapMode =
+	| "netPrimaryProduction"
+	| "solarZenithCosine"
 	| "diurnalTemperatureRange"
 	| "convectivePrecipitation"
 	| "largeScalePrecipitation"
@@ -94,6 +98,7 @@ export type GcmMapMode =
 	| "outgoingLongwave"
 
 export type GcmDisplayUnit =
+	| "gramsCarbonPerSquareMeterPerDay"
 	| "celsiusDelta"
 	| "celsius"
 	| "metersPerSecond"

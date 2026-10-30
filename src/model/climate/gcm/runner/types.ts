@@ -3,6 +3,10 @@ import type {
 	GcmMonthlyMean,
 } from "@/model/climate/gcm/averages/types"
 import type { GcmYearlyBalance } from "@/model/climate/gcm/balance/types"
+import type {
+	GcmTargetState,
+	GcmTargetUpdate,
+} from "@/model/climate/gcm/targeting/types"
 import type { GcmTerrain } from "@/model/climate/gcm/terrain/types"
 import type {
 	GcmConfig,
@@ -24,6 +28,7 @@ export interface GcmAverageUpdate {
 
 // A saved run: the engine's restart data and the averages at that point.
 export interface GcmRunCheckpoint {
+	targeting: GcmTargetState | null
 	restart: ArrayBuffer
 	averager: GcmAverager
 }
@@ -42,6 +47,9 @@ export interface GcmStatusUpdate {
 }
 
 export interface GcmRunRequest {
+	previousConfig: GcmConfig | null
+	targeting: GcmTargetState | null
+	onTargeting(update: GcmTargetUpdate): void
 	engine: GcmEngine
 	ranks: number | null
 	config: GcmConfig

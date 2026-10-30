@@ -40,7 +40,7 @@ export const GCM_INPUT_HELP: Record<GcmHelpKey, string> = {
 	fluxWm2:
 		"Starlight power arriving at the top of the atmosphere, per square meter facing the star. More flux generally warms the planet; clouds, ice and other feedbacks decide by how much.",
 	starTemperatureK:
-		"The star's surface temperature. It shifts how its light is split between visible and near-infrared, which the radiation and surface-albedo calculations use. With flux unchanged, total power stays the same and only the color changes. Any value above zero turns off Wet soil.",
+		"The star's surface temperature. It shifts how its light is split between visible and near-infrared, which the radiation and surface-albedo calculations use. With flux unchanged, total power stays the same and only the color changes.",
 	obliquityDeg:
 		"The tilt of the planet's spin axis relative to its orbit. 0° is no tilt. More tilt shifts sunlight between latitudes through the year and strengthens the seasons, especially near the poles.",
 	eccentricity:
@@ -77,7 +77,7 @@ export const GCM_INPUT_HELP: Record<GcmHelpKey, string> = {
 	earthSurfaceClimatology:
 		"Keeps ExoPlaSim's Earth data (sea-surface temperature, sea ice, albedo, roughness, soil, vegetation and glaciers) but replaces terrain and land fraction with yours. Turning it off uses the model's defaults instead, which may need a different spin-up time.",
 	wetSoil:
-		"Makes wetter land darker, so it absorbs more sunlight. ExoPlaSim turns this off whenever Star temperature is above zero, because it then uses two-band albedo instead.",
+		"Makes bare-soil reflectivity depend on soil moisture: dry soil is brighter and wet soil is darker. It stays enabled when Star temperature is set. This changes albedo, not whether soil can hold water or evaporate.",
 	glaciers:
 		"Lets land glaciers grow where snow persists and shrink as it melts, over model years. This tracks glacier cover only; ice does not flow.",
 	vegetation:
