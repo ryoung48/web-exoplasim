@@ -227,7 +227,7 @@ try {
   })
   const shortRain = C.classes({ config, months: rainMonths, downscale: null, scheme: 'koppen' })
   const longRain = C.classes({ config: { ...config, yearDays: 720 }, months: rainMonths, downscale: null, scheme: 'koppen' })
-  check(C.definition('koppen').code(shortRain[0]) === 'BSh' && C.definition('koppen').code(longRain[0]) === 'Af')
+  check(C.definition('koppen').code(shortRain[0]) === 'BSh' && C.definition('koppen').code(longRain[0]) === 'Aw')
   for (let sample = 0; sample < 2000; sample++) {
    const temperature = Array.from(Array(12).keys(), month => -50 + sample % 100 + 30 * Math.sin(month * Math.PI / 6))
    const id = PASTA.classify({ ...base, temperature, minimum: temperature.map(value => value - 15), maximum: temperature.map(value => value + 15), rainfall: repeated(sample % 500), light: repeated(sample % 400) })
