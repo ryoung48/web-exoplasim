@@ -61,3 +61,13 @@ The model code lives in `src/model/climate/gcm/`, and the page lives in `src/ui/
 ## Licence
 
 ExoPlaSim and PlaSim are distributed under the GNU General Public License. [The bundled licence](public/gcm/COPYING) applies to the compiled model assets.
+
+### Earth elevation data
+
+The bundled Earth land elevation is based on [WorldClim 2.1 elevation data](https://www.worldclim.org/data/worldclim21.html), derived from SRTM. The source file is `wc2.1_10m_elev.tif` at 10 arc-minute resolution, converted to the app's 2160 × 1080 terrain raster. See the [terrain metadata](public/earth-data/earth-real-elevation.json).
+
+Citation: Fick, S.E. and Hijmans, R.J. (2017). WorldClim 2: new 1-km spatial resolution climate surfaces for global land areas. *International Journal of Climatology*, 37, 4302–4315. [doi:10.1002/joc.5086](https://doi.org/10.1002/joc.5086).
+
+WorldClim data have separate terms from the model code: the [WorldClim licence](https://www.worldclim.org/about.html) allows academic and other non-commercial use, but requires prior permission for redistribution or commercial use. Attribution does not grant that permission.
+
+The terrain metadata also records a bathymetry input named `elev.tif`; its provider and licence have not yet been identified.
