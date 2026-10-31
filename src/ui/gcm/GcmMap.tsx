@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react"
 import { cx } from "@/ui/components/lib"
 import { Button } from "@/ui/components/primitives/Button"
 import { EmptyState } from "@/ui/components/primitives/EmptyState"
+import { IconButton } from "@/ui/components/primitives/IconButton"
+import { FileImageIcon } from "@/ui/components/primitives/icons/FileImageIcon"
+import { RefreshIcon } from "@/ui/components/primitives/icons/RefreshIcon"
 import { uiTokens } from "@/ui/components/tokens"
 import { GCM_DOWNLOAD } from "@/ui/gcm/download"
 import { GCM_FIELD_MAP } from "@/ui/gcm/field-map"
@@ -31,7 +34,7 @@ export function GcmMap({
 	hoverHandler.current = onHover
 
 	const exportPng = async () => {
-		if (!canvas.current) return
+		if (!canvas.current || !layer) return
 		setExporting(true)
 		setExportError("")
 		try {
@@ -117,21 +120,30 @@ export function GcmMap({
 					>
 						−
 					</Button>
-					<Button
+					<IconButton
 						tone="overlay"
+						size="sm"
+						shape="rounded"
 						title="Reset map view"
+						aria-label="Reset map view"
 						onClick={() => navigation.current?.reset()}
 					>
-						Reset view
-					</Button>
-					<Button
-						tone="overlay"
-						title="Export current map view as PNG"
-						disabled={loading || exporting}
-						onClick={exportPng}
-					>
-						{exporting ? "Exporting…" : "Export PNG"}
-					</Button>
+						<RefreshIcon className="h-4 w-4" />
+					</IconButton>
+					{layer && (
+						<IconButton
+							tone="overlay"
+							size="sm"
+							shape="rounded"
+							title="Export map as PNG"
+							aria-label="Export map as PNG"
+							aria-busy={exporting}
+							disabled={exporting}
+							onClick={exportPng}
+						>
+							<FileImageIcon className="h-4 w-4" />
+						</IconButton>
+					)}
 				</div>
 			)}
 			{exportError && (
