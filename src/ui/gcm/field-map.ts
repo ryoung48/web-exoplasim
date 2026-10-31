@@ -280,6 +280,11 @@ export const GCM_FIELD_MAP = {
 	paint(paint: GcmMapPaint) {
 		const { canvas, layer, viewport } = paint
 		const context = canvas.getContext("2d") as CanvasRenderingContext2D
+		if (!layer) {
+			context.clearRect(0, 0, canvas.width, canvas.height)
+			paintCoastlines(paint)
+			return
+		}
 		if (cachedLayer !== layer) {
 			if (layer.kind === "field") paintField({ canvas, ...layer, viewport })
 			else if (layer.kind === "terrain") paintTerrain(layer)

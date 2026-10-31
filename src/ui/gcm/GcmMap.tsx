@@ -20,6 +20,7 @@ export function GcmMap({
 }: GcmMapProps) {
 	const layer = loading ? null : readLayer()
 	const coastlines = readCoastlines()
+	const hasMap = Boolean(layer || (!loading && coastlines))
 	const canvas = useRef<HTMLCanvasElement>(null)
 	const navigation = useRef<GcmMapNavigation | null>(null)
 	const hoverHandler = useRef(onHover)
@@ -33,7 +34,7 @@ export function GcmMap({
 			canvas: target,
 			onView: (viewport) => {
 				const current = paint.current
-				if (current.layer)
+				if (current.layer || current.coastlines)
 					GCM_FIELD_MAP.paint({
 						canvas: target,
 						layer: current.layer,
@@ -80,9 +81,9 @@ export function GcmMap({
 				ref={canvas}
 				width={CANVAS_WIDTH}
 				height={CANVAS_HEIGHT}
-				className={cx("h-full w-full", !layer && "invisible")}
+				className={cx("h-full w-full", !hasMap && "invisible")}
 			/>
-			{layer && (
+			{hasMap && (
 				<div className="absolute left-2 top-2 flex gap-1">
 					<Button
 						tone="overlay"
@@ -147,7 +148,7 @@ export function GcmMap({
 					</div>
 				</div>
 			)}
-			{!loading && !layer && (
+			{!loading && !hasMap && (
 				<EmptyState message={emptyMessage} className="absolute inset-0" />
 			)}
 		</div>

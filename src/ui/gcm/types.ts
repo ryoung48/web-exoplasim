@@ -111,7 +111,7 @@ export interface GcmRasterPaint {
 
 export interface GcmMapPaint {
 	canvas: HTMLCanvasElement
-	layer: GcmMapLayer
+	layer: GcmMapLayer | null
 	coastlines: CoastlineLineData | null
 	viewport: GcmMapViewport
 }
