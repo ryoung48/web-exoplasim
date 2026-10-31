@@ -1,65 +1,63 @@
 # web-exoplasim
 
-The [ExoPlaSim](https://github.com/alphaparrot/ExoPlaSim) general circulation model, compiled from its Fortran source to WebAssembly and run in the browser across shared-memory Web Workers. The `/gcm` page runs it on an Earth heightmap and shows the climate live as the model steps.
+Run the [ExoPlaSim](https://github.com/alphaparrot/ExoPlaSim) climate model in your browser, with live weather and climate maps. Explore Earth or imported terrain, change planetary conditions, and watch the atmosphere evolve.
 
-This repository was split out of Chaos Machine with the same folder layout and tooling.
+**[Try it in your browser](https://ryoung48.github.io/web-exoplasim/gcm/)**
 
-## Run the page
+## GPU and CPU engines
+
+The default **GPU engine** ports ExoPlaSim's atmospheric dynamics and physics to WebGPU compute shaders, using **32-bit single precision (FP32)** for model integration. The model advances on your graphics card; the GPU does more than draw the maps. It supports T21 (64 × 32), T42 (128 × 64), and T63 (192 × 96), with 5 or 10 atmospheric layers. A browser and graphics driver with WebGPU support are required.
+
+The **CPU engine** runs the Fortran model compiled to WebAssembly across shared-memory Web Workers, retaining **64-bit double precision (FP64)** for model integration. All included CPU builds use double precision; selecting CPU does not use the GPU port's single-precision physics. It supports T21 and T42. The page selects CPU when WebGPU is unavailable.
+
+Both engines offer planetary, stellar, orbital, atmospheric, and surface settings; live, monthly, and annual maps; energy-balance diagnostics; and save/load checkpoints. Köppen and Pasta climate maps use matching calendar months averaged over the latest ten complete model years, or fewer while the run is still building its history. Terrain downscaling adds visual detail and elevation corrections, but does not increase the simulation's physical resolution.
+
+## Performance
+
+Approximate speeds observed by the maintainer on an **NVIDIA GeForce RTX 2070 SUPER (8 GB VRAM)** and an **AMD Ryzen 7 2700X (8 cores / 16 threads)**, using **10 atmospheric layers and a 45-minute model timestep**. GPU runs use FP32; CPU runs use FP64 and **8 workers**. These are maintainer-observed interactive rates rather than controlled benchmark results.
+
+| Resolution | GPU: simulated days per real second | CPU: simulated days per real second |
+| --- | ---: | ---: |
+| T21 | 35 | 2 |
+| T42 | 10 | 0.5 |
+| T63 | 1.7 | — |
+
+T63 is available only on GPU. Actual speed depends on hardware, browser, model settings, diagnostics, and other work sharing the GPU or CPU. The 45-minute timestep describes these measurements; it is not a stability recommendation for every configuration.
+
+## Caveats
+
+This is an experimental browser port of a simplified climate model. It is useful for exploration and worldbuilding; its maps should not be treated as precise predictions of real regional climates.
+
+- **GPU precision.** WebGPU uses single-precision arithmetic for the evolving model, while the CPU build uses double precision. Different rounding and parallel reductions can tip cloud, convection, and moisture thresholds, causing trajectories to diverge. Short comparisons against Fortran are documented, but full long-term climate equivalence has not been established across resolutions and settings. A finite, stable run alone does not establish an accurate climate. See the [GPU validation notes](docs/climate/exoplasim-webgpu.md).
+- **Warm Earth results.** Earth-like configurations in this project have produced climates warmer than expected on both GPU and CPU. Native Fortran comparisons also warmed under the tested page inputs, so this cannot be attributed solely to GPU single precision. Results depend strongly on initialization and surface settings: a separate author-recipe experiment produced a much cooler climate. The cause of the discrepancy is not fully isolated, and the Earth preset is not a calibrated reproduction of modern Earth. See the [native climate comparisons](docs/climate/exoplasim-native-versions.md).
+- **Rainfall and climate zones.** Runs can produce too many dry-summer Mediterranean-type regions, including As, Cs, and Ds classifications, where wetter oceanic climates might be expected. Ten-year averaging reduces sensitivity to individual years; it does not correct systematic precipitation errors. Treat exact climate-zone boundaries cautiously.
+- **Simplified oceans and physics.** The browser model uses a slab ocean rather than simulated ocean currents and deep-ocean circulation. Clouds, convection, precipitation, and radiation use simplified parameterizations. These choices make ExoPlaSim fast, but limit regional rainfall, ocean heat transport, and climates far from the conditions for which the physics was developed. The [ExoPlaSim paper](https://academic.oup.com/mnras/article/511/3/3272/6516962) explains the underlying model's strengths and limitations.
+- **Coarse grids and spin-up.** Small islands, mountains, coastlines, and local rain shadows are poorly resolved, especially at T21. Climate needs time to settle; an early map or small energy imbalance is not proof that every component has equilibrated. Extreme settings or overly long timesteps can also become numerically unstable.
+- **Port coverage.** Some diagnostics are CPU-only, including sea-level pressure and relative humidity at other atmospheric levels. Glacier formation during continuous runs is incomplete. Checkpoints are specific to their engine. See [integration details](docs/climate/exoplasim-webgpu-integration.md) and the [glacier audit](docs/climate/exoplasim-glaciers.md).
+
+## Run locally
 
 ```bash
 pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:5173/gcm`. The built model is already in `public/gcm/`, so no toolchain is needed to run the page. The dev server sends the cross-origin isolation headers that `SharedArrayBuffer` requires (see `vite.config.ts`). Production hosts without these headers use `public/isolation-worker.js`; the page reloads once after installing the service worker, then starts the app with cross-origin isolation.
+Open `http://localhost:5173/gcm`. CPU model assets are already included in `public/gcm/`; running the page does not require a Fortran toolchain. The development server supplies the isolation headers needed by the shared-memory CPU engine. On GitHub Pages, an isolation service worker provides this support and may reload the page once on the first visit.
 
-## GitHub Pages
-
-The live site is [ryoung48.github.io/web-exoplasim](https://ryoung48.github.io/web-exoplasim/). Pushes to `main` deploy automatically through [the Pages workflow](.github/workflows/pages.yml), which can also be run manually from GitHub Actions. The repository's Settings → Pages → Source must be set to **GitHub Actions**.
-
-The workflow builds with the Pages base path and uses the committed Wasm assets, so deployment does not require WSL or rebuilding Fortran. It also copies the app entry point to `gcm/index.html` so direct links and refreshes on `/web-exoplasim/gcm/` work. The isolation service worker is scoped to this app and passes requests through without caching. Browsers must support service workers and cross-origin isolation.
-
-What the page does:
-
-- Runs ExoPlaSim at T21 (64×32, 4.6 MB download) or T42 (128×64, 12.7 MB) on 2, 4 or 8 workers. Choose **Workers** under **Settings → Numerics** before starting a run, or leave **Auto** to pick from the machine's core count. Clear the run to change the selection. Choices come from the available builds for the selected resolution; only the chosen resolution and worker count are downloaded.
-- Builds the model's topography and land mask from `public/earth-data/earth-real-elevation.bin.gz`. By default it keeps ExoPlaSim's shipped Earth surface data (sea-surface temperature and sea ice to start from, albedo, vegetation, soil, glaciers); turn that off to use the Python wrapper's custom-map behaviour.
-- Exposes the planet settings of ExoPlaSim's `Model.configure()`: flux, star temperature, orbit, rotation, gases, ozone, soil, vegetation, glaciers, filters, timestep and radiation interval.
-- Maps 13 surface fields live, as monthly means or as annual means, plus Köppen classes after a full model year, on the model grid or downscaled to 0.5° with lapse-rate correction.
-- Reports top-of-atmosphere and surface energy balance, with ExoPlaSim's own equilibrium test.
-- Saves checkpoints using ExoPlaSim's restart file, and resumes from them.
-
-## Rebuild the model
-
-The Wasm build needs Windows with WSL (Ubuntu). See [scripts/exoplasim-wasm/README.md](scripts/exoplasim-wasm/README.md):
-
-```powershell
-wsl -d Ubuntu -- bash scripts/exoplasim-wasm/setup.sh
-pnpm build:gcm-wasm
-```
+Pushes to `main` deploy automatically through the [GitHub Pages workflow](.github/workflows/pages.yml).
 
 ## Development
 
 | Command | Purpose |
 | --- | --- |
-| `pnpm dev` | Vite dev server |
-| `pnpm build` | Typecheck and production build |
-| `pnpm typecheck` | `tsc -b` |
-| `pnpm lint` | Biome check with fixes |
-| `pnpm knip` | Unused files and exports |
-| `pnpm check:optional-attributes`, `pnpm check:underscore-unused`, `pnpm fix:import-aliases` | Repository convention checks from `AGENTS.md` |
+| `pnpm dev` | Start the development server |
+| `pnpm build` | Typecheck and build for production |
+| `pnpm typecheck` | Check TypeScript |
+| `pnpm lint` | Run Biome with fixes |
+| `pnpm build:gcm-wasm` | Rebuild CPU model assets using Ubuntu WSL |
 
-Code layout:
-
-| Path | Contents |
-| --- | --- |
-| `src/model/climate/gcm/` | Model-side TypeScript: grid, boundary files, namelists, worker runner, averages, balance, checkpoints, downscaling |
-| `src/ui/gcm/` | The `/gcm` page |
-| `src/ui/components/`, `src/ui/genesis/shared/` | Shared UI primitives, tokens, colour ramps and formatting carried over from Chaos Machine |
-| `scripts/exoplasim-wasm/` | Wasm build, shared-memory MPI layer, browser benchmark runner |
-| `docs/climate/exoplasim-wasm.md` | Design notes, measurements and results |
-| `public/gcm/` | Built model assets |
-| `public/earth-data/` | Earth heightmap and coastlines |
+The model code lives in `src/model/climate/gcm/`, and the page lives in `src/ui/gcm/`. See the [CPU build instructions](scripts/exoplasim-wasm/README.md), [CPU port notes](docs/climate/exoplasim-wasm.md), and [GPU port notes](docs/climate/exoplasim-webgpu.md) for implementation, validation, and benchmark details.
 
 ## Licence
 
-ExoPlaSim and PlaSim are distributed under the GNU General Public License; `public/gcm/COPYING` is ExoPlaSim's licence text and applies to the compiled model assets.
+ExoPlaSim and PlaSim are distributed under the GNU General Public License. [The bundled licence](public/gcm/COPYING) applies to the compiled model assets.
