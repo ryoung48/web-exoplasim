@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react"
 import { cx } from "@/ui/components/lib"
-import { Button } from "@/ui/components/primitives/Button"
 import { EmptyState } from "@/ui/components/primitives/EmptyState"
 import { IconButton } from "@/ui/components/primitives/IconButton"
 import { FileImageIcon } from "@/ui/components/primitives/icons/FileImageIcon"
+import { MinusIcon } from "@/ui/components/primitives/icons/MinusIcon"
+import { PlusIcon } from "@/ui/components/primitives/icons/PlusIcon"
 import { RefreshIcon } from "@/ui/components/primitives/icons/RefreshIcon"
 import { uiTokens } from "@/ui/components/tokens"
 import { GCM_DOWNLOAD } from "@/ui/gcm/download"
@@ -104,22 +105,26 @@ export function GcmMap({
 			/>
 			{hasMap && (
 				<div className="absolute left-2 top-2 flex gap-1">
-					<Button
+					<IconButton
 						tone="overlay"
+						size="sm"
+						shape="rounded"
 						aria-label="Zoom in"
 						title="Zoom in"
 						onClick={() => navigation.current?.zoomIn()}
 					>
-						+
-					</Button>
-					<Button
+						<PlusIcon className="h-4 w-4" />
+					</IconButton>
+					<IconButton
 						tone="overlay"
+						size="sm"
+						shape="rounded"
 						aria-label="Zoom out"
 						title="Zoom out"
 						onClick={() => navigation.current?.zoomOut()}
 					>
-						−
-					</Button>
+						<MinusIcon className="h-4 w-4" />
+					</IconButton>
 					<IconButton
 						tone="overlay"
 						size="sm"
