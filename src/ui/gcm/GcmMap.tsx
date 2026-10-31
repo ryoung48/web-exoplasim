@@ -1,8 +1,9 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { cx } from "@/ui/components/lib"
 import { Button } from "@/ui/components/primitives/Button"
 import { EmptyState } from "@/ui/components/primitives/EmptyState"
 import { uiTokens } from "@/ui/components/tokens"
+import { GCM_DOWNLOAD } from "@/ui/gcm/download"
 import { GCM_FIELD_MAP } from "@/ui/gcm/field-map"
 import { GCM_MAP_NAVIGATION } from "@/ui/gcm/map-navigation"
 import type { GcmMapNavigation } from "@/ui/gcm/map-navigation/types"
@@ -22,10 +23,25 @@ export function GcmMap({
 	const coastlines = readCoastlines()
 	const hasMap = Boolean(layer || (!loading && coastlines))
 	const canvas = useRef<HTMLCanvasElement>(null)
+	const [exporting, setExporting] = useState(false)
+	const [exportError, setExportError] = useState("")
 	const navigation = useRef<GcmMapNavigation | null>(null)
 	const hoverHandler = useRef(onHover)
 	const paint = useRef({ layer, coastlines })
 	hoverHandler.current = onHover
+
+	const exportPng = async () => {
+		if (!canvas.current) return
+		setExporting(true)
+		setExportError("")
+		try {
+			await GCM_DOWNLOAD.png(canvas.current)
+		} catch {
+			setExportError("Unable to export map. Please try again.")
+		} finally {
+			setExporting(false)
+		}
+	}
 
 	useEffect(() => {
 		if (!canvas.current) return
@@ -108,6 +124,27 @@ export function GcmMap({
 					>
 						Reset view
 					</Button>
+					<Button
+						tone="overlay"
+						title="Export current map view as PNG"
+						disabled={loading || exporting}
+						onClick={exportPng}
+					>
+						{exporting ? "Exporting…" : "Export PNG"}
+					</Button>
+				</div>
+			)}
+			{exportError && (
+				<div
+					role="alert"
+					className={cx(
+						"absolute bottom-2 left-2 px-3 py-2",
+						uiTokens.radius.sm,
+						uiTokens.surface.panel,
+						uiTokens.type.control,
+					)}
+				>
+					{exportError}
 				</div>
 			)}
 			{loading && (

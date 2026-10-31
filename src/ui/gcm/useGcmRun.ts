@@ -21,9 +21,9 @@ import type { GcmTargetState } from "@/model/climate/gcm/targeting/types"
 import { GCM_TERRAIN } from "@/model/climate/gcm/terrain"
 import type { GcmTerrain } from "@/model/climate/gcm/terrain/types"
 import type { GcmConfig, GcmSnapshot } from "@/model/climate/gcm/types"
+import { GCM_DOWNLOAD } from "@/ui/gcm/download"
 import { GCM_LIVE } from "@/ui/gcm/live-store"
 import type {
-	GcmDownload,
 	GcmLaunchRequest,
 	GcmRunState,
 	GcmStepSample,
@@ -50,15 +50,6 @@ const IDLE: GcmRunState = {
 	device: "",
 	truncation: 0,
 	stepsPerSecond: 0,
-}
-
-function download({ name, bytes }: GcmDownload) {
-	const url = URL.createObjectURL(new Blob([bytes]))
-	const link = document.createElement("a")
-	link.href = url
-	link.download = name
-	link.click()
-	URL.revokeObjectURL(url)
 }
 
 export function useGcmRun() {
@@ -304,7 +295,7 @@ export function useGcmRun() {
 								date: latest.date,
 								step: latest.step,
 							}
-							download({
+							GCM_DOWNLOAD.file({
 								name: GCM_CHECKPOINT.fileName(meta),
 								bytes: GCM_CHECKPOINT.encode({
 									terrain: raster,

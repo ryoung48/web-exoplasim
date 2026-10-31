@@ -303,7 +303,7 @@ export interface GcmLaunchRequest {
 
 export interface GcmDownload {
 	name: string
-	bytes: ArrayBuffer
+	bytes: ArrayBuffer | Blob
 }
 
 export interface GcmWorkerOption {
